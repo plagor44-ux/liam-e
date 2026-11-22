@@ -15,7 +15,7 @@ from api.locales import DEFAULT_LOCALE, Locale, resolve_locale
 from api.mail.context_resolver import resolve_context
 from env.mail import env as mail_env
 from api.mail.chat_client import mistral_client
-from api.mail.agent_prompt import VOICE_INSTRUCTIONS, VOICE_INSTRUCTIONS_EN, system_prompt
+from api.mail.agent_prompt import VOICE_INSTRUCTIONS, VOICE_INSTRUCTIONS_EN, reply_language_instruction, system_prompt
 from api.mail.agent_tools import TurnContext, execute_tool, tool_status, tools_for_context
 from api.mail.chat_events import ChatEvent, StartEvent, StatusEvent, DeltaEvent, MailsEvent, MailRefOut, CalendarsEvent, ProposalEvent, SuggestionsEvent, DoneEvent, ErrorEvent
 from api.mail.chat_schemas import ChatExtrasOut, ContextOut, to_message_out
@@ -233,7 +233,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
             round_text = ''
             try:
                 turn_tools = tools_for_context(ctx)
-                kwargs = {'model':model, 'messages':messages}
+                kwargs = {'model': model, 'messages': [*messages, {'role': 'system', 'content': reply_language_instruction(effective_locale)}]}
                 if turn_tools:
                     kwargs['tools'] = turn_tools
                 last = round_index == max(1, mail_env.mail_chat_max_tool_rounds) - 1

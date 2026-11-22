@@ -52,7 +52,9 @@ Chat and insight requests send the browser language. The saved override always t
 in browser mode requests use their browser hint, and background jobs use the last confirmed
 browser hint or English if none exists. Chat replies and new drafts default to that language; an explicit language request takes precedence.
 Replies and forwards default to the original mail language. Automatically detected input language alone
-does not override the app language. Speech recognition and voice follow the effective app language. Insights store their
+does not override the app language. Every model round ends with a transient instruction in the
+effective language that repeats these priorities; it is not saved to chat history. Speech recognition and
+voice follow the effective app language. Insights store their
 language and are regenerated when it differs, while seed accounts never call the model. Changes to the
 mail body continue to invalidate its insight. Direct preference requests support both languages
 (for example “Remember this”). Automatic suggestions retain the existing German phrase and
@@ -775,7 +777,7 @@ returns `preferences_unavailable` before the model call; only the deliberate act
 changing scope and deleting revoke affected contexts in the same transaction: disabling revokes
 all turns with at least one used revision, the other actions turns with a revision of the changed
 preference. Turns without a used preference remain valid, including open proposals. Precedence is
-in the fixed app rules (`agent_prompt.py`, `APP_PROMPT_VERSION` 19). Existing live checks before
+in the fixed app rules (`agent_prompt.py`, `APP_PROMPT_VERSION` 20). Existing live checks before
 model/tool calls and after ten deltas remain authoritative; already sent requests cannot be recalled.
 
 The shared transactional preference lock serializes quotas, changes, resolution and account

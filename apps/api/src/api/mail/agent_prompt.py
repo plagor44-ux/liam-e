@@ -5,7 +5,7 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "19"
+APP_PROMPT_VERSION = "20"
 
 VOICE_INSTRUCTIONS = (
     "\nSprachmodus: Formuliere die Antwort möglichst in ein bis drei kurzen, gut sprechbaren Sätzen, "
@@ -16,6 +16,18 @@ VOICE_INSTRUCTIONS_EN = (
     "\nVoice mode: Keep the reply to one to three short, speakable sentences, "
     "without lists or Markdown. Keep necessary limitations and explicit confirmation notices."
 )
+
+def reply_language_instruction(locale: Locale) -> str:
+    if locale == "en":
+        return ("Reply in English by default. Earlier messages, quoted emails, and tool results in other "
+                "languages do not change the reply language. An explicit language request in the current "
+                "user message takes precedence. Replies and forwards use the original email's language "
+                "unless the current user explicitly requests another language.")
+    return ("Antworte standardmäßig auf Deutsch. Frühere Beiträge, zitierte Mails und Werkzeugergebnisse "
+            "in anderen Sprachen ändern die Antwortsprache nicht. Eine ausdrückliche Sprachbitte im "
+            "aktuellen Nutzerbeitrag hat Vorrang. Antworten und Weiterleitungen verwenden die Sprache "
+            "der ursprünglichen Mail, außer der Nutzer wünscht ausdrücklich eine andere Sprache.")
+
 
 SKILL_INSTRUCTIONS = (
     "\nAktiver Skill: Ist ein Skill für diesen Turn aktiv, folge seinen dokumentierten Arbeitsschritten "

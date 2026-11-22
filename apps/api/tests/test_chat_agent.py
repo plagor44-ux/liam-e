@@ -519,7 +519,7 @@ async def test_app_locale_takes_priority_over_current_message_language(store, mo
     monkeypatch.setattr(agent, 'mistral_client', lambda: fake)
     events = [event async for event in agent.run_turn_events(conversation_id=None, text=message, locale=locale)]
     sent = fake.requests[0]['messages']
-    assert sent[-1]['content'] == message
+    assert sent[-2]['content'] == message
     assert f'Antworte standardmäßig auf {fallback} (aktive App-Sprache)' in sent[0]['content']
     assert f'Schreibe neue Mails für create_draft standardmäßig auf {fallback}' in sent[0]['content']
     assert events[-1].event == 'done'
@@ -1022,4 +1022,44 @@ async def test_app_language_prompt_pins_explicit_and_original_mail_exceptions(st
     assert 'Eine ausdrückliche Sprachbitte im aktuellen eigenen Beitrag hat Vorrang' in prompt
     assert 'Die automatisch erkannte Sprache des Beitrags allein ändert die Antwortsprache nicht' in prompt
     assert 'Antworten und Weiterleitungen schreibe in der Sprache der ursprünglichen Mail' in prompt
-    assert fake.requests[0]['messages'][-1]['content'] == message, case
+    assert fake.requests[0]['messages'][-2]['content'] == message, case
+
+@pytest.mark.parametrize(('locale', 'history_text', 'user_text', 'opening'), [
+    ('en', 'Das ist eine frühere deutsche Antwort.', 'Most important mail from today.', 'Reply in English by default.'),
+    ('de', 'This is an earlier English answer.', 'Was ist heute wichtig?', 'Antworte standardmäßig auf Deutsch.'),
+])
+@pytest.mark.parametrize('voice_response', [False, True])
+async def test_language_instruction_is_last_in_each_model_round_and_never_saved(store, monkeypatch, caplog, locale, history_text, user_text, opening, voice_response):
+    from api.mail.agent_prompt import reply_language_instruction, VOICE_INSTRUCTIONS, VOICE_INSTRUCTIONS_EN
+    conversation = await store.create()
+    snapshot = store.snapshot('language-context')
+    store.rows.append(ChatMessage(conversation_id=conversation.id, role='assistant', content=history_text, context_id=snapshot.id))
+    fake = FakeMistral(streams=[[chunk('list_accounts', {})], ['Synthetic answer.']])
+    monkeypatch.setattr(agent, 'mistral_client', lambda: fake)
+    events = [event async for event in agent.run_turn_events(conversation_id=conversation.id, text=user_text,
+        locale=locale, voice_response=voice_response, resolved_context=(conversation, snapshot, None))]
+    assert events[-1].event == 'done'
+    assert len(fake.requests) == 2
+    for request in fake.requests:
+        messages = request['messages']
+        assert messages[-1] == {'role': 'system', 'content': reply_language_instruction(locale)}
+        assert messages[-1]['content'].startswith(opening)
+        assert any(message.get('content') == history_text for message in messages)
+        assert sum(message.get('content') == reply_language_instruction(locale) for message in messages) == 1
+        system = messages[0]['content']
+        assert (VOICE_INSTRUCTIONS_EN in system) is (voice_response and locale == 'en')
+        assert (VOICE_INSTRUCTIONS in system) is (voice_response and locale == 'de')
+    assert fake.requests[1]['messages'][-2]['role'] == 'tool'
+    instruction = reply_language_instruction(locale)
+    assert all(instruction not in row.content and instruction not in row.extras_json and instruction not in (row.tool_payload_json or "") for row in store.rows)
+    assert instruction not in caplog.text
+
+
+def test_last_language_instruction_preserves_explicit_request_and_mail_reply_priority():
+    from api.mail.agent_prompt import reply_language_instruction
+    english = reply_language_instruction('en')
+    assert 'explicit language request in the current user message takes precedence' in english
+    assert "Replies and forwards use the original email's language" in english
+    german = reply_language_instruction('de')
+    assert 'ausdrückliche Sprachbitte im aktuellen Nutzerbeitrag hat Vorrang' in german
+    assert 'Antworten und Weiterleitungen verwenden die Sprache der ursprünglichen Mail' in german
