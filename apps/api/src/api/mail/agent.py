@@ -158,7 +158,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
         matches = [item for item in models if item.id == model and item.availability == 'available']
         if not matches:
             matches = [item for item in models if item.resolved_id == model and item.availability == 'available']
-        resolved_model = matches[0].resolved_id if len(matches) == 1 else None
+        resolved_ids = {item.resolved_id for item in matches}
+        resolved_model = next(iter(resolved_ids)) if len(resolved_ids) == 1 else None
         reasoning_effort = {'mistral-small-2603': 'none', 'mistral-medium-3-5': 'none',
                             'mistral-large-4': 'low', 'mistral-large-4-0': 'low'}.get(resolved_model)
         # Pin the validated model when sending a model-specific parameter: a moving

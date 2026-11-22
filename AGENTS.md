@@ -999,6 +999,11 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   during synthesis and while playback is outstanding. The socket stays open until playback finishes
   or the turn is stopped, disconnected or revoked. A stopped assistant fragment is not fed back into
   the model for a subsequent voice turn. Live transport and provider behavior require Studio verification.
+  `ui_settings.voice_model` is revision guarded and defaults to `chat`. A separately selected model
+  must be available and support chat tools; if it later becomes unavailable or cannot be verified,
+  voice turns use the conversation's model. Text turns keep the conversation model. Voice turns use
+  `none` reasoning for verified Small 4 and Medium 3.5, `low` for Large 4, and omit the parameter
+  for other or unresolved models. When setting the parameter, the resolved model ID is pinned.
   They validate WebM and return a fixed test draft or bundled sample without calling an inference service.
   See the [audio probe](docs/superpowers/probes/2026-11-19-audio-capabilities.md).
   Every OpenAPI import turns every operation into an MCP tool; otherwise a Studio agent could confirm proposals, perform actions or connect accounts without the owner seeing it — individual tools can be disabled in Studio after import.
