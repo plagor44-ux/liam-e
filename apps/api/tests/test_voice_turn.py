@@ -232,6 +232,7 @@ async def test_proposal_cards_are_forwarded_but_never_sent_to_speech(monkeypatch
 @pytest.mark.parametrize(('chunks', 'expected'), [
     (['Um 10.', '30 Uhr.'], ['Um 10.30 Uhr.']),
     (['Der Wert ist 3.', '14 Euro.'], ['Der Wert ist 3.14 Euro.']),
+    (['Datum 22.', '11.2026.'], ['Datum 22.11.2026.']),
     (['Zum Beispiel z.', 'B. heute.'], ['Zum Beispiel z.B.', ' heute.']),
 ])
 async def test_sentence_boundaries_do_not_depend_on_delta_chunks(monkeypatch, chunks, expected):

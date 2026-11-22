@@ -7,7 +7,7 @@ import type { ChatMessageOut, ConversationOut, MailSummaryOut } from '../api/gen
 import { Route as StartRoute } from '../routes/_app/index'
 import { de } from '../i18n/de'
 import { Conversation, turnOrder } from './Conversation'
-import { ChatSessionProvider } from './session'
+import { ChatSessionProvider, useChatSession } from './session'
 
 const currentContext = {
   id: 'context', app_prompt_version: '10', mail_scope_version: 4, account_scope_json: '{"selection":null,"account_ids":["a"]}',
@@ -22,7 +22,7 @@ let requestBody: Record<string, unknown>
 let summary: MailSummaryOut = { accounts: [], unread_total: 0, newsletter_senders: 0, last_sync_at: null }
 // A test can hold the account summary back to see the state while it loads.
 let summaryGate: Promise<void> | null = null
-function setup(path = '/', historyGone = false, selection: string | null = null) {
+function setup(path = '/', historyGone = false, selection: string | null = null, voiceTrigger = false) {
   history = []
   summary = { mail_scope_version: 4, accounts: [{ id: 'a', display_name: 'Privat', email_address: 'ich@example.com', provider: 'gmail', color_index: 0, state: 'ok' } as MailSummaryOut['accounts'][number]], unread_total: 0, newsletter_senders: 0, last_sync_at: null }
   window.matchMedia = ((query: string) => ({ matches: query !== '(max-width: 639px)', addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
@@ -36,7 +36,11 @@ function setup(path = '/', historyGone = false, selection: string | null = null)
   spyOn(sdk, 'chatModelsList').mockImplementation((async () => ({ data: [] })) as never)
   spyOn(sdk, 'chatConversationsList').mockImplementation((async () => ({ data: [{ id: 'c', title: 'Test', model: 'm1', version: 5, prompt_revision_id: null, account_scope_json: JSON.stringify({ account_ids: selection ? [selection] : ['a'], selection }), created_at: '', updated_at: '' }] })) as never)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } })
-  const root = createRootRoute({ component: () => <QueryClientProvider client={client}><ChatSessionProvider><Outlet /></ChatSessionProvider></QueryClientProvider> })
+  function VoiceTrigger() {
+    const { send } = useChatSession()
+    return <button onClick={() => void send({ text: 'Hallo', conversation_id: 'c', voice_response: true }, { voiceAudio: { push() {}, end: async () => {}, fail() {} } })}>Test voice turn</button>
+  }
+  const root = createRootRoute({ component: () => <QueryClientProvider client={client}><ChatSessionProvider>{voiceTrigger && <VoiceTrigger />}<Outlet /></ChatSessionProvider></QueryClientProvider> })
   const start = createRoute({ getParentRoute: () => root, path: '/', validateSearch: StartRoute.options.validateSearch, component: StartRoute.options.component })
   const chat = createRoute({ getParentRoute: () => root, path: '/chat/$conversationId', component: function ChatRoute() { const { conversationId } = chat.useParams(); return <Conversation conversationId={conversationId} /> } })
   const mail = createRoute({ getParentRoute: () => root, path: '/mail/$messageId', component: () => <p>Mail</p> })
@@ -308,6 +312,32 @@ for (const path of ['/', '/chat/c']) test(`invalid context names both account an
   const notice = (await screen.findByText('Ein Konto oder Kalender aus deiner Auswahl ist nicht verfügbar. Prüfe deine Auswahl und versuch es noch mal.')).closest('[role="alert"]') as HTMLElement
   expect(within(notice).getByRole('button', { name: 'Noch mal versuchen' })).toBeTruthy()
   expect(within(notice).queryByRole('button', { name: 'Neue Unterhaltung' })).toBeNull()
+})
+
+for (const [code, action] of [
+  ['preferences_unavailable', de.preferences.continueWithout],
+  ['conversation_scope_change_requires_new', de.shell.newConversation],
+] as const) test(`voice refusal ${code} offers the existing recovery action`, async () => {
+  const originalSocket = globalThis.WebSocket
+  let socket!: FakeSocket
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1
+    onopen?: () => void; onmessage?: (event: { data: string }) => void; onclose?: () => void; onerror?: () => void
+    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.() }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  try {
+    setup('/chat/c', false, null, true)
+    await screen.findByPlaceholderText('Frag etwas zu deinen Mails …')
+    fireEvent.click(screen.getByRole('button', { name: 'Test voice turn' }))
+    await waitFor(() => expect(socket).toBeDefined())
+    await act(async () => { socket.emit({ event: 'refusal', code }) })
+    const notice = await screen.findByRole('alert')
+    expect(within(notice).getByRole('button', { name: action })).toBeTruthy()
+  } finally { globalThis.WebSocket = originalSocket }
 })
 
 test('account change in a conversation offers a new conversation instead of a retry', async () => {

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { place } from './floating'
 import { Menu } from './Menu'
+import { Composer } from './Composer'
 
 const VIEW = { width: 1000, height: 800 }
 const MENU = { width: 290, height: 200 }
@@ -143,6 +144,25 @@ describe('Menu placement', () => {
       expect(Number.parseFloat(menu.style.top)).toBe(500 - 8 - 400)  // 400 px do not: it flips
     } finally { globalThis.ResizeObserver = original }
   })
+})
+
+test('mobile composer options escape the mail-question scroll container and use floating placement', async () => {
+  const originalMatchMedia = window.matchMedia
+  window.matchMedia = (() => ({ matches: true, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  try {
+    layout(() => box(16, 700, 44, 44))
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return this.getAttribute('role') === 'group' ? MENU.width : 0 } })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.getAttribute('role') === 'group' ? MENU.height : 0 } })
+    const view = render(<div className="le-chat-view--mail-question" style={{ overflow: 'hidden' }}><Composer value="" onChange={() => {}} onSubmit={() => {}} onStop={() => {}} busy={false} placeholder="Frage" controls={<button>Favoriten</button>} /></div>)
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Optionen' }))
+    const popup = await screen.findByRole('group', { name: 'Weitere Optionen' })
+    expect(popup.parentElement).toBe(document.body)
+    expect(view.container.contains(popup)).toBe(false)
+    expect(popup.style.visibility).toBe('visible')
+    expect(Number.parseFloat(popup.style.top)).toBe(700 - 8 - MENU.height)
+    expect(Number.parseFloat(popup.style.left)).toBe(16)
+    expect(popup.style.getPropertyValue('--le-menu-room')).not.toBe('')
+  } finally { window.matchMedia = originalMatchMedia }
 })
 
 // Floating elements get their place from floating.ts only. A CSS offset per context (the old
