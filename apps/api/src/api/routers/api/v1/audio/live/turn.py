@@ -67,5 +67,5 @@ async def voice_turn(socket: WebSocket) -> None:
     finally:
         if not metrics.logged:
             metrics.logged = True
-            _LOG.info('voice_metrics outcome=pre_turn model=None reasoning_effort=None tool_rounds=0 thinking_chunks=0 tts_connect_ms=None')
+            _LOG.info('voice_metrics outcome=pre_turn model=None reasoning_effort=None tool_rounds=0 thinking_chunks=0 tts_connect_ms=None tts_reopen=0')
         with suppress(Exception): await socket.close()

@@ -515,3 +515,128 @@ async def test_metrics_written_once_on_each_turn_end(monkeypatch, caplog, ending
         await asyncio.wait_for(task, 1)
     assert caplog.text.count('voice_metrics ') == 1
     assert 'private' not in caplog.text
+
+@pytest.mark.parametrize('failure', ['append', 'finish', 'receive'])
+async def test_prewarmed_provider_reopens_once_before_audio(monkeypatch, failure, caplog):
+    from api.audio.metrics import VoiceMetrics
+    opens, closed, spoken = [], [], []
+    class Provider:
+        def __init__(self, attempt): self.attempt = attempt; self.delivered = False
+        async def append(self, text):
+            spoken.append((self.attempt, text))
+            if self.attempt == 0 and failure == 'append': raise ConnectionError('private')
+        async def finish(self):
+            if self.attempt == 0 and failure == 'finish': raise ConnectionError('private')
+        async def receive(self):
+            if self.attempt == 0 and failure == 'receive': raise ConnectionError('private')
+            if not self.delivered: self.delivered = True; return bytes(4)
+            return None
+    @asynccontextmanager
+    async def provider(kind, **kwargs):
+        attempt = len(opens); opens.append(attempt)
+        try: yield Provider(attempt)
+        finally: closed.append(attempt)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='Hallo.')
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    metrics = VoiceMetrics()
+    caplog.set_level('INFO', logger=voice_turn.__name__)
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context', metrics=metrics))
+    output = []
+    while True:
+        item = await asyncio.wait_for(socket.output.get(), 1); output.append(item)
+        if item['event'] == 'voice_audio_end': break
+    assert opens == [0, 1] and closed == [0, 1]
+    assert spoken == [(0, 'Hallo.'), (1, 'Hallo.')]
+    assert sum(item['event'] == 'voice_audio' for item in output) == 1
+    assert not any(item['event'] == 'voice_audio_error' for item in output)
+    await socket.input.put({'event': 'playback_finished'}); await asyncio.wait_for(task, 1)
+    assert 'tts_reopen=1' in caplog.text
+
+@pytest.mark.parametrize('after_audio', [False, True])
+async def test_provider_retry_is_bounded_and_never_repeats_played_audio(monkeypatch, after_audio):
+    opens, closed = [], []
+    class Provider:
+        def __init__(self): self.sent = False
+        async def append(self, text): pass
+        async def finish(self): pass
+        async def receive(self):
+            if after_audio and not self.sent: self.sent = True; return bytes(4)
+            raise ConnectionError('private')
+    @asynccontextmanager
+    async def provider(kind, **kwargs):
+        opens.append(1)
+        try: yield Provider()
+        finally: closed.append(1)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='Hallo.')
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    output = []
+    while True:
+        item = await asyncio.wait_for(socket.output.get(), 1); output.append(item)
+        if item['event'] == 'voice_audio_end': break
+    assert len(opens) == len(closed) == (1 if after_audio else 2)
+    assert sum(item['event'] == 'voice_audio' for item in output) == int(after_audio)
+    assert any(item['event'] == 'voice_audio_error' for item in output)
+    await socket.input.put({'event': 'playback_finished'}); await asyncio.wait_for(task, 1)
+
+async def test_retry_checks_revocation_before_reopening(monkeypatch):
+    live = True
+    opens, closed = [], []
+    class Provider:
+        async def append(self, text):
+            nonlocal live
+            live = False
+            raise ConnectionError('private')
+    @asynccontextmanager
+    async def provider(kind, **kwargs):
+        opens.append(1)
+        try: yield Provider()
+        finally: closed.append(1)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    async def is_live(_): return live
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', is_live)
+    async def events():
+        yield DeltaEvent(text='Hallo. ')
+        await asyncio.Future()
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    await asyncio.wait_for(task, 1)
+    output = []
+    while not socket.output.empty(): output.append(await socket.output.get())
+    assert opens == closed == [1]
+    assert any(item.get('code') == 'context_revoked' for item in output)
+    assert not any(item['event'] == 'voice_audio' for item in output)
+
+async def test_interrupt_cancels_reopening_and_cleans_sessions(monkeypatch):
+    opens, closed = [], []
+    reopening = asyncio.Event()
+    class Provider:
+        async def append(self, text): raise ConnectionError('private')
+    @asynccontextmanager
+    async def provider(kind, **kwargs):
+        attempt = len(opens); opens.append(attempt)
+        try:
+            if attempt == 1:
+                reopening.set()
+                await asyncio.Future()
+            yield Provider()
+        finally: closed.append(attempt)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='Hallo. ')
+        await asyncio.Future()
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    await asyncio.wait_for(reopening.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError): await task
+    assert opens == closed == [0, 1]

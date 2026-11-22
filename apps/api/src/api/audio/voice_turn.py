@@ -43,6 +43,10 @@ class VoiceRevoked(Exception):
     pass
 
 
+class VoiceProviderFailure(Exception):
+    """A failure of a provider operation, rather than local delivery or validation."""
+
+
 async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str, locale: str = "en", pace: str = "normal", stt_elapsed_ms: int | None = None, started_at: float | None = None, metrics: VoiceMetrics | None = None) -> None:
     """Only deltas produced by this turn can enter the speech provider.
 
@@ -106,7 +110,13 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
     async def speech() -> None:
         nonlocal first_audio_ms, gap_ms, audio_seconds, last_audio_end
         total = 0
+        sent_audio = False
         failed = False
+        async def provider_call(operation, *args):
+            try:
+                return await operation(*args)
+            except Exception as error:
+                raise VoiceProviderFailure() from error
         try:
             async with AsyncExitStack() as stack:
                 await check()
@@ -121,26 +131,39 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                     while sentence is not None:
                         async with asyncio.timeout(60):
                             await check()
-                            await session.append(paced_text(sentence, pace, 8000))
-                            await session.finish()
-                            first_of_sentence = True
+                            text = paced_text(sentence, pace, 8000)
                             while True:
-                                audio = await session.receive()
-                                if audio is None:
+                                try:
+                                    await provider_call(session.append, text)
+                                    await provider_call(session.finish)
+                                    first_of_sentence = True
+                                    while True:
+                                        audio = await provider_call(session.receive)
+                                        if audio is None:
+                                            break
+                                        now = time.monotonic()
+                                        if first_audio_ms is None: first_audio_ms = (now - started_at) * 1000
+                                        duration = len(audio) / 96000
+                                        if first_of_sentence and last_audio_end is not None: gap_ms += max(0, now - last_audio_end) * 1000
+                                        first_of_sentence = False
+                                        last_audio_end = max(now, last_audio_end or now) + duration
+                                        audio_seconds += duration
+                                        total += len(audio)
+                                        if total > _MAX_AUDIO:
+                                            raise RuntimeError('voice_audio_limit')
+                                        for offset in range(0, len(audio), 24_000):
+                                            await check()
+                                            await send({'event': 'voice_audio', 'audio': base64.b64encode(audio[offset:offset + 24_000]).decode('ascii')})
+                                            sent_audio = True
                                     break
-                                now = time.monotonic()
-                                if first_audio_ms is None: first_audio_ms = (now - started_at) * 1000
-                                duration = len(audio) / 96000
-                                if first_of_sentence and last_audio_end is not None: gap_ms += max(0, now - last_audio_end) * 1000
-                                first_of_sentence = False
-                                last_audio_end = max(now, last_audio_end or now) + duration
-                                audio_seconds += duration
-                                total += len(audio)
-                                if total > _MAX_AUDIO:
-                                    raise RuntimeError('voice_audio_limit')
-                                for offset in range(0, len(audio), 24_000):
+                                except VoiceProviderFailure as error:
+                                    if sent_audio or metrics.tts_reopen:
+                                        raise error.__cause__ from None
+                                    metrics.tts_reopen = 1
+                                    await stack.aclose()
                                     await check()
-                                    await send({'event': 'voice_audio', 'audio': base64.b64encode(audio[offset:offset + 24_000]).decode('ascii')})
+                                    async with asyncio.timeout(15):
+                                        session = await stack.enter_async_context(mistral_live('speech', locale=locale))
                         sentence = await sentences.get()
         except VoiceRevoked:
             raise
@@ -188,12 +211,12 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
         # Emit before asynchronous cleanup: a second cancellation during provider
         # shutdown must not lose this turn's only metrics record.
         metrics.logged = True
-        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s model=%s reasoning_effort=%s tool_rounds=%s thinking_chunks=%s tts_connect_ms=%s',
+        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s model=%s reasoning_effort=%s tool_rounds=%s thinking_chunks=%s tts_connect_ms=%s tts_reopen=%s',
                   locale, pace, stt_elapsed_ms, round(first_token_ms) if first_token_ms is not None else None,
                   round(first_sentence_ms) if first_sentence_ms is not None else None,
                   round(first_audio_ms) if first_audio_ms is not None else None, round(gap_ms),
                   round(audio_seconds / characters, 4) if characters else None, metrics.resolved_model,
-                  metrics.reasoning_effort, metrics.tool_rounds, metrics.thinking_chunks, metrics.tts_connect_ms)
+                  metrics.reasoning_effort, metrics.tool_rounds, metrics.thinking_chunks, metrics.tts_connect_ms, metrics.tts_reopen)
         completion.cancel()
         for task in tasks:
             task.cancel()

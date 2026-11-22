@@ -681,7 +681,7 @@ never executed or loaded; instructions in descriptions remain plain data.
 - `personalization_settings` — server-side singleton with independent `use_preferences` and `suggest_preferences` (both default false), version and ID and time of the last suggestion activation.
 - `preference_extraction` — content-free one-time ID per source message and extractor version; binds activation and prevents repeated model calls even after errors or restart.
 - `calendar_settings` — the owner’s default writable calendar for new chat proposals and its settings version. Clearing the default keeps calendar reads available.
-- `ui_settings` — the single cross-device interaction configuration with fixed server-side scope (`installation`, unique): `swipe_left`/`swipe_right` from allowlist `none`, `archive`, `toggle_read`, `trash`, `revision` for conditional updates and `updated_at`; initial assignment left `archive`, right `toggle_read`, plus `locale=browser`. The last browser hint and speech pace are stored separately, with pace revision-guarded. Language overrides are `de` or `en`.
+- `ui_settings` — the single cross-device interaction configuration with fixed server-side scope (`installation`, unique): `swipe_left`/`swipe_right` from allowlist `none`, `archive`, `toggle_read`, `trash`, `revision` for conditional updates and `updated_at`; initial assignment left `archive`, right `toggle_read`, plus `locale=browser`. The last browser hint, speech pace and voice model are stored separately, with pace and model revision-guarded. Language overrides are `de` or `en`.
 
 ## Templates and turn context
 

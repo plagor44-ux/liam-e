@@ -9,4 +9,5 @@ class VoiceMetrics:
     tool_rounds: int = 0
     thinking_chunks: int = 0
     tts_connect_ms: int | None = None
+    tts_reopen: int = 0
     logged: bool = False
