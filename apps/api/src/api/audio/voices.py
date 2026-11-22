@@ -1,6 +1,7 @@
 """Bounded provider preset inventory; custom and workspace voices are never accepted."""
 import asyncio
 import json
+import logging
 import re
 import time
 from typing import Literal
@@ -20,6 +21,8 @@ class VoiceCatalogue(BaseModel):
     verified: bool
     voices: list[Voice]
 
+
+_LOG = logging.getLogger(__name__)
 
 DEFAULTS = {'de': 'voice_481', 'en': 'voice_478'}
 SAMPLES = {'de': 'Hallo, ich bin Liam. Wie kann ich dir helfen?',
@@ -81,12 +84,13 @@ async def _fetch() -> list[Voice]:
 async def list_voices() -> VoiceCatalogue:
     global _cache, _cached_at
     async with _lock:
-        if _cache is not None and time.monotonic() - _cached_at < 600:
+        if _cache is not None and time.monotonic() - _cached_at < (600 if _cache.verified else 60):
             return _cache
         try:
             result = VoiceCatalogue(verified=True, voices=await _fetch())
-        except Exception:
-            return VoiceCatalogue(verified=False, voices=[])
+        except Exception as error:
+            _LOG.warning('voice catalogue unavailable class=%s', type(error).__name__)
+            result = VoiceCatalogue(verified=False, voices=[])
         _cache, _cached_at = result, time.monotonic()
         return result
 

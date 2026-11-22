@@ -984,7 +984,7 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   German and `voice_478` for English by default; the revision-guarded pace selects a provider-only
   tag, never stored in history.
   Voice settings are revision guarded per language, with `null` selecting the existing default. The
-  owner-only preset catalogue is cached for ten minutes, excludes custom voices, and falls back
+  owner-only preset catalogue is cached for ten minutes (failures for one minute), excludes custom voices, and falls back
   to the default when the selected preset cannot be verified. A paid owner-and-origin-bound preview
   speaks only a fixed localized sample, using the existing TTS attestation, bounds and one-at-a-time
   database lock. Both operations are browser-only. Live turns select the preset of the resolved
@@ -1001,8 +1001,9 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   an owner- and origin-bound WebSocket running the same chat agent and resolved conversation context.
   Its speech provider receives fixed localized progress phrases and visible assistant deltas generated
   by that turn, grouped into sentences, with an early first phrase at a safe punctuation or word boundary.
-  At most one fixed progress phrase precedes reply audio; addresses and URLs are removed from spoken
-  reply text without changing history. The speech session
+  At most one fixed progress phrase precedes reply audio; a timer phrase is suppressed after the first
+  answer token. Email addresses and URLs with a scheme, www prefix or path are removed from spoken
+  reply text without changing history; bare hostnames can be sender names and remain. The speech session
   opens alongside the model stream and closes on completion, failure, interruption or revocation;
   browser-supplied speech text is never accepted. STT receives the effective locale before
   audio; the speech voice and pace are fixed for each turn. Content-free timings contain no text or

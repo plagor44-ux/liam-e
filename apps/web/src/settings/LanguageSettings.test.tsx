@@ -250,3 +250,15 @@ test('the default appears once in its language group and saves null', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
   await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, voice_de: null }))
 })
+
+
+test('voice catalogue notice appears only after an unsuccessful load', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
+  let resolve!: (value: unknown) => void
+  spyOn(sdk, 'audioVoicesList').mockImplementation((() => new Promise(done => { resolve = done })) as never)
+  open()
+  await screen.findByRole('heading', { name: 'Stimmen' })
+  expect(screen.queryByText('Stimmenliste derzeit nicht verfügbar.')).toBeNull()
+  await act(async () => { resolve({ data: { verified: false, voices: [] } }) })
+  expect(await screen.findByText('Stimmenliste derzeit nicht verfügbar.')).toBeTruthy()
+})

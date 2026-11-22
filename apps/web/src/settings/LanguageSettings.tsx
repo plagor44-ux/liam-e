@@ -252,7 +252,7 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
           {item && item.languages.length > 0 && !item.languages.some(value => value.toLowerCase().startsWith(language)) && <p>{texts.voiceSelection.mismatch}</p>}
         </div>
       })}
-      {(!voices.data?.verified || voices.isError) && <Notice tone="info">{texts.voiceSelection.unverified}</Notice>}
+      {!voices.isPending && (!voices.data?.verified || voices.isError) && <Notice tone="info">{texts.voiceSelection.unverified}</Notice>}
       {previewError && <Notice tone="danger">{texts.voiceSelection.previewError}</Notice>}
       {outcome === 'saved' && (touchedFields.voiceDe || touchedFields.voiceEn) && <Notice tone="success">{texts.settingsUi.saved}</Notice>}
       {outcome === 'error' && (touchedFields.voiceDe || touchedFields.voiceEn) && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}

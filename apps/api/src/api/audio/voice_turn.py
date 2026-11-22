@@ -100,9 +100,10 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                     await sentences.put((buffer, 'reply'))
                 await sentences.put(None)
                 return
+            if event.event == 'delta' and event.text and first_token_ms is None:
+                first_token_ms = (time.monotonic() - started_at) * 1000
             await send(event.model_dump(mode='json'))
             if event.event == 'delta':
-                if first_token_ms is None: first_token_ms = (time.monotonic() - started_at) * 1000
                 characters += len(event.text)
                 buffer += event.text
                 while (end := _boundary(buffer, first)) is not None:
@@ -125,7 +126,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
             category = metrics.tool_category if kind == 'tool' else 'general'
         # No await between the guard and enqueue: a completed or already queued
         # reply always takes precedence over a late progress message.
-        if not chat_finished and first_sentence_ms is None:
+        if not chat_finished and first_sentence_ms is None and (kind != 'timer' or first_token_ms is None):
             sentences.put_nowait((phrase(locale, category), kind))
 
     async def speech() -> None:

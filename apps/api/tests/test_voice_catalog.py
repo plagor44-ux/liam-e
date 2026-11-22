@@ -40,3 +40,23 @@ async def test_fetch_filters_custom_voices_and_follows_cursor(monkeypatch):
         result = await voices._fetch()
     assert [voice.id for voice in result] == ['voice_123', 'voice_456']
     assert route.calls[1].request.url.params['page_token'] == 'next'
+
+
+@pytest.mark.asyncio
+async def test_failed_catalogue_is_cached_briefly_and_logs_only_exception_class(monkeypatch, caplog):
+    from types import SimpleNamespace
+    now = [1000.0]
+    calls = []
+    async def failed():
+        calls.append(1)
+        raise RuntimeError('sensitive provider response')
+    voices.reset_cache()
+    monkeypatch.setattr(voices, '_fetch', failed)
+    monkeypatch.setattr(voices, 'time', SimpleNamespace(monotonic=lambda: now[0]))
+    assert not (await voices.list_voices()).verified
+    assert not (await voices.list_voices()).verified
+    assert len(calls) == 1
+    assert 'RuntimeError' in caplog.text and 'sensitive provider response' not in caplog.text
+    now[0] += 61
+    assert not (await voices.list_voices()).verified
+    assert len(calls) == 2
