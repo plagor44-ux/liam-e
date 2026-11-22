@@ -371,6 +371,31 @@ test('editing a visible account preserves a newly granted account omitted from a
   expect(requests.find(item => item.method === 'PATCH')?.body).toEqual({ expected_version: 7, account_ids: ['elsewhere', 'work'] })
 })
 
+test('a background refetch of chat grants never advances the version of an existing draft on subsequent toggles', async () => {
+  let grant = { version: 2, account_ids: [] as string[] }
+  const { query } = setup('/settings/chat', async request => {
+    if (new URL(request.url).pathname.endsWith('/mail/accounts')) return Response.json(chatAccounts)
+    if (request.method === 'PATCH') {
+      const body = await request.json() as { expected_version: number; account_ids: string[] }
+      if (body.expected_version !== grant.version) {
+        return Response.json({ detail: { code: 'version_conflict' } }, { status: 409 })
+      }
+      grant = { version: grant.version + 1, account_ids: body.account_ids }
+    }
+    return Response.json(grant)
+  })
+  fireEvent.click(await screen.findByRole('checkbox', { name: /Work/ }))
+  grant = { version: 3, account_ids: ['elsewhere'] }
+  await act(() => query.refetchQueries({ queryKey: ['chat-settings'] }))
+  fireEvent.click(screen.getByRole('checkbox', { name: /home@example/ }))
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.save }))
+  await screen.findByText(de.chatAccounts.conflict)
+  expect(requests.find(item => item.method === 'PATCH')?.body).toEqual({
+    expected_version: 2,
+    account_ids: ['work', 'home'],
+  })
+})
+
 const calendarOptions = [
   { id: 'work', name: 'Team', is_active: true, chat_access: 'writable' },
   { id: 'personal', name: 'Privat', is_active: true, chat_access: 'writable' },

@@ -27,17 +27,19 @@ export function ChatAccountSettings() {
   const shown = edit ?? settings.data
   const eligible = new Set(choices.filter(account => account.chat_eligibility === 'eligible').map(account => account.id))
   const eligibilityReady = accounts.isSuccess && choices.every(account => account.chat_eligibility != null)
-  const hasChange = Boolean(edit && settings.data && !sameAccounts(edit.account_ids, settings.data.account_ids))
+  const hasChange = Boolean(
+    edit && (!settings.data || edit.version !== settings.data.version || !sameAccounts(edit.account_ids, settings.data.account_ids)),
+  )
   const dirty = hasChange || status === 'conflict' || status === 'invalid' || status === 'error'
   const canSave = eligibilityReady && hasChange && status !== 'saving' && status !== 'conflict'
 
   function toggle(id: string, checked: boolean) {
     if (!shown) return
     const ids = checked ? [...shown.account_ids, id] : shown.account_ids.filter(item => item !== id)
-    if (settings.data && sameAccounts(ids, settings.data.account_ids)) {
+    if (settings.data && shown.version === settings.data.version && sameAccounts(ids, settings.data.account_ids)) {
       setEdit(undefined)
     } else {
-      setEdit({ version: settings.data?.version ?? shown.version, account_ids: ids })
+      setEdit({ version: shown.version, account_ids: ids })
     }
     setStatus(undefined)
   }

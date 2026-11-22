@@ -25,7 +25,13 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
   const t = texts.preferences
   const query = useQuery(personalizationQuery()), refresh = useRefresh(), explanationId = useId()
   const [confirm, setConfirm] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(false)
-  const [draft, setDraft] = useState<{ use_preferences: boolean; suggest_preferences: boolean; version: number }>()
+  const [draft, setDraft] = useState<{
+    use_preferences: boolean
+    suggest_preferences: boolean
+    base_use: boolean
+    base_suggest: boolean
+    version: number
+  }>()
   const lock = useRef(false)
   const config = query.data?.personalization
 
@@ -35,10 +41,13 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
   const stageChange = (nextUse: boolean, nextSuggest: boolean) => {
     if (!config) return
     setError(false)
-    if (nextUse === config.use_preferences && nextSuggest === config.suggest_preferences) {
+    const baseUse = draft?.base_use ?? config.use_preferences
+    const baseSuggest = draft?.base_suggest ?? config.suggest_preferences
+    const version = draft?.version ?? config.version
+    if (version === config.version && nextUse === baseUse && nextSuggest === baseSuggest) {
       setDraft(undefined)
     } else {
-      setDraft({ use_preferences: nextUse, suggest_preferences: nextSuggest, version: config.version })
+      setDraft({ use_preferences: nextUse, suggest_preferences: nextSuggest, base_use: baseUse, base_suggest: baseSuggest, version })
     }
   }
 
@@ -52,7 +61,7 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
   }
 
   const hasChange = !saved && Boolean(
-    draft && config && (draft.use_preferences !== config.use_preferences || draft.suggest_preferences !== config.suggest_preferences),
+    draft && (!config || draft.version !== config.version || draft.use_preferences !== draft.base_use || draft.suggest_preferences !== draft.base_suggest),
   )
   const dirty = !saved && (hasChange || error)
   const canSave = !saved && hasChange && !busy && !error
@@ -64,8 +73,8 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
       const patch: { expected_version: number; use_preferences?: boolean; suggest_preferences?: boolean } = {
         expected_version: draft.version,
       }
-      if (draft.use_preferences !== config.use_preferences) patch.use_preferences = draft.use_preferences
-      if (draft.suggest_preferences !== config.suggest_preferences) patch.suggest_preferences = draft.suggest_preferences
+      if (draft.use_preferences !== draft.base_use) patch.use_preferences = draft.use_preferences
+      if (draft.suggest_preferences !== draft.base_suggest) patch.suggest_preferences = draft.suggest_preferences
       await unwrap(settingsUpdate({ body: { personalization: patch }, throwOnError: true }))
       setDraft(undefined)
       refresh()

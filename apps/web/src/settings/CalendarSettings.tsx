@@ -23,7 +23,9 @@ export function CalendarSettings() {
   const choices = sources.data ?? []
   const selected = choices.find(source => source.id === shown?.default_source_id)
   const missing = Boolean(shown?.default_source_id && !selected)
-  const hasChange = Boolean(edit && edit.default_source_id !== settings.data?.default_source_id)
+  const hasChange = Boolean(
+    edit && (!settings.data || edit.version !== settings.data.version || edit.default_source_id !== settings.data.default_source_id),
+  )
   const dirty = hasChange || status === 'conflict' || status === 'invalid' || status === 'error'
   const canSave = hasChange && status !== 'saving' && status !== 'conflict' &&
     (!edit?.default_source_id || Boolean(selected?.is_active && selected.chat_access === 'writable'))
@@ -77,10 +79,10 @@ export function CalendarSettings() {
         <select className="le-input" aria-label={t.title} value={shown.default_source_id ?? ''}
           disabled={status === 'conflict' || status === 'saving'} onChange={event => {
             const nextId = event.target.value || null
-            if (settings.data && nextId === settings.data.default_source_id) {
+            if (settings.data && shown.version === settings.data.version && nextId === settings.data.default_source_id) {
               setEdit(undefined)
             } else {
-              setEdit({ version: settings.data?.version ?? shown.version, default_source_id: nextId })
+              setEdit({ version: shown.version, default_source_id: nextId })
             }
             setStatus(undefined)
           }}>
