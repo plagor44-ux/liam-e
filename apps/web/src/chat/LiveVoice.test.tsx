@@ -122,7 +122,7 @@ test('the mode can be ended while permission is pending', async () => {
   render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async () => undefined} />)
   fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
   await waitFor(() => expect(resolvePermission).toBeDefined())
-  fireEvent.keyDown(screen.getByRole('dialog', { name: 'Sprachmodus' }), { key: 'Escape' })
+  fireEvent.keyDown(document.body, { key: 'Escape' })
   await act(async () => { resolvePermission({ getTracks: () => [{ stop: () => { stopped++ } }] }) })
   expect(stopped).toBe(1)
   expect(screen.getByLabelText('Sprachmodus starten')).toBeTruthy()

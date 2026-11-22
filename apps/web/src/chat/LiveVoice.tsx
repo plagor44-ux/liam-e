@@ -4,6 +4,7 @@ import { apiBaseUrl } from '../api/client-config'
 import { audioLiveSpeech, audioLiveStatus } from '../api/generated/sdk.gen'
 import { unwrap } from '../api/unwrap'
 import { IconButton } from '../ds'
+import { useFocusTrap } from '../ds/useFocusTrap'
 import { useI18n } from '../i18n/I18n'
 import { createLiveVoice } from './live-voice'
 
@@ -61,7 +62,6 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
   const [state, setState] = useState<'idle' | 'starting' | 'listening' | 'answering' | 'speaking' | 'error'>('idle')
   const active = useRef<{ stop: () => void } | null>(null)
   const control = useRef<HTMLDivElement>(null)
-  const endButton = useRef<HTMLButtonElement>(null)
   const restoreFocus = useRef(false)
   const current = useRef({ send, stopChat }); current.current = { send, stopChat }
   const stop = useCallback(() => { const session = active.current; active.current = null; session?.stop(); setState('idle') }, [])
@@ -75,7 +75,8 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
   useEffect(() => () => stop(), [contextKey, stop])
   useEffect(() => { const hidden = () => { if (document.hidden) stop() }; document.addEventListener('visibilitychange', hidden); return () => document.removeEventListener('visibilitychange', hidden) }, [stop])
   const shown = state !== 'idle' && state !== 'error'
-  useEffect(() => { if (shown) endButton.current?.focus(); else if (restoreFocus.current) { control.current?.querySelector('button')?.focus(); restoreFocus.current = false } }, [shown])
+  const trap = useFocusTrap(shown, stop)
+  useEffect(() => { if (!shown && restoreFocus.current) { control.current?.querySelector('button')?.focus(); restoreFocus.current = false } }, [shown])
 
   const start = async () => {
     if (disabled || active.current || document.hidden) return
@@ -114,9 +115,9 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
   const status = state === 'starting' ? texts.audio.liveStarting : state === 'listening' ? texts.audio.liveListening : state === 'answering' ? texts.audio.liveAnswering : state === 'speaking' ? texts.audio.liveSpeaking : state === 'error' ? texts.audio.liveError : ''
   const finish = () => { stop() }
   return <div className="le-audio-controls" ref={control}>{!shown && <><span className="le-audio-status" role="status">{status}</span><IconButton size="lg" icon="mic" label={texts.audio.liveStart} disabled={disabled} onClick={() => void start()} /></>}
-    {shown && createPortal(<div className="le-voice-overlay"><section className="le-voice-panel" role="dialog" aria-modal="true" aria-label={texts.audio.liveTitle} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); finish() } else if (event.key === 'Tab') { event.preventDefault(); endButton.current?.focus() } }}>
-      <h2>{texts.audio.liveTitle}</h2><div className={`le-voice-indicator le-voice-indicator--${state}`} aria-hidden="true"><span /><span /><span /><span /><span /></div>
+    {shown && createPortal(<div className="le-voice-overlay"><div ref={trap} tabIndex={-1} className="le-voice-panel" role="dialog" aria-modal="true" aria-label={texts.audio.liveTitle}>
+      <h2 className="heading">{texts.audio.liveTitle}</h2><div className={`le-voice-indicator le-voice-indicator--${state}`} aria-hidden="true"><span /><span /><span /><span /><span /></div>
       <p className="le-voice-state" role="status" aria-live="polite">{status}</p><p className="le-voice-hint">{texts.audio.liveHint}</p>
-      <button ref={endButton} type="button" className="le-btn le-btn--primary" aria-label={texts.audio.liveStop} onClick={finish}>{texts.audio.liveStop}</button>
-    </section></div>, document.body)}</div>
+      <button type="button" className="le-btn le-btn--primary" aria-label={texts.audio.liveStop} onClick={finish}>{texts.audio.liveStop}</button>
+    </div></div>, document.body)}</div>
 }
