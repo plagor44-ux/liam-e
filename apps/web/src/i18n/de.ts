@@ -299,6 +299,7 @@ export const de = {
     save: 'Sprache speichern', success: 'Sprache gespeichert.',
     conflict: (current: string) => `Die Einstellungen wurden inzwischen geändert. Gespeichert ist „${current}“. Prüfe deine Wahl, bevor du sie erneut speicherst.`,
   },
+  voiceModel: { title: 'Modell für Sprachmodus', description: 'Wähle das Modell für gesprochene Unterhaltungen.', chat: 'Wie im Chat', chatDetail: 'Verwendet das im Chat gewählte Modell.', recommended: 'Empfohlen', unverified: 'Die Modellliste ist gerade nicht verfügbar.', unavailable: 'Nicht verfügbar. Der Sprachmodus verwendet das Chat-Modell.', small: 'Günstiger als Medium 3.5 und Large 4; Nachdenken abschaltbar. Bei mehrstufigen Aufgaben möglicherweise weniger gründlich.', medium: 'Für vielseitige Aufgaben; bisheriger Standard. Höhere Kosten und als veraltet markiert.', large: 'Für anspruchsvolle Aufgaben; Nachdenken lässt sich reduzieren, aber nicht abschalten.' },
   speechPace: { title: 'Sprechtempo', description: 'Experimentell: Wähle das Tempo der Sprachausgabe. Falls es nicht funktioniert, wähle Normal.', options: { slow: 'Langsam', normal: 'Normal', fast: 'Schnell' }, save: 'Tempo speichern', success: 'Tempo gespeichert.', conflict: 'Die Einstellungen wurden geändert. Lade sie neu und prüfe deine Wahl.' },
   rootScreens: {
     lang: 'de', missingChunkTitle: 'liam-e wurde aktualisiert',

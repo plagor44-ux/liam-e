@@ -166,3 +166,52 @@ test('a speech-speed conflict against another device language change never marks
   await waitFor(() => expect(save).toHaveBeenCalledTimes(3))
   expect(save.mock.calls[2]?.[0]?.body).toEqual({ expected_revision: 2, speech_pace: 'fast' })
 })
+
+test('voice model saves together with pace through the global bar and discard restores both', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
+  spyOn(sdk, 'chatModelsList').mockResolvedValue({ data: [{ id: 'mistral-small-latest', resolved_id: 'mistral-small-2603', label: 'Small 4', availability: 'available', group: 'general', is_default: false }] } as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, voice_model: 'mistral-small-latest', speech_pace: 'fast', revision: 2 } } as never)
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /Modell für Sprachmodus Wie im Chat/ }))
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: /Small 4.*Empfohlen/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Sprechtempo Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Verwerfen' }))
+  expect(screen.getByRole('button', { name: /Modell für Sprachmodus Wie im Chat/ })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /Modell für Sprachmodus Wie im Chat/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Small 4.*Empfohlen/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Sprechtempo Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, voice_model: 'mistral-small-latest', speech_pace: 'fast' }))
+})
+
+test('an unavailable saved voice model falls back visibly and only one Small 4 entry is recommended', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: { ...browserDefaults, voice_model: 'removed-model' } } as never)
+  spyOn(sdk, 'chatModelsList').mockResolvedValue({ data: [
+    { id: 'mistral-small-latest', resolved_id: 'mistral-small-2603', label: 'Small 4', availability: 'available', group: 'general', is_default: false },
+    { id: 'mistral-small-2603', resolved_id: 'mistral-small-2603', label: 'Small 4 fixed', availability: 'available', group: 'general', is_default: false },
+  ] } as never)
+  open()
+  expect(await screen.findByText('Nicht verfügbar. Der Sprachmodus verwendet das Chat-Modell.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /Modell für Sprachmodus removed-model/ }))
+  expect(screen.getAllByRole('menuitemradio', { name: /Empfohlen/ })).toHaveLength(1)
+})
+
+test('a voice model conflict reloads untouched language without silently overwriting it', async () => {
+  let stored: UiSettingsOut = { ...browserDefaults, voice_model: 'chat' }
+  spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: stored })) as never)
+  spyOn(sdk, 'chatModelsList').mockResolvedValue({ data: [{ id: 'mistral-small-latest', resolved_id: 'mistral-small-2603', label: 'Small 4', availability: 'available', group: 'general', is_default: false }] } as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockImplementation((async ({ body }: { body: { expected_revision: number } }) => {
+    if (body.expected_revision !== stored.revision) return { error: { detail: { code: 'ui_settings_conflict' } } }
+    return { data: { ...stored, ...body, revision: stored.revision + 1 } }
+  }) as never)
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /Modell für Sprachmodus Wie im Chat/ }))
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: /Small 4.*Empfohlen/ }))
+  stored = { ...stored, locale: 'en', revision: 2 }
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  expect(await screen.findByText('Settings changed. Reload and review your choice.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /App language English/ })).toBeTruthy()
+  expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, voice_model: 'mistral-small-latest' })
+})

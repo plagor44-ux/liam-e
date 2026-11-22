@@ -309,6 +309,7 @@ export const en = {
     save: 'Save language', success: 'Language saved.',
     conflict: current => 'The settings have changed. The saved language is “' + current + '”. Review your choice before saving again.',
   },
+  voiceModel: { title: 'Voice mode model', description: 'Choose the model for spoken conversations.', chat: 'Same as chat', chatDetail: 'Uses the model selected in the chat.', recommended: 'Recommended', unverified: 'The model list is currently unavailable.', unavailable: 'Unavailable. Voice mode uses the chat model.', small: 'Less expensive than Medium 3.5 and Large 4; reasoning can be disabled. May be less thorough on multi-step tasks.', medium: 'For varied tasks; the previous default. Higher cost and marked deprecated.', large: 'For demanding tasks; reasoning can be reduced but not disabled.' },
   speechPace: { title: 'Speech speed', description: 'Experimental: Choose the speed of spoken replies. If it does not work, choose Normal.', options: { slow: 'Slow', normal: 'Normal', fast: 'Fast' }, save: 'Save speed', success: 'Speed saved.', conflict: 'Settings changed. Reload and review your choice.' },
   rootScreens: {
     lang: 'en', missingChunkTitle: 'liam-e was updated',
