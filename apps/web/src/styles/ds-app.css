@@ -31,6 +31,11 @@
 @keyframes le-drawer-in { from { opacity: 0; transform: translateX(-100%); } to { opacity: 1; transform: translateX(0); } }
 .le-composer-spacer { flex: 1; }
 .le-audio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+@media (max-width: 600px) {
+  .le-composer-bar { flex-wrap: nowrap; gap: var(--space-1); }
+  .le-composer-spacer { min-width: 0; }
+  .le-composer-bar > .le-audio-controls, .le-composer-bar > :last-child { flex: none; }
+}
 .le-audio-status { font-size: var(--font-size-small); color: var(--ink-muted); }
 .le-audio-status:empty { display: none; }
 /* The calendar choice above the composer keeps apart from it. */
