@@ -3955,6 +3955,10 @@ export type UiSettingsOut = {
      * Updated At
      */
     updated_at: string;
+    /**
+     * Voice Model
+     */
+    voice_model?: string;
 };
 
 /**
@@ -3983,6 +3987,10 @@ export type UiSettingsUpdate = {
      * Swipe Right
      */
     swipe_right?: 'none' | 'archive' | 'toggle_read' | 'trash' | null;
+    /**
+     * Voice Model
+     */
+    voice_model?: string | null;
 };
 
 /**

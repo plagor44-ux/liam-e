@@ -10,9 +10,9 @@ from db.accessors import ui_settings as access
 from db.models.ui_settings import UiSettings
 
 
-def row(revision=1, swipe_left='archive', swipe_right='toggle_read', locale='browser', speech_pace='normal') -> UiSettings:
+def row(revision=1, swipe_left='archive', swipe_right='toggle_read', locale='browser', speech_pace='normal', voice_model='chat') -> UiSettings:
     return UiSettings(id='ui', owner_scope='installation', swipe_left=swipe_left,
-                      swipe_right=swipe_right, locale=locale, speech_pace=speech_pace, revision=revision, updated_at=datetime.now(timezone.utc))
+                      swipe_right=swipe_right, locale=locale, speech_pace=speech_pace, voice_model=voice_model, revision=revision, updated_at=datetime.now(timezone.utc))
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def test_get_returns_the_canonical_first_configuration(client):
     assert body['revision'] == 1
     assert datetime.fromisoformat(body['updated_at']).tzinfo is not None
     assert body['locale'] == 'browser'
-    assert set(body) == {'swipe_left', 'swipe_right', 'locale', 'speech_pace', 'revision', 'updated_at'}
+    assert set(body) == {'swipe_left', 'swipe_right', 'locale', 'speech_pace', 'voice_model', 'revision', 'updated_at'}
 
 
 def test_patch_applies_valid_actions_and_bumps_the_revision(client):
@@ -55,6 +55,8 @@ def test_patch_language_only_keeps_the_swipe_settings(client, locale):
     {'expected_revision': 1, 'locale': 'fr'},
     {'expected_revision': 1, 'speech_pace': 'faster'},
     {'expected_revision': 1, 'speech_pace': None},
+    {'expected_revision': 1, 'voice_model': None},
+    {'expected_revision': 1, 'voice_model': ''},
     {'expected_revision': 1, 'locale': None},
     {'expected_revision': 1, 'locale': 'en', 'owner_scope': 'untrusted'},
     {'expected_revision': 1, 'swipe_left': 'spam'},
@@ -139,3 +141,24 @@ def test_browser_locale_confirmation_validates_hint(client):
     assert response.status_code == 200 and response.json() == {'confirmed': True}
     access.remember_browser_locale.assert_awaited_once_with('de')
     assert client.post('/api/v1/settings/ui/browser-locale', json={'locale': 'fr'}).status_code == 422
+
+def test_voice_model_is_validated_against_available_models(client, monkeypatch):
+    from api.mail import models_catalog
+    model = models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False,
+                                        resolved_id='mistral-small-2603')
+    monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
+    response = client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_model': 'mistral-small-latest'})
+    assert response.status_code == 200 and response.json()['voice_model'] == 'mistral-small-latest'
+    access.update.assert_awaited_once_with(1, voice_model='mistral-small-latest')
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_model': 'invalid'}).status_code == 422
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_model': 'chat'}).status_code == 200
+
+
+def test_voice_model_cannot_be_selected_when_catalogue_unverified(client, monkeypatch):
+    from api.mail import models_catalog
+    model = models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False,
+                                        availability='unverified')
+    monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
+    response = client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_model': 'mistral-small-latest'})
+    assert response.status_code == 503
+    access.update.assert_not_awaited()

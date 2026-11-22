@@ -21,6 +21,8 @@ from api.mail.chat_events import ChatEvent, StartEvent, StatusEvent, DeltaEvent,
 from api.mail.chat_schemas import ChatExtrasOut, ContextOut, to_message_out
 from api.mail.insights import BERLIN
 from api.mail import headers, state
+from api.mail import models_catalog
+from api.audio.metrics import VoiceMetrics
 from api.skills import (
     SkillDisabledError,
     SkillNotFoundError,
@@ -104,7 +106,7 @@ async def _turn_scope_note(ctx: TurnContext) -> str:
     return '\n'.join(lines)
 
 
-async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale | None = None, voice_response: bool = False, resolved_context=None, resolved_locale: Locale | None = None) -> AsyncIterator[ChatEvent]:
+async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale | None = None, voice_response: bool = False, resolved_context=None, resolved_locale: Locale | None = None, voice_metrics: VoiceMetrics | None = None, voice_model: str = 'chat') -> AsyncIterator[ChatEvent]:
     """All rounds share one persisted snapshot; revocation is checked at each boundary."""
     try:
         effective_locale = resolved_locale or await resolve_locale(locale)
@@ -143,8 +145,30 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
         except (SkillNotFoundError, SkillRevisionUnavailableError, SkillDisabledError, SkillToolUnavailableError):
             yield ErrorEvent(code='context_revoked')
             return
-    user = await message_access.add_message(conversation_id=conversation.id, role='user', content=text, context_id=snapshot.id)
     model = conversation.model or mail_env.mail_chat_model
+    reasoning_effort = None
+    if voice_response:
+        candidate = model if voice_model == 'chat' else voice_model
+        try:
+            models = await asyncio.wait_for(models_catalog.list_chat_models(candidate), timeout=2)
+        except TimeoutError:
+            models = []
+        if voice_model != 'chat' and models_catalog._has_available_model(candidate, models):
+            model = candidate
+        matches = [item for item in models if item.id == model and item.availability == 'available']
+        if not matches:
+            matches = [item for item in models if item.resolved_id == model and item.availability == 'available']
+        resolved_model = matches[0].resolved_id if len(matches) == 1 else None
+        reasoning_effort = {'mistral-small-2603': 'none', 'mistral-medium-3-5': 'none',
+                            'mistral-large-4': 'low', 'mistral-large-4-0': 'low'}.get(resolved_model)
+        # Pin the validated model when sending a model-specific parameter: a moving
+        # alias could otherwise change between catalogue lookup and the request.
+        if reasoning_effort is not None:
+            model = resolved_model
+        if voice_metrics is not None:
+            # Private workspace model names must not enter operational logs.
+            voice_metrics.resolved_model = resolved_model if resolved_model in models_catalog.PUBLISHED_RATES else None
+    user = await message_access.add_message(conversation_id=conversation.id, role='user', content=text, context_id=snapshot.id)
     all_text = ''
     mails, suggestions, calendars = [], [], []
     proposal_id = None
@@ -237,6 +261,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
             try:
                 turn_tools = tools_for_context(ctx)
                 kwargs = {'model': model, 'messages': list(messages)}
+                if voice_response and reasoning_effort is not None:
+                    kwargs['reasoning_effort'] = reasoning_effort
                 if turn_tools:
                     kwargs['tools'] = turn_tools
                 last = round_index == max(1, mail_env.mail_chat_max_tool_rounds) - 1
@@ -247,6 +273,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                     if all_text: await save(True)
                     yield ErrorEvent(code='context_revoked')
                     return
+                if voice_metrics is not None:
+                    voice_metrics.reasoning_effort = kwargs.get('reasoning_effort')
                 stream = await client.chat.stream_async(**kwargs)
                 async with stream:
                     delta_count = 0
@@ -258,7 +286,10 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                             return
                         delta = event.data.choices[0].delta
                         content = getattr(delta, 'content', None)
-                        if isinstance(content, list): content = ''.join(getattr(c, 'text', '') for c in content if isinstance(getattr(c, 'text', None), str))
+                        if isinstance(content, list):
+                            if voice_metrics is not None:
+                                voice_metrics.thinking_chunks += sum(getattr(c, 'type', None) == 'thinking' for c in content)
+                            content = ''.join(getattr(c, 'text', '') for c in content if getattr(c, 'type', 'text') == 'text' and isinstance(getattr(c, 'text', None), str))
                         if isinstance(content, str) and content:
                             all_text += content
                             round_text += content
@@ -321,6 +352,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                 yield DoneEvent(conversation_id=conversation.id, message_id=answer.id, stopped=False)
                 return
             payload = calls
+            if voice_metrics is not None:
+                voice_metrics.tool_rounds += 1
             used_ids = {call['id'] for call in payload if call['id']}
             for call in payload:
                 if not call['id']:

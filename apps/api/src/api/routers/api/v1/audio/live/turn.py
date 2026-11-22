@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from api.audio.live_access import live_remaining
 from api.audio.voice_turn import run_voice_turn
+from api.audio.metrics import VoiceMetrics
 from api.mail.agent import run_turn_events
 from api.mail.context_resolver import resolve_context
 from api.mail.models_catalog import list_chat_models, require_available_model
@@ -28,6 +29,7 @@ async def voice_turn(socket: WebSocket) -> None:
         await socket.close(code=1008)
         return
     await socket.accept()
+    metrics = VoiceMetrics()
     try:
         async with asyncio.timeout(min(600, remaining)):
             raw = await asyncio.wait_for(socket.receive_text(), timeout=5)
@@ -51,13 +53,17 @@ async def voice_turn(socket: WebSocket) -> None:
                 await socket.send_json({'event': 'refusal', 'code': code if isinstance(code, str) else 'internal'})
                 return
             locale = await resolve_locale(body.locale)
-            events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved, resolved_locale=locale)
-            pace = (await ui_settings.get_or_create()).speech_pace
-            await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at)
+            settings = await ui_settings.get_or_create()
+            events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved, resolved_locale=locale, voice_metrics=metrics, voice_model=settings.voice_model)
+            pace = settings.speech_pace
+            await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at, metrics=metrics)
     except (ValidationError, ValueError):
         with suppress(Exception): await socket.close(code=1008)
     except Exception as error:
         _LOG.warning('live voice turn failed class=%s', type(error).__name__)
         with suppress(Exception): await socket.close(code=1011)
     finally:
+        if not metrics.logged:
+            metrics.logged = True
+            _LOG.info('voice_metrics outcome=pre_turn model=None reasoning_effort=None tool_rounds=0 thinking_chunks=0 tts_connect_ms=None')
         with suppress(Exception): await socket.close()

@@ -23,6 +23,7 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 async def store(fake_store, monkeypatch):
     conversations, rows = {}, []
+    monkeypatch.setattr(agent.models_catalog, 'list_chat_models', AsyncMock(return_value=[]))
     async def create(**kw):
         c = ChatConversation(**kw); conversations[c.id] = c; return c
     async def get(id): return conversations.get(id)
@@ -1081,3 +1082,64 @@ async def test_strict_model_double_rejects_invalid_role_order(messages):
     fake = FakeMistral(streams=[['unused']], strict_order=True)
     with pytest.raises(AssertionError):
         await fake.stream_async(model='synthetic', messages=messages)
+
+@pytest.mark.parametrize(('resolved', 'expected'), [
+    ('mistral-small-2603', 'none'), ('mistral-medium-3-5', 'none'),
+    ('mistral-large-4', 'low'), ('mistral-large-4-0', 'low'),
+    ('mistral-small-latest', None), ('unknown', None), (None, None),
+])
+async def test_voice_reasoning_only_uses_verified_resolved_model(store, monkeypatch, resolved, expected):
+    from api.mail import models_catalog
+    model = models_catalog.ChatModelOut(id='mistral-medium-latest', label='test', description='', is_default=True,
+                                        resolved_id=resolved)
+    monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True)
+    assert fake.requests[0].get('reasoning_effort') == expected
+    if expected is not None:
+        assert fake.requests[0]['model'] == resolved
+    assert any(event.event == 'done' for event in events)
+
+async def test_text_chat_does_not_add_reasoning_effort(store, monkeypatch):
+    events, fake = await run(store, monkeypatch, [['Answer']])
+    assert 'reasoning_effort' not in fake.requests[0]
+    assert any(event.event == 'done' for event in events)
+
+
+async def test_text_chat_ignores_voice_model(store, monkeypatch):
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_model='mistral-small-latest')
+    assert fake.requests[0]['model'] == 'mistral-medium-latest'
+    assert 'reasoning_effort' not in fake.requests[0]
+    assert any(event.event == 'done' for event in events)
+
+async def test_voice_thinking_chunks_are_counted_but_never_spoken_or_stored(store, monkeypatch):
+    from mistralai.client.models import ThinkChunk, TextChunk
+    from api.audio.metrics import VoiceMetrics
+    metrics = VoiceMetrics()
+    delta = NS(data=NS(choices=[NS(delta=NS(content=[ThinkChunk(thinking=[TextChunk(text='private thought')]), TextChunk(text='Visible')], tool_calls=None))]))
+    events, fake = await run(store, monkeypatch, [[delta, ' answer']], voice_response=True, voice_metrics=metrics)
+    assert ''.join(event.text for event in events if event.event == 'delta') == 'Visible answer'
+    assert all('private thought' not in row.content for row in store.rows)
+    assert metrics.thinking_chunks == 1
+
+async def test_voice_metrics_count_tool_rounds(store, monkeypatch):
+    from api.audio.metrics import VoiceMetrics
+    metrics = VoiceMetrics()
+    events, _ = await run(store, monkeypatch, [[chunk('list_accounts', {})], ['Done']], voice_response=True, voice_metrics=metrics)
+    assert any(event.event == 'done' for event in events)
+    assert metrics.tool_rounds == 1
+
+@pytest.mark.parametrize(('choice', 'available', 'used'), [
+    ('chat', True, 'mistral-medium-latest'),
+    ('mistral-small-latest', True, 'mistral-small-2603'),
+    ('mistral-small-latest', False, 'mistral-medium-latest'),
+])
+async def test_voice_model_uses_available_selection_or_falls_back(store, monkeypatch, choice, available, used):
+    from api.mail import models_catalog
+    small = models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False,
+                                        resolved_id='mistral-small-2603', availability='available' if available else 'unlisted')
+    monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[small]))
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_model=choice)
+    assert fake.requests[0]['model'] == used
+    assert next(event.model for event in events if event.event == 'start') == used
+    answer = next(row for row in store.rows if row.role == 'assistant')
+    assert json.loads(answer.extras_json)['model'] == used

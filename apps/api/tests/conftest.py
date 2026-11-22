@@ -71,7 +71,7 @@ def ui_locale_in_browser_mode(monkeypatch):
 
     from db.accessors import ui_settings
 
-    preference = AsyncMock(return_value=SimpleNamespace(locale="browser", browser_locale=None, speech_pace="normal"))
+    preference = AsyncMock(return_value=SimpleNamespace(locale="browser", browser_locale=None, speech_pace="normal", voice_model="chat"))
     monkeypatch.setattr(ui_settings, "get_or_create", preference)
     monkeypatch.setattr(ui_settings, "remember_browser_locale", AsyncMock())
     return preference

@@ -107,7 +107,7 @@ async def test_reconnect_timeout_and_expired_window_fail_closed(monkeypatch):
     assert expired.closed == 1008 and not expired.accepted and not slot.locked()
 
 
-def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch):
+def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, capsys):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from api.audio.access import get_audio_owner_verifier
@@ -160,9 +160,10 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch):
             assert spoken == ['Hallo.']
             ws.send_json({'event': 'playback_finished'})
             assert ws.receive_json()['message_id'] == 'new'
+    assert capsys.readouterr().err.count('voice_metrics ') == 1
 
 
-def test_voice_turn_preserves_context_refusals_and_missing_conversation(monkeypatch):
+def test_voice_turn_preserves_context_refusals_and_missing_conversation(monkeypatch, capsys):
     from unittest.mock import AsyncMock
     from api.audio.access import get_audio_owner_verifier
     from api.errors import refuse
@@ -182,6 +183,7 @@ def test_voice_turn_preserves_context_refusals_and_missing_conversation(monkeypa
         with client.websocket_connect('/api/v1/audio/live/turn') as ws:
             ws.send_json({'conversation_id': 'missing', 'text': 'synthetic', 'voice_response': True})
             assert ws.receive_json() == {'event': 'refusal', 'code': 'conversation_not_found'}
+    assert capsys.readouterr().err.count('voice_metrics outcome=pre_turn') == 2
 
 
 def test_voice_turn_creates_conversation_when_started_from_empty_chat(monkeypatch):

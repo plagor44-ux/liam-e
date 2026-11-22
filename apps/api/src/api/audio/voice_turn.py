@@ -14,24 +14,43 @@ from websockets.exceptions import InvalidStatus
 from api.audio.live_access import live_remaining
 from api.audio.live_provider import LiveAudioError, mistral_live
 from api.audio.pace import paced_text
+from api.audio.metrics import VoiceMetrics
 from api.mail.chat_events import ChatEvent
 
 _LOG = logging.getLogger(__name__)
 _MAX_AUDIO = 24_000_000
-_SENTENCE_END = re.compile(r'[.!?](?=\s)')
+_ABBREVIATION = re.compile(r'(?:\bz\.\s*B\.|\b[A-Za-z]\.)$', re.IGNORECASE)
+
+
+def _boundary(buffer: str, first: bool) -> int | None:
+    """Choose a boundary only once the following character is known."""
+    for match in re.finditer(r'[.!?,:;—–](?=\s)', buffer):
+        end = match.end()
+        punctuation = buffer[end - 1]
+        if punctuation == '.' and _ABBREVIATION.search(buffer[:end]):
+            continue
+        if punctuation in '.!?' or (first and end >= 40):
+            return end
+    if first and len(buffer) > 120:
+        for match in re.finditer(r'\s+', buffer[120:]):
+            end = 120 + match.start()
+            if not _ABBREVIATION.search(buffer[:end]):
+                return end
+    return None
 
 
 class VoiceRevoked(Exception):
     pass
 
 
-async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str, locale: str = "en", pace: str = "normal", stt_elapsed_ms: int | None = None, started_at: float | None = None) -> None:
+async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str, locale: str = "en", pace: str = "normal", stt_elapsed_ms: int | None = None, started_at: float | None = None, metrics: VoiceMetrics | None = None) -> None:
     """Only deltas produced by this turn can enter the speech provider.
 
     Keep the socket open until the browser acknowledges playback completion, so revocation
     and window checks also cover audio already queued in the browser.
     """
     started_at = started_at if started_at is not None else time.monotonic()
+    metrics = metrics or VoiceMetrics()
     first_token_ms = first_sentence_ms = first_audio_ms = None
     gap_ms = 0.0
     audio_seconds = 0.0
@@ -54,6 +73,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
     async def chat() -> None:
         nonlocal done, first_token_ms, first_sentence_ms, characters
         buffer = ''
+        first = True
         async for event in events:
             if event.event == 'error':
                 await send(event.model_dump(mode='json'))
@@ -74,11 +94,11 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                 if first_token_ms is None: first_token_ms = (time.monotonic() - started_at) * 1000
                 characters += len(event.text)
                 buffer += event.text
-                while match := _SENTENCE_END.search(buffer):
-                    end = match.end()
+                while (end := _boundary(buffer, first)) is not None:
                     if first_sentence_ms is None: first_sentence_ms = (time.monotonic() - started_at) * 1000
                     await sentences.put(buffer[:end])
                     buffer = buffer[end:]
+                    first = False
                 if len(buffer) > 16_384:
                     raise RuntimeError('voice_text_limit')
         raise RuntimeError('voice_chat_incomplete')
@@ -88,11 +108,16 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
         total = 0
         failed = False
         try:
-            sentence = await sentences.get()
-            if sentence is not None:
-                async with AsyncExitStack() as stack:
+            async with AsyncExitStack() as stack:
+                await check()
+                connect_started = time.monotonic()
+                try:
                     async with asyncio.timeout(15):
                         session = await stack.enter_async_context(mistral_live('speech', locale=locale))
+                finally:
+                    metrics.tts_connect_ms = round((time.monotonic() - connect_started) * 1000)
+                sentence = await sentences.get()
+                if sentence is not None:
                     while sentence is not None:
                         async with asyncio.timeout(60):
                             await check()
@@ -160,14 +185,25 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
         with suppress(Exception):
             await send({'event': 'error', 'code': 'context_revoked'})
     finally:
-        completion.cancel()
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(completion, *tasks, return_exceptions=True)
-        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s',
+        # Emit before asynchronous cleanup: a second cancellation during provider
+        # shutdown must not lose this turn's only metrics record.
+        metrics.logged = True
+        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s model=%s reasoning_effort=%s tool_rounds=%s thinking_chunks=%s tts_connect_ms=%s',
                   locale, pace, stt_elapsed_ms, round(first_token_ms) if first_token_ms is not None else None,
                   round(first_sentence_ms) if first_sentence_ms is not None else None,
                   round(first_audio_ms) if first_audio_ms is not None else None, round(gap_ms),
-                  round(audio_seconds / characters, 4) if characters else None)
-        with suppress(Exception):
-            await events.aclose()
+                  round(audio_seconds / characters, 4) if characters else None, metrics.resolved_model,
+                  metrics.reasoning_effort, metrics.tool_rounds, metrics.thinking_chunks, metrics.tts_connect_ms)
+        completion.cancel()
+        for task in tasks:
+            task.cancel()
+        async def cleanup() -> None:
+            await asyncio.gather(completion, *tasks, return_exceptions=True)
+            with suppress(Exception):
+                await events.aclose()
+        cleanup_task = asyncio.create_task(cleanup())
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            await asyncio.shield(cleanup_task)
+            raise

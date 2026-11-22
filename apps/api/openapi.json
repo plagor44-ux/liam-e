@@ -7224,6 +7224,11 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "voice_model": {
+            "default": "chat",
+            "title": "Voice Model",
+            "type": "string"
           }
         },
         "required": [
@@ -7310,6 +7315,19 @@
               }
             ],
             "title": "Swipe Right"
+          },
+          "voice_model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Model"
           }
         },
         "required": [

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.errors import refuse
+from api.mail import models_catalog
 from db.accessors import ui_settings
 
 
@@ -51,6 +52,7 @@ class UiSettingsOut(BaseModel):
     swipe_right: SwipeAction
     locale: UiLocale
     speech_pace: SpeechPace = 'normal'
+    voice_model: str = 'chat'
     revision: int
     updated_at: datetime
 
@@ -65,10 +67,11 @@ class UiSettingsUpdate(BaseModel):
     swipe_right: SwipeAction | None = None
     locale: UiLocale | None = None
     speech_pace: SpeechPace | None = None
+    voice_model: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode='after')
     def require_explicit_change(self):
-        fields = ('swipe_left', 'swipe_right', 'locale', 'speech_pace')
+        fields = ('swipe_left', 'swipe_right', 'locale', 'speech_pace', 'voice_model')
         changed = self.model_fields_set.intersection(fields)
         if not changed or any(getattr(self, key) is None for key in changed):
             raise ValueError('ui_settings_invalid')
@@ -85,6 +88,8 @@ async def get_ui_settings() -> UiSettingsOut:
 @router.patch('', operation_id='settings_ui_update')
 async def update_ui_settings(body: UiSettingsUpdate) -> UiSettingsOut:
     """Apply a validated change while the caller holds the current revision."""
+    if body.voice_model is not None and body.voice_model != 'chat':
+        models_catalog.require_available_model(body.voice_model, await models_catalog.list_chat_models(body.voice_model))
     try:
         row = await ui_settings.update(body.expected_revision, **body.model_dump(exclude={'expected_revision'}, exclude_unset=True))
     except ui_settings.StaleRevision:

@@ -85,7 +85,7 @@ async def _locked(session) -> UiSettings:
 
 
 async def update(
-    expected_revision: int, *, swipe_left: str | None = None, swipe_right: str | None = None, locale: str | None = None, speech_pace: str | None = None
+    expected_revision: int, *, swipe_left: str | None = None, swipe_right: str | None = None, locale: str | None = None, speech_pace: str | None = None, voice_model: str | None = None
 ) -> UiSettings:
     """Apply changes atomically while the caller still holds the current revision.
 
@@ -107,6 +107,10 @@ async def update(
         if speech_pace not in SPEECH_PACES:
             raise ValueError("unknown speech pace")
         changes["speech_pace"] = speech_pace
+    if voice_model is not None:
+        if not voice_model.strip() or len(voice_model) > 200:
+            raise ValueError("invalid voice model")
+        changes["voice_model"] = voice_model
     if not changes:
         raise ValueError("an update needs at least one UI setting")
     async with get_session_maker()() as session:

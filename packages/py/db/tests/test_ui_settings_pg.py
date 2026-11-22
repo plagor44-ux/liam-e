@@ -131,3 +131,42 @@ def test_speech_pace_revision_and_browser_hint_are_independent(pg_db):
         assert (await settings.get_or_create()).speech_pace == 'slow'
         with pytest.raises(settings.StaleRevision): await settings.update(row.revision, speech_pace='slow')
     asyncio.run(run())
+
+
+def test_voice_model_default_and_revision(pg_db):
+    async def run():
+        from db.accessors import ui_settings as settings
+        row = await settings.get_or_create()
+        assert row.voice_model == 'chat'
+        with pytest.raises(ValueError): await settings.update(row.revision, voice_model=' ')
+        updated = await settings.update(row.revision, voice_model='mistral-small-latest')
+        assert updated.voice_model == 'mistral-small-latest'
+        with pytest.raises(settings.StaleRevision): await settings.update(row.revision, voice_model='chat')
+        assert (await settings.get_or_create()).voice_model == 'mistral-small-latest'
+    asyncio.run(run())
+
+
+def test_voice_model_migration_preserves_existing_settings(pg_db):
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+    from db import engine
+    from db.accessors import ui_settings as settings
+
+    project = Path(__file__).resolve().parents[1]
+    config = Config(str(project / 'alembic.ini'))
+    config.set_main_option('script_location', str(project / 'src/db/migrations'))
+    asyncio.run(engine.dispose_engine())
+    command.downgrade(config, 'b8657d439a54')
+    async def seed():
+        async with engine.get_session_maker()() as session:
+            await session.execute(text("INSERT INTO ui_settings (id, owner_scope, swipe_left, swipe_right, locale, speech_pace, revision, updated_at) VALUES ('synthetic', 'installation', 'trash', 'none', 'de', 'fast', 7, now())"))
+            await session.commit()
+    asyncio.run(seed())
+    asyncio.run(engine.dispose_engine())
+    command.upgrade(config, 'heads')
+    async def verify():
+        row = await settings.get_or_create()
+        assert (row.voice_model, row.locale, row.speech_pace, row.swipe_left, row.revision) == ('chat', 'de', 'fast', 'trash', 7)
+    asyncio.run(verify())
