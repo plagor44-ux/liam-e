@@ -157,7 +157,7 @@ async def test_fill_missing_respects_limit_and_window(monkeypatch):
 
 
 def test_insight_endpoint_computes_once_then_reuses(client, setup, monkeypatch):
-    setup.responses.append(payload())
+    setup.responses.extend([payload(), payload()])
     store = {}
     async def get(mid):
         return store.get(mid)
@@ -172,8 +172,9 @@ def test_insight_endpoint_computes_once_then_reuses(client, setup, monkeypatch):
         response = client.get('/api/v1/mail/messages/m1/insight', params={'locale': locale})
         assert response.status_code == 200
         assert response.json()["points"] == ["Wichtig"]
-    assert len(setup.requests) == 1
+    assert len(setup.requests) == 2
     assert "Schreibe auf Deutsch" in setup.requests[0]["messages"][0]["content"]
+    assert "plain English" in setup.requests[1]["messages"][0]["content"]
 
 
 def test_insight_endpoint_returns_503_on_model_failure(client, setup, monkeypatch, caplog):
@@ -248,6 +249,7 @@ async def test_seed_mail_without_insight_never_calls_the_model(monkeypatch, forb
 async def test_seed_mail_with_stored_insight_is_served(monkeypatch, forbidden_model):
     stored = MailInsight(message_id="seed-m", points_json='["Gespeichert"]', followups_json="[]")
     monkeypatch.setattr(insights.mail_insight, "get", AsyncMock(return_value=stored))
+    monkeypatch.setattr(insights.mail_message, "get_message", AsyncMock(return_value=MailMessage(id="seed-m", account_id=next(iter(SEED_ACCOUNT_IDS)), provider_uid="synthetic")))
     assert await insights.get_or_compute("seed-m") is stored
     assert forbidden_model == []
 
@@ -322,3 +324,12 @@ async def test_chat_grant_is_checked_before_each_insight_model_request(setup, mo
         await insights.compute_insight(message(), today=date(2026, 2, 1), context_id='test-turn')
     assert len(setup.requests) == requests
     assert setup.summarized == []
+
+@pytest.mark.anyio
+async def test_background_browser_locale_uses_last_confirmed_or_english(monkeypatch, ui_locale_in_browser_mode):
+    from api.locales import resolve_locale
+    ui_locale_in_browser_mode.return_value.browser_locale = None
+    assert await resolve_locale() == 'en'
+    ui_locale_in_browser_mode.return_value.browser_locale = 'de'
+    assert await resolve_locale() == 'de'
+    assert await resolve_locale('en') == 'en'

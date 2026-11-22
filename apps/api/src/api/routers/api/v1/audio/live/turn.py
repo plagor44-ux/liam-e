@@ -1,6 +1,7 @@
 """An owner-bound live voice turn using the ordinary chat agent and context resolver."""
 import asyncio
 import logging
+import time
 from contextlib import suppress
 
 from db.accessors import chat_conversation
@@ -12,6 +13,8 @@ from api.audio.voice_turn import run_voice_turn
 from api.mail.agent import run_turn_events
 from api.mail.context_resolver import resolve_context
 from api.routers.api.v1.chat.stream import ChatStreamRequest
+from api.locales import resolve_locale
+from db.accessors import ui_settings
 
 router = APIRouter()
 _LOG = logging.getLogger(__name__)
@@ -27,6 +30,7 @@ async def voice_turn(socket: WebSocket) -> None:
     try:
         async with asyncio.timeout(min(600, remaining)):
             raw = await asyncio.wait_for(socket.receive_text(), timeout=5)
+            received_at = time.monotonic()
             if len(raw) > 100_000:
                 await socket.close(code=1009)
                 return
@@ -38,13 +42,15 @@ async def voice_turn(socket: WebSocket) -> None:
                 await socket.send_json({'event': 'refusal', 'code': 'conversation_not_found'})
                 return
             try:
-                resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response'}))
+                resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response', 'voice_stt_elapsed_ms'}))
             except HTTPException as error:
                 code = error.detail.get('code') if isinstance(error.detail, dict) else None
                 await socket.send_json({'event': 'refusal', 'code': code if isinstance(code, str) else 'internal'})
                 return
-            events = run_turn_events(**body.model_dump(), resolved_context=resolved)
-            await run_voice_turn(socket, events, resolved[1].id)
+            locale = await resolve_locale(body.locale)
+            events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved, resolved_locale=locale)
+            pace = (await ui_settings.get_or_create()).speech_pace
+            await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at)
     except (ValidationError, ValueError):
         with suppress(Exception): await socket.close(code=1008)
     except Exception as error:

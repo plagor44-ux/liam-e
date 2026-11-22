@@ -8,7 +8,7 @@ on ``revision`` under the row lock: a writer whose expected revision no longer m
 with ``StaleRevision`` instead of silently overwriting a newer assignment.
 """
 
-from sqlalchemy import select
+from sqlalchemy import select, update as sql_update
 from sqlalchemy.dialects.postgresql import insert
 
 from db.engine import get_session_maker
@@ -18,6 +18,7 @@ from db.models.ui_settings import BROWSER_LOCALE, OWNER_SCOPE, UiSettings
 #: The actions a swipe direction may be assigned to; anything else is invalid.
 SWIPE_ACTIONS = ("none", "archive", "toggle_read", "trash")
 UI_LOCALES = (BROWSER_LOCALE, "de", "en")
+SPEECH_PACES = ("slow", "normal", "fast")
 #: The canonical first assignment of a freshly initialized configuration.
 DEFAULT_SWIPE_LEFT = "archive"
 DEFAULT_SWIPE_RIGHT = "toggle_read"
@@ -84,7 +85,7 @@ async def _locked(session) -> UiSettings:
 
 
 async def update(
-    expected_revision: int, *, swipe_left: str | None = None, swipe_right: str | None = None, locale: str | None = None
+    expected_revision: int, *, swipe_left: str | None = None, swipe_right: str | None = None, locale: str | None = None, speech_pace: str | None = None
 ) -> UiSettings:
     """Apply changes atomically while the caller still holds the current revision.
 
@@ -102,6 +103,10 @@ async def update(
         if locale not in UI_LOCALES:
             raise ValueError("unknown UI locale")
         changes["locale"] = locale
+    if speech_pace is not None:
+        if speech_pace not in SPEECH_PACES:
+            raise ValueError("unknown speech pace")
+        changes["speech_pace"] = speech_pace
     if not changes:
         raise ValueError("an update needs at least one UI setting")
     async with get_session_maker()() as session:
@@ -115,3 +120,13 @@ async def update(
         session.add(row)
         await session.commit()
         return row
+
+
+async def remember_browser_locale(locale: str) -> None:
+    """Store the last request locale as background metadata, without changing user settings."""
+    if locale not in ("de", "en"):
+        raise ValueError("unknown browser locale")
+    async with get_session_maker()() as session:
+        await _initial(session)
+        await session.execute(sql_update(UiSettings).where(UiSettings.owner_scope == OWNER_SCOPE, UiSettings.browser_locale.is_distinct_from(locale)).values(browser_locale=locale))
+        await session.commit()

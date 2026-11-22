@@ -304,6 +304,7 @@ export const en = {
     save: 'Save language', success: 'Language saved.',
     conflict: current => 'The settings have changed. The saved language is “' + current + '”. Review your choice before saving again.',
   },
+  speechPace: { title: 'Speech speed', description: 'Choose the speed of spoken replies.', options: { slow: 'Slow', normal: 'Normal', fast: 'Fast' }, save: 'Save speed', success: 'Speed saved.', conflict: 'Settings changed. Reload and review your choice.' },
   rootScreens: {
     lang: 'en', missingChunkTitle: 'liam-e was updated',
     missingChunk: 'Reload this page to open the new version.', reload: 'Reload',

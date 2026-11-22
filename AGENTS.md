@@ -48,11 +48,11 @@ confirms it with the API. It lets subsequent documents start in that language du
 A new device starts with its browser preference until its first settings read. Re-focusing a tab
 reloads the setting from the server.
 
-Chat and insight requests send the browser's language. For new chat turns and insights, the API uses
-the saved override first and the request locale in browser mode. Chat uses that result when the
-language of the user’s current message is unclear. Scheduled insights use the saved override or English when there is no browser
-context. This keeps deadlines and reply flags available for the Important filter. Existing
-insights are served as stored, including when requests with different locales race. Changes to the
+Chat and insight requests send the browser language. The saved override always takes precedence;
+in browser mode requests use their browser hint, and background jobs use the last confirmed
+browser hint or English if none exists. Chat replies, drafts, speech recognition and speech voice
+follow that effective language regardless of the current message language. Insights store their
+language and are regenerated when it differs, while seed accounts never call the model. Changes to the
 mail body continue to invalidate its insight. Direct preference requests support both languages
 (for example “Remember this”). Automatic suggestions retain the existing German phrase and
 evidence checks.
@@ -61,7 +61,7 @@ evidence checks.
 
 - `agent.py` — streamed chat turn, tool loop and stored history.
 - `agent_tools.py` — read-only agent tools and proposal creation. Task tools delegate to `api/tasks/chat.py`; typed task commands and their local execution live in `api/tasks/proposals.py`.
-- `agent_prompt.py` — System instructions for the agent, including the current user message’s language and the active UI locale as fallback.
+- `agent_prompt.py` — System instructions for the agent, including the effective app language as the response and draft language.
 - `chat_events.py` — typed streaming events; `chat_schemas.py` — chat output models.
 - `actions.py` — index changes and one-time undo; `action_backends.py` — provider actions.
 - `proposals.py` — store, confirm, cancel and execute proposals after confirmation.
@@ -171,6 +171,7 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Settings | PATCH | `/api/v1/settings/chat` | `chat_settings_update` |
 | Settings | GET | `/api/v1/settings/ui` | `settings_ui_get` |
 | Settings | PATCH | `/api/v1/settings/ui` | `settings_ui_update` |
+| Settings | POST | `/api/v1/settings/ui/browser-locale` | `settings_ui_browser_locale_confirm` |
 | Skills | GET | `/api/v1/skills` | `skills_list` |
 | Skills | POST | `/api/v1/skills` | `skill_create` |
 | Skills | GET | `/api/v1/skills/tools` | `skill_tools_list` |
@@ -677,7 +678,7 @@ never executed or loaded; instructions in descriptions remain plain data.
 - `personalization_settings` — server-side singleton with independent `use_preferences` and `suggest_preferences` (both default false), version and ID and time of the last suggestion activation.
 - `preference_extraction` — content-free one-time ID per source message and extractor version; binds activation and prevents repeated model calls even after errors or restart.
 - `calendar_settings` — the owner’s default writable calendar for new chat proposals and its settings version. Clearing the default keeps calendar reads available.
-- `ui_settings` — the single cross-device interaction configuration with fixed server-side scope (`installation`, unique): `swipe_left`/`swipe_right` from allowlist `none`, `archive`, `toggle_read`, `trash`, `revision` for conditional updates and `updated_at`; initial assignment left `archive`, right `toggle_read`, plus `locale=browser`. Language overrides are `de` or `en`.
+- `ui_settings` — the single cross-device interaction configuration with fixed server-side scope (`installation`, unique): `swipe_left`/`swipe_right` from allowlist `none`, `archive`, `toggle_read`, `trash`, `revision` for conditional updates and `updated_at`; initial assignment left `archive`, right `toggle_read`, plus `locale=browser`. The last browser hint and speech pace are stored separately, with pace revision-guarded. Language overrides are `de` or `en`.
 
 ## Templates and turn context
 
@@ -773,7 +774,7 @@ returns `preferences_unavailable` before the model call; only the deliberate act
 changing scope and deleting revoke affected contexts in the same transaction: disabling revokes
 all turns with at least one used revision, the other actions turns with a revision of the changed
 preference. Turns without a used preference remain valid, including open proposals. Precedence is
-in the fixed app rules (`agent_prompt.py`, `APP_PROMPT_VERSION` 17). Existing live checks before
+in the fixed app rules (`agent_prompt.py`, `APP_PROMPT_VERSION` 18). Existing live checks before
 model/tool calls and after ten deltas remain authoritative; already sent requests cannot be recalled.
 
 The shared transactional preference lock serializes quotas, changes, resolution and account
@@ -896,8 +897,8 @@ active accounts; recently synced accounts and accounts whose last error was `aut
 skipped. Manual sync and the OAuth callback after reconnection enqueue these accounts too; the
 worker must be running to execute them. `MAIL_SYNC_STALE_MINUTES` (default `10`) determines
 when a locked job is stale. After a successful sync with new mails, an insight job is enqueued
-to fill in missing summaries. The worker uses the saved language, with English for browser mode
-because a background job has no browser request.
+to fill in missing summaries. The worker uses the saved language, or the last confirmed browser hint in browser mode;
+when no browser hint exists it falls back to English.
 
 When the text version (`body_text` in `sync_types.py`) changes, `BODY_VERSION` is incremented.
 Each subsequent sync rereads up to 25 INBOX mails with an older version from the provider
@@ -963,6 +964,7 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
 - Never import liam-e as an HTTP connector in Studio, or import only these read-only operations: `calendar_occurrence_get`, `calendar_occurrences_list`, `calendar_sources_list`, `chat_conversations_list`, `chat_history`, `chat_models_list`, `health`, `liam_mail_accounts`, `liam_mail_read`, `liam_mail_search`, `liam_mail_summary`, `mail_account_options`, `mail_accounts_list`, `mail_connector_tools_list`, `mail_connectors_list`, `mail_message_get`, `mail_message_insight`, `mail_message_original`, `mail_messages_list`, `mail_summary`, `prompt_get`, `prompts_list`, `settings_ui_get`, `tasks_get`, `tasks_list`, `tasks_occurrences_list`
   `mail_message_insight` generates a missing summary with the model and stores it in `mail_insight` (model cost, no mail changes; never for seed accounts, where only seeded summaries are available).
   `mail_message_original` fetches the mail from the provider read-only, without marking it read, and stores nothing.
+  `settings_ui_browser_locale_confirm` is browser-only; it stores the latest browser hint for jobs.
   `settings_ui_get` creates the default assignment in `ui_settings` once on the very first read; it never changes an existing assignment.
   The calendar write routes (`calendar_event_create`, `calendar_event_update`, `calendar_event_delete`, `calendar_write_check`), `chat_proposal_check`, `calendar_occurrence_live` and `calendar_write_get` are deliberately not in this list: they write to Google, resolve a write or read private live event data.
   `audio_capabilities_get` and the paid `audio_transcribe` and `audio_speech` operations stay browser-only. The audio subtree verifies the Studio gateway's
@@ -973,7 +975,8 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   contacting Mistral. A transient PostgreSQL lock limits transcription to one active request
   per app database. The browser appends a successful transcript to the current draft.
   Speech takes a conversation and message reference, reads a visible and complete assistant
-  reply from local history, and sends its normalized text to the fixed preset `voice_481`.
+  reply from local history. The effective language selects `voice_481` for German or `voice_478`
+  for English; the revision-guarded pace selects a provider-only tag, never stored in history.
   Speech attestations can set lower limits within 500 characters, 1,000,000 MP3 bytes and
   20 seconds. All audio responses use `Cache-Control: no-store`.
   The owner-only `audio_device_test_get`, `audio_device_test_record` and
@@ -985,7 +988,9 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   Manual speech accepts only a saved, authorized assistant-message reference. Live voice turns use
   an owner- and origin-bound WebSocket running the same chat agent and resolved conversation context.
   Its speech provider receives only visible assistant deltas generated by that turn, grouped into
-  sentences; browser-supplied speech text is never accepted. Scope and the live window are rechecked
+  sentences; browser-supplied speech text is never accepted. STT receives the effective locale before
+  audio; the speech voice and pace are fixed for each turn. Content-free timings contain no text or
+  identifiers. Scope and the live window are rechecked
   during synthesis and while playback is outstanding. The socket stays open until playback finishes
   or the turn is stopped, disconnected or revoked. A stopped assistant fragment is not fed back into
   the model for a subsequent voice turn. Live transport and provider behavior require Studio verification.

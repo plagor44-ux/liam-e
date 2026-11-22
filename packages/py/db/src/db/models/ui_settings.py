@@ -28,5 +28,7 @@ class UiSettings(SQLModel, table=True):
     swipe_left: str
     swipe_right: str
     locale: str = Field(default=BROWSER_LOCALE, sa_column=Column(String, nullable=False, server_default=BROWSER_LOCALE))
+    browser_locale: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    speech_pace: str = Field(default="normal", sa_column=Column(String, nullable=False, server_default="normal"))
     revision: int = 1
     updated_at: datetime = Field(default_factory=utcnow, sa_column=utc_datetime_column())

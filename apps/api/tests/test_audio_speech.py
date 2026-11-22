@@ -75,7 +75,7 @@ def test_live_speech_requires_test_opt_in_and_still_uses_saved_reply(speech_clie
         frames = iter([b"\x00\x01", None])
 
     @asynccontextmanager
-    async def fake_live(kind):
+    async def fake_live(kind, **kwargs):
         assert kind == "speech"
         yield FakeSpeech()
 
@@ -110,12 +110,12 @@ async def test_live_speech_float_pcm_byte_limit(monkeypatch, over_limit):
         async def receive(self): return next(self.frames)
 
     @asynccontextmanager
-    async def fake_live(kind):
+    async def fake_live(kind, **kwargs):
         assert kind == 'speech'
         yield FakeSpeech()
 
     monkeypatch.setattr(speech, 'live_remaining', lambda _: 60)
-    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=REFERENCE))
+    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=speech.SpeechReference(**REFERENCE)))
     monkeypatch.setattr(speech, '_visible_reply', AsyncMock(return_value='Synthetic reply'))
     monkeypatch.setattr(speech, 'mistral_live', fake_live)
     response = await speech.synthesize(None)
@@ -154,7 +154,7 @@ def test_speech_sends_visible_markdown_as_text_and_serves_mp3(speech_client):
     assert provider.call_count == 1
     assert json.loads(provider.calls[0].request.content) == {
         "input": "Nachricht Das ist synthetisch. Ansehen",
-        "voice_id": "voice_481", "model": MODEL, "response_format": "mp3",
+        "voice_id": "voice_478", "model": MODEL, "response_format": "mp3",
     }
 
 

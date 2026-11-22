@@ -133,7 +133,7 @@ def test_live_websocket_enforces_gateway_identity_and_origin(studio_client: Test
             return {'type': 'turn.start', 'time_s': 1}
         async def append(self, data): pass
     @asynccontextmanager
-    async def fake_live(_): yield Provider()
+    async def fake_live(_, **kwargs): yield Provider()
     monkeypatch.setattr(transcription, 'mistral_live', fake_live)
     monkeypatch.setattr(env, 'audio_live_test_enabled', True)
     monkeypatch.setattr(env, 'audio_live_test_origin', ORIGIN)

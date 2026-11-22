@@ -10,7 +10,7 @@ type Job = { messageId: string; controller: AbortController; audio?: HTMLAudioEl
 type LoadSpeech = (messageId: string, signal: AbortSignal) => Promise<Blob>
 
 export function useSpeechPlayback(conversationId: string, enabled: boolean, recording: boolean, load?: LoadSpeech) {
-  const { texts } = useI18n()
+  const { texts, browserLocale } = useI18n()
   const [state, setState] = useState<State | null>(null)
   const active = useRef<Job | null>(null)
 
@@ -69,7 +69,7 @@ export function useSpeechPlayback(conversationId: string, enabled: boolean, reco
     try {
       const signal = job.controller.signal
       const blob = load ? await load(messageId, signal) : await unwrap(audioSpeech({
-        body: { conversation_id: conversationId, message_id: messageId },
+        body: { conversation_id: conversationId, message_id: messageId, locale: browserLocale },
         signal, parseAs: 'blob', throwOnError: true,
       }))
       if (active.current !== job) return

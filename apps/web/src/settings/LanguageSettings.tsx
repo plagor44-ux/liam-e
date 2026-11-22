@@ -15,12 +15,12 @@ const choices: LocalePreference[] = ['browser', 'de', 'en']
 export function LanguageSettings() {
   const { texts } = useI18n()
   const query = useQuery(uiSettingsQuery())
-  return <section className="le-swipe" aria-labelledby="le-language-title">
+  return <><section className="le-swipe" aria-labelledby="le-language-title">
     <h2 id="le-language-title" className="heading">{texts.language.title}</h2>
     {query.data ? <LanguageForm settings={query.data} /> : query.isPending
       ? <p role="status">{texts.settingsUi.loading}</p>
       : <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void query.refetch() } }}>{texts.settingsUi.error}</Notice>}
-  </section>
+  </section>{query.data && <SpeechPaceForm settings={query.data} />}</>
 }
 
 function LanguageForm({ settings }: { settings: UiSettingsOut }) {
@@ -73,4 +73,41 @@ function LanguageForm({ settings }: { settings: UiSettingsOut }) {
     </Notice>}
     <div className="le-swipe-actions"><Button type="submit" variant="primary" disabled={!edit || busy || outcome === 'conflict'}>{texts.language.save}</Button></div>
   </form>
+}
+
+
+type Pace = 'slow' | 'normal' | 'fast'
+function SpeechPaceForm({ settings }: { settings: UiSettingsOut }) {
+  const { texts } = useI18n()
+  const client = useQueryClient()
+  const [edit, setEdit] = useState<{ pace: Pace; revision: number }>()
+  const [busy, setBusy] = useState(false)
+  const [outcome, setOutcome] = useState<'saved' | 'error' | 'conflict'>()
+  const saving = useRef(false)
+  const current = settings.speech_pace ?? 'normal'
+  const chosen = edit?.pace ?? current
+  async function save() {
+    if (!edit || saving.current || outcome === 'conflict') return
+    saving.current = true
+    setBusy(true); setOutcome(undefined)
+    try {
+      const result = await settingsUiUpdate({ body: { speech_pace: edit.pace, expected_revision: edit.revision } })
+      if (errorCode(result.error) === 'ui_settings_conflict') {
+        await client.refetchQueries({ queryKey: uiSettingsQuery().queryKey, exact: true }, { throwOnError: true })
+        setOutcome('conflict')
+      } else if (!result.data) setOutcome('error')
+      else { await cacheUiSettings(client, result.data); setEdit(undefined); setOutcome('saved') }
+    } catch { setOutcome('error') } finally { saving.current = false; setBusy(false) }
+  }
+  return <section className="le-swipe" aria-labelledby="le-pace-title"><h2 id="le-pace-title" className="heading">{texts.speechPace.title}</h2>
+    <form onSubmit={event => { event.preventDefault(); void save() }}>
+      <p className="le-swipe-intro">{texts.speechPace.description}</p>
+      <Menu trigger={props => <Chip {...props} quiet disabled={busy} aria-labelledby="le-pace-title le-pace-choice"><span id="le-pace-choice">{texts.speechPace.options[chosen]}</span><Icon name="chevron-down" size="sm" /></Chip>}
+        items={(['slow', 'normal', 'fast'] as Pace[]).map(pace => ({ label: texts.speechPace.options[pace], checked: pace === chosen, onSelect: () => { setEdit(pace === current ? undefined : { pace, revision: settings.revision }); setOutcome(undefined) } }))} />
+      {outcome === 'saved' && <Notice tone="success">{texts.speechPace.success}</Notice>}
+      {outcome === 'error' && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
+      {outcome === 'conflict' && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { setEdit(undefined); setOutcome(undefined) } }}>{texts.speechPace.conflict}</Notice>}
+      <div className="le-swipe-actions"><Button type="submit" variant="primary" disabled={!edit || busy || outcome === 'conflict'}>{texts.speechPace.save}</Button></div>
+    </form>
+  </section>
 }

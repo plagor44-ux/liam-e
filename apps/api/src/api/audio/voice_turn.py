@@ -3,6 +3,7 @@ import asyncio
 import base64
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, suppress
 
@@ -23,12 +24,18 @@ class VoiceRevoked(Exception):
     pass
 
 
-async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str) -> None:
+async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str, locale: str = "en", pace: str = "normal", stt_elapsed_ms: int | None = None, started_at: float | None = None) -> None:
     """Only deltas produced by this turn can enter the speech provider.
 
     Keep the socket open until the browser acknowledges playback completion, so revocation
     and window checks also cover audio already queued in the browser.
     """
+    started_at = started_at if started_at is not None else time.monotonic()
+    first_token_ms = first_sentence_ms = first_audio_ms = None
+    gap_ms = 0.0
+    audio_seconds = 0.0
+    characters = 0
+    last_audio_end = None
     sentences: asyncio.Queue[str | None] = asyncio.Queue(maxsize=16)
     send_lock = asyncio.Lock()
     done = None
@@ -44,7 +51,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
             raise VoiceRevoked()
 
     async def chat() -> None:
-        nonlocal done
+        nonlocal done, first_token_ms, first_sentence_ms, characters
         buffer = ''
         async for event in events:
             if event.event == 'error':
@@ -57,14 +64,18 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                 done = event
                 await send({'event': 'voice_text_done', 'conversation_id': event.conversation_id, 'message_id': event.message_id})
                 if buffer.strip():
+                    if first_sentence_ms is None: first_sentence_ms = (time.monotonic() - started_at) * 1000
                     await sentences.put(buffer)
                 await sentences.put(None)
                 return
             await send(event.model_dump(mode='json'))
             if event.event == 'delta':
+                if first_token_ms is None: first_token_ms = (time.monotonic() - started_at) * 1000
+                characters += len(event.text)
                 buffer += event.text
                 while match := _SENTENCE_END.search(buffer):
                     end = match.end()
+                    if first_sentence_ms is None: first_sentence_ms = (time.monotonic() - started_at) * 1000
                     await sentences.put(buffer[:end])
                     buffer = buffer[end:]
                 if len(buffer) > 16_384:
@@ -72,6 +83,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
         raise RuntimeError('voice_chat_incomplete')
 
     async def speech() -> None:
+        nonlocal first_audio_ms, gap_ms, audio_seconds, last_audio_end
         total = 0
         failed = False
         try:
@@ -79,16 +91,25 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
             if sentence is not None:
                 async with AsyncExitStack() as stack:
                     async with asyncio.timeout(15):
-                        session = await stack.enter_async_context(mistral_live('speech'))
+                        session = await stack.enter_async_context(mistral_live('speech', locale=locale))
                     while sentence is not None:
                         async with asyncio.timeout(60):
                             await check()
-                            await session.append(sentence)
+                            tag = {"slow": "[pace=slow]", "fast": "[pace=fast]", "normal": ""}[pace]
+                            await session.append(tag + sentence)
                             await session.finish()
+                            first_of_sentence = True
                             while True:
                                 audio = await session.receive()
                                 if audio is None:
                                     break
+                                now = time.monotonic()
+                                if first_audio_ms is None: first_audio_ms = (now - started_at) * 1000
+                                duration = len(audio) / 96000
+                                if first_of_sentence and last_audio_end is not None: gap_ms += max(0, now - last_audio_end) * 1000
+                                first_of_sentence = False
+                                last_audio_end = max(now, last_audio_end or now) + duration
+                                audio_seconds += duration
                                 total += len(audio)
                                 if total > _MAX_AUDIO:
                                     raise RuntimeError('voice_audio_limit')
@@ -143,5 +164,10 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
         for task in tasks:
             task.cancel()
         await asyncio.gather(completion, *tasks, return_exceptions=True)
+        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s',
+                  locale, pace, stt_elapsed_ms, round(first_token_ms) if first_token_ms is not None else None,
+                  round(first_sentence_ms) if first_sentence_ms is not None else None,
+                  round(first_audio_ms) if first_audio_ms is not None else None, round(gap_ms),
+                  round(audio_seconds / characters, 4) if characters else None)
         with suppress(Exception):
             await events.aclose()

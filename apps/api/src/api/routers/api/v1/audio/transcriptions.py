@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
+from api.locales import resolve_locale
 
 from api.audio.capabilities import audio_capabilities
 from api.audio.errors import NO_STORE, audio_error
@@ -49,6 +50,7 @@ async def transcribe(
                 raise audio_error("audio_rate_limited")
             async with validated_recording(request, capability.formats) as (upload, kind, request_id, language):
                 audio = await upload.read()
+            language = await resolve_locale(language)
             text, model = await provider.transcribe(audio, kind=kind, model=capability.model, language=language)
     except (SQLAlchemyError, OSError):
         raise audio_error("audio_unavailable") from None

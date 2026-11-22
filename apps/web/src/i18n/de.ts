@@ -294,6 +294,7 @@ export const de = {
     save: 'Sprache speichern', success: 'Sprache gespeichert.',
     conflict: (current: string) => `Die Einstellungen wurden inzwischen geändert. Gespeichert ist „${current}“. Prüfe deine Wahl, bevor du sie erneut speicherst.`,
   },
+  speechPace: { title: 'Sprechtempo', description: 'Wähle das Tempo der Sprachausgabe.', options: { slow: 'Langsam', normal: 'Normal', fast: 'Schnell' }, save: 'Tempo speichern', success: 'Tempo gespeichert.', conflict: 'Die Einstellungen wurden geändert. Lade sie neu und prüfe deine Wahl.' },
   rootScreens: {
     lang: 'de', missingChunkTitle: 'liam-e wurde aktualisiert',
     missingChunk: 'Lade die Seite neu, um die neue Version zu öffnen.', reload: 'Neu laden',

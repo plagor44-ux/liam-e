@@ -43,12 +43,14 @@ router = APIRouter(route_class=PrivateSettingsRoute, responses={
 
 SwipeAction = Literal['none', 'archive', 'toggle_read', 'trash']
 UiLocale = Literal['browser', 'de', 'en']
+SpeechPace = Literal['slow', 'normal', 'fast']
 
 
 class UiSettingsOut(BaseModel):
     swipe_left: SwipeAction
     swipe_right: SwipeAction
     locale: UiLocale
+    speech_pace: SpeechPace = 'normal'
     revision: int
     updated_at: datetime
 
@@ -62,10 +64,11 @@ class UiSettingsUpdate(BaseModel):
     swipe_left: SwipeAction | None = None
     swipe_right: SwipeAction | None = None
     locale: UiLocale | None = None
+    speech_pace: SpeechPace | None = None
 
     @model_validator(mode='after')
     def require_explicit_change(self):
-        fields = ('swipe_left', 'swipe_right', 'locale')
+        fields = ('swipe_left', 'swipe_right', 'locale', 'speech_pace')
         changed = self.model_fields_set.intersection(fields)
         if not changed or any(getattr(self, key) is None for key in changed):
             raise ValueError('ui_settings_invalid')
@@ -87,3 +90,19 @@ async def update_ui_settings(body: UiSettingsUpdate) -> UiSettingsOut:
     except ui_settings.StaleRevision:
         raise refuse(409, 'ui_settings_conflict', 'Die Einstellungen wurden inzwischen geändert. Lade sie neu und nimm deine Auswahl dann bewusst auf.') from None
     return UiSettingsOut.model_validate(row, from_attributes=True)
+
+
+class BrowserLocaleIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    locale: Literal['de', 'en']
+
+
+class BrowserLocaleOut(BaseModel):
+    confirmed: bool
+
+
+@router.post('/browser-locale', operation_id='settings_ui_browser_locale_confirm')
+async def confirm_browser_locale(body: BrowserLocaleIn) -> BrowserLocaleOut:
+    """Remember this browser hint for jobs without a browser request."""
+    await ui_settings.remember_browser_locale(body.locale)
+    return BrowserLocaleOut(confirmed=True)

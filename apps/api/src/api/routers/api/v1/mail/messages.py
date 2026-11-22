@@ -17,7 +17,7 @@ from db.models.mail_message import MailMessage
 from fastapi import APIRouter, HTTPException, Query
 
 from api.errors import refuse
-from api.locales import DEFAULT_LOCALE, Locale
+from api.locales import Locale
 from api.mail import actions, insights, original
 from api.mail.headers import sender_name
 from api.mail.state import color_indexes
@@ -146,7 +146,7 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
 
 
 @router.get("/{message_id}/insight", operation_id="mail_message_insight", summary="Get a concise mail insight")
-async def message_insight(message_id: str, locale: Locale = DEFAULT_LOCALE) -> InsightOut:
+async def message_insight(message_id: str, locale: Locale | None = None) -> InsightOut:
     """Return the cached insight or generate it for this message."""
     try:
         row = await insights.get_or_compute(message_id, locale=locale)

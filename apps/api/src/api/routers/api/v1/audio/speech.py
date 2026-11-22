@@ -3,7 +3,8 @@
 import asyncio
 from typing import Annotated
 
-from db.accessors import chat_context, chat_conversation, chat_message
+from db.accessors import chat_context, chat_conversation, chat_message, ui_settings
+from api.locales import Locale, resolve_locale
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,6 +26,7 @@ class SpeechReference(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: str = Field(min_length=1, max_length=200)
     message_id: str = Field(min_length=1, max_length=200)
+    locale: Locale | None = None
 
 
 async def _speech_reference(request: Request) -> SpeechReference:
@@ -98,5 +100,7 @@ async def synthesize(
     if len(text) > limits.max_input_characters:
         raise audio_error("audio_text_too_long")
 
-    audio = await provider.synthesize(text, model=capability.model, limits=limits)
+    locale = await resolve_locale(reference.locale)
+    pace = (await ui_settings.get_or_create()).speech_pace
+    audio = await provider.synthesize(text, model=capability.model, limits=limits, locale=locale, pace=pace)
     return Response(audio, media_type="audio/mpeg", headers=NO_STORE)

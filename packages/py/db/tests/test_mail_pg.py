@@ -344,3 +344,18 @@ def test_existing_insight_wins_across_concurrent_insight_requests(pg_db):
         assert results[0].points_json == results[1].points_json == (await mail_insight.get(message.id)).points_json
 
     asyncio.run(run())
+
+
+def test_insight_language_change_replaces_only_matching_body(pg_db):
+    async def run():
+        from db.accessors import mail_insight, mail_message
+        message = await mail_message.upsert_message(account_id='account', folder='INBOX', provider_uid='language', body_text='Synthetic')
+        async def store(locale, text, body='Synthetic'):
+            return await mail_insight.store_if_missing(message.id, points=[text], deadline=None, needs_reply=False, followups=[], model='test', summarized=body, locale=locale)
+        de = await store('de', 'Deutsch')
+        en = await store('en', 'English')
+        assert de.locale == 'de' and en.locale == 'en'
+        assert (await mail_insight.get(message.id)).points_json == '["English"]'
+        assert await store('de', 'stale', body='wrong body') is None
+        assert (await mail_insight.get(message.id)).locale == 'en'
+    asyncio.run(run())

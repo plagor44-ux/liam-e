@@ -11,11 +11,13 @@ import pytest
 from conftest import build_app
 
 
-def test_live_transcription_requires_owner_and_opt_in(monkeypatch):
+def test_live_transcription_requires_owner_and_opt_in(monkeypatch, ui_locale_in_browser_mode):
     from api.audio.access import get_audio_owner_verifier
     from env.audio import env
     from api.routers.api.v1.audio.live import transcription
 
+    ui_locale_in_browser_mode.return_value.locale = 'de'
+    selected = []
     class Provider:
         async def append(self, data): assert data == b'\x00\x01'
         async def receive(self):
@@ -23,8 +25,9 @@ def test_live_transcription_requires_owner_and_opt_in(monkeypatch):
             return {'type': 'turn.start', 'time_s': 1.0}
 
     @asynccontextmanager
-    async def fake_live(kind):
+    async def fake_live(kind, **kwargs):
         assert kind == 'transcription'
+        selected.append(kwargs['locale'])
         yield Provider()
 
     app = build_app()
@@ -44,10 +47,11 @@ def test_live_transcription_requires_owner_and_opt_in(monkeypatch):
         monkeypatch.setattr(env, 'audio_live_test_until', (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect('/api/v1/audio/live/transcription', headers={'origin': 'https://other.example'}): pass
-        with client.websocket_connect('/api/v1/audio/live/transcription', headers={'origin': 'https://test.example'}) as ws:
+        with client.websocket_connect('/api/v1/audio/live/transcription?locale=en', headers={'origin': 'https://test.example'}) as ws:
             ws.send_bytes(b'\x00\x01')
             assert ws.receive_json() == {'type': 'turn.start', 'time_s': 1.0}
             ws.close()
+        assert selected == ['de']
 
 
 @pytest.mark.anyio
@@ -68,7 +72,7 @@ async def test_reconnect_waits_for_previous_provider_cleanup(monkeypatch):
         async def receive(self): await asyncio.Future()
         async def append(self, value): pass
     @asynccontextmanager
-    async def fake_live(kind):
+    async def fake_live(kind, **kwargs):
         yield Provider()
     monkeypatch.setattr(transcription, 'mistral_live', fake_live)
     task = asyncio.create_task(transcription.transcribe(Socket()))
@@ -122,7 +126,7 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch):
                 return bytes(4)
             return None
     @asynccontextmanager
-    async def fake_live(kind): yield Provider()
+    async def fake_live(kind, **kwargs): yield Provider()
     async def fake_events(**kwargs):
         yield StartEvent(conversation_id='c', user_message_id='u', model='test')
         yield DeltaEvent(text='Hallo.')

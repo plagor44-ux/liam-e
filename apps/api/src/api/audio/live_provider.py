@@ -32,15 +32,18 @@ async def _send(socket: Any, value: dict) -> None:
 
 
 class LiveTranscription:
-    def __init__(self, socket: Any):
+    def __init__(self, socket: Any, locale: str = "en"):
+        if locale not in {"de", "en"}:
+            raise LiveAudioError()
         self.socket = socket
+        self.locale = locale
 
     async def start(self) -> None:
         if (await _event(self.socket)).get("type") != "session.created":
             raise LiveAudioError()
         await _send(self.socket, {"type": "session.update", "session": {
             "audio_format": {"encoding": "pcm_s16le", "sample_rate": 24000},
-            "target_streaming_delay_ms": 480, "turn_detection": {},
+            "target_streaming_delay_ms": 480, "turn_detection": {}, "language": self.locale,
         }})
         event = await _event(self.socket)
         settings = event.get("session")
@@ -78,19 +81,22 @@ MAX_SPEECH_BASE64 = 768_000  # six seconds of 24 kHz float32 PCM
 
 
 class LiveSpeech:
-    def __init__(self, socket: Any):
+    def __init__(self, socket: Any, locale: str = "en"):
+        if locale not in {"de", "en"}:
+            raise LiveAudioError()
         self.socket = socket
+        self.voice = "voice_481" if locale == "de" else "voice_478"
 
     async def start(self) -> None:
         if (await _event(self.socket)).get("type") != "session.created":
             raise LiveAudioError()
         await _send(self.socket, {"type": "session.update", "session": {
-            "voice": "voice_481", "response_format": "pcm", "streaming_mode": "responsive",
+            "voice": self.voice, "response_format": "pcm", "streaming_mode": "responsive",
         }})
         event = await _event(self.socket)
         settings = event.get("session")
         if (event.get("type") != "session.updated" or not isinstance(settings, dict)
-                or settings.get("response_format") != "pcm" or settings.get("voice") != "voice_481"):
+                or settings.get("response_format") != "pcm" or settings.get("voice") != self.voice):
             raise LiveAudioError()
 
     async def append(self, text: str) -> None:
@@ -119,7 +125,7 @@ class LiveSpeech:
 
 
 @asynccontextmanager
-async def mistral_live(kind: str) -> AsyncIterator[LiveTranscription | LiveSpeech]:
+async def mistral_live(kind: str, *, locale: str = "en") -> AsyncIterator[LiveTranscription | LiveSpeech]:
     if kind == "transcription":
         path, model, cls = "transcriptions", "voxtral-mini-transcribe-realtime-3", LiveTranscription
     elif kind == "speech":
@@ -131,6 +137,6 @@ async def mistral_live(kind: str) -> AsyncIterator[LiveTranscription | LiveSpeec
         additional_headers={"Authorization": f"Bearer {mistral_app_token()}"},
         proxy=None, max_size=MAX_SPEECH_EVENT if kind == "speech" else 128_000, open_timeout=10, close_timeout=3,
     ) as socket:
-        session = cls(socket)
+        session = cls(socket, locale)
         await session.start()
         yield session

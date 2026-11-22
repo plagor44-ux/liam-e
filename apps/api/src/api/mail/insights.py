@@ -74,7 +74,7 @@ async def compute_insight(message: MailMessage, *, today: date, locale: Locale =
     if not message.body_text.strip():
         # Without text the model could only guess from the subject (and did invent amounts and dates);
         # an empty insight keeps the box hidden. A later re-read of the body drops it again.
-        return _stored(await mail_insight.store_if_missing(message.id, points=[], deadline=None, needs_reply=False, followups=[], model="", summarized=message.body_text))
+        return _stored(await mail_insight.store_if_missing(message.id, points=[], deadline=None, needs_reply=False, followups=[], model="", summarized=message.body_text, locale=locale))
     if locale == "en":
         system = (
             "Summarize the email for its recipient. Return only a JSON object with "
@@ -116,7 +116,7 @@ async def compute_insight(message: MailMessage, *, today: date, locale: Locale =
             payload = InsightPayload.model_validate_json(response.choices[0].message.content)
         except (ValidationError, ValueError, TypeError):
             continue
-        return _stored(await mail_insight.store_if_missing(message.id, **payload.model_dump(), model=mail_env.mail_insight_model, summarized=message.body_text))
+        return _stored(await mail_insight.store_if_missing(message.id, **payload.model_dump(), model=mail_env.mail_insight_model, summarized=message.body_text, locale=locale))
     raise InsightError("Invalid insight response")
 
 
@@ -126,12 +126,12 @@ def _stored(insight: MailInsight | None) -> MailInsight:
     return insight
 
 
-async def get_or_compute(message_id: str, *, locale: Locale = DEFAULT_LOCALE, context_id: str | None = None) -> MailInsight:
+async def get_or_compute(message_id: str, *, locale: Locale | None = None, context_id: str | None = None) -> MailInsight:
+    locale = await resolve_locale(locale)
     if context_id is None:
         existing = await mail_insight.get(message_id)
-        if existing is not None:
+        if existing is not None and (existing.locale == locale or is_seed_account((await _message(message_id)).account_id)):
             return existing
-    locale = await resolve_locale(locale)
     retried = False
     while True:
         if context_id is not None:
@@ -139,13 +139,13 @@ async def get_or_compute(message_id: str, *, locale: Locale = DEFAULT_LOCALE, co
             if preview is None:
                 raise InsightContextRevoked
             message, existing = preview
-            if existing is not None:
+            if existing is not None and (existing.locale == locale or is_seed_account(message.account_id)):
                 return existing
         else:
             message = await _message(message_id)
             if message.id != message_id:
                 existing = await mail_insight.get(message.id)
-                if existing is not None:
+                if existing is not None and (existing.locale == locale or is_seed_account(message.account_id)):
                     return existing
         try:
             stored = await compute_insight(message, today=datetime.now(BERLIN).date(), locale=locale, context_id=context_id)
@@ -156,6 +156,8 @@ async def get_or_compute(message_id: str, *, locale: Locale = DEFAULT_LOCALE, co
                 raise InsightContextRevoked
             if current[1] is None:
                 raise InsightOutdated("Mail text changed while it was summarized")
+            if current[1].locale != locale:
+                raise InsightOutdated("Insight language changed while it was summarized")
             return current[1]
         except InsightOutdated:
             if retried:

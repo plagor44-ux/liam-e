@@ -251,6 +251,26 @@ export type AudioCapabilitiesOut = {
 };
 
 /**
+ * BrowserLocaleIn
+ */
+export type BrowserLocaleIn = {
+    /**
+     * Locale
+     */
+    locale: 'de' | 'en';
+};
+
+/**
+ * BrowserLocaleOut
+ */
+export type BrowserLocaleOut = {
+    /**
+     * Confirmed
+     */
+    confirmed: boolean;
+};
+
+/**
  * BulkMessageActionIn
  */
 export type BulkMessageActionIn = {
@@ -790,7 +810,7 @@ export type ChatStreamRequest = {
      *
      * Browser language when the saved setting follows the browser
      */
-    locale?: 'de' | 'en';
+    locale?: 'de' | 'en' | null;
     /**
      * Model
      *
@@ -827,6 +847,12 @@ export type ChatStreamRequest = {
      * Request a concise spoken response for this turn
      */
     voice_response?: boolean;
+    /**
+     * Voice Stt Elapsed Ms
+     *
+     * Content-free time from STT turn end to submit
+     */
+    voice_stt_elapsed_ms?: number | null;
     /**
      * Without Preferences
      */
@@ -874,7 +900,7 @@ export type ChatTurnRequest = {
      *
      * Browser language when the saved setting follows the browser
      */
-    locale?: 'de' | 'en';
+    locale?: 'de' | 'en' | null;
     /**
      * Message
      */
@@ -3914,6 +3940,10 @@ export type UiSettingsOut = {
      */
     revision: number;
     /**
+     * Speech Pace
+     */
+    speech_pace?: 'slow' | 'normal' | 'fast';
+    /**
      * Swipe Left
      */
     swipe_left: 'none' | 'archive' | 'toggle_read' | 'trash';
@@ -3941,6 +3971,10 @@ export type UiSettingsUpdate = {
      * Locale
      */
     locale?: 'browser' | 'de' | 'en' | null;
+    /**
+     * Speech Pace
+     */
+    speech_pace?: 'slow' | 'normal' | 'fast' | null;
     /**
      * Swipe Left
      */
@@ -4436,6 +4470,10 @@ export type AudioLiveSpeechData = {
          */
         conversation_id: string;
         /**
+         * Locale
+         */
+        locale?: 'de' | 'en' | null;
+        /**
          * Message Id
          */
         message_id: string;
@@ -4479,6 +4517,10 @@ export type AudioSpeechData = {
          * Conversation Id
          */
         conversation_id: string;
+        /**
+         * Locale
+         */
+        locale?: 'de' | 'en' | null;
         /**
          * Message Id
          */
@@ -5822,7 +5864,7 @@ export type MailMessageInsightData = {
         /**
          * Locale
          */
-        locale?: 'de' | 'en';
+        locale?: 'de' | 'en' | null;
     };
     url: '/api/v1/mail/messages/{message_id}/insight';
 };
@@ -6524,6 +6566,33 @@ export type SettingsUiUpdateResponses = {
 };
 
 export type SettingsUiUpdateResponse = SettingsUiUpdateResponses[keyof SettingsUiUpdateResponses];
+
+export type SettingsUiBrowserLocaleConfirmData = {
+    body: BrowserLocaleIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/ui/browser-locale';
+};
+
+export type SettingsUiBrowserLocaleConfirmErrors = {
+    /**
+     * Expected revision is stale
+     */
+    409: unknown;
+    /**
+     * Invalid fields; the rejected payload is not echoed
+     */
+    422: unknown;
+};
+
+export type SettingsUiBrowserLocaleConfirmResponses = {
+    /**
+     * Successful Response
+     */
+    200: BrowserLocaleOut;
+};
+
+export type SettingsUiBrowserLocaleConfirmResponse = SettingsUiBrowserLocaleConfirmResponses[keyof SettingsUiBrowserLocaleConfirmResponses];
 
 export type SkillsListData = {
     body?: never;

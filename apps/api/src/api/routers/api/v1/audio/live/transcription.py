@@ -6,6 +6,7 @@ from fastapi import APIRouter, WebSocket
 
 from api.audio.live_access import live_remaining
 from api.audio.live_provider import mistral_live
+from api.locales import resolve_locale
 
 router = APIRouter()
 _slot = asyncio.Semaphore(1)
@@ -33,12 +34,17 @@ async def transcribe(websocket: WebSocket) -> None:
             await websocket.send_json(await session.receive())
 
     try:
+        hint = getattr(websocket, "query_params", {}).get("locale")
+        if hint not in {None, "de", "en"}:
+            await websocket.close(code=1008)
+            return
+        locale = await resolve_locale(hint)
         remaining = live_remaining(websocket)
         if not remaining:
             await websocket.close(code=1008)
             return
         await websocket.accept()
-        async with asyncio.timeout(min(600, remaining)), mistral_live('transcription') as session:
+        async with asyncio.timeout(min(600, remaining)), mistral_live('transcription', locale=locale) as session:
             tasks = [asyncio.create_task(upload(session)), asyncio.create_task(download(session))]
             try:
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from typing import Literal
 from pydantic import BaseModel, Field
 from api.errors import quiet_validation_route, refuse
-from api.locales import DEFAULT_LOCALE, Locale
+from api.locales import Locale
 from api.mail import agent
 from api.mail.models_catalog import list_chat_models, require_available_model
 from . import schemas
@@ -21,7 +21,7 @@ class ChatTurnRequest(BaseModel):
     skill_id: str | None = Field(default=None, max_length=100)
     skill_revision_id: str | None = Field(default=None, max_length=100)
     without_preferences: bool = False
-    locale: Locale = Field(default=DEFAULT_LOCALE, description="Browser language when the saved setting follows the browser")
+    locale: Locale | None = Field(default=None, description="Browser language when the saved setting follows the browser")
     model: str | None = None
     context_message_id: str | None = None
     context_occurrence_id: str | None = None

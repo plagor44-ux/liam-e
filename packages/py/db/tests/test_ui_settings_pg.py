@@ -110,3 +110,19 @@ def test_language_updates_share_revision_without_overwriting_swipes(pg_db):
         assert (await settings.get_or_create()).locale == 'browser'
 
     asyncio.run(run())
+
+
+def test_speech_pace_revision_and_browser_hint_are_independent(pg_db):
+    async def run():
+        from db.accessors import ui_settings as settings
+        row = await settings.get_or_create()
+        assert row.speech_pace == 'normal' and row.browser_locale is None
+        await settings.remember_browser_locale('de')
+        after = await settings.get_or_create()
+        assert after.browser_locale == 'de' and after.revision == row.revision
+        with pytest.raises(ValueError): await settings.remember_browser_locale('fr')
+        with pytest.raises(ValueError): await settings.update(row.revision, speech_pace='faster')
+        updated = await settings.update(row.revision, speech_pace='fast')
+        assert updated.speech_pace == 'fast' and updated.browser_locale == 'de'
+        with pytest.raises(settings.StaleRevision): await settings.update(row.revision, speech_pace='slow')
+    asyncio.run(run())

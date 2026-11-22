@@ -51,7 +51,7 @@ type Props = {
 }
 
 export function AudioRecorder({ format, limits, disabled, onLock, onTranscript, submit = transcribe, copy }: Props) {
-  const { texts, locale } = useI18n()
+  const { texts, browserLocale } = useI18n()
   const notices = copy ?? texts.audio
   const [phase, setPhase] = useState<Phase>('idle')
   const [notice, setNotice] = useState('')
@@ -104,7 +104,7 @@ export function AudioRecorder({ format, limits, disabled, onLock, onTranscript, 
       const requestId = crypto.randomUUID()
       const extension = format.startsWith('audio/mp4') ? 'mp4' : 'webm'
       const file = new File([capture.file], 'recording.' + extension, { type: capture.file.type })
-      const result = await submit({ file, request_id: requestId, language: locale }, controller.signal)
+      const result = await submit({ file, request_id: requestId, language: browserLocale }, controller.signal)
       if (active.current !== capture) return
       if (result.request_id !== requestId || !result.text.trim()) {
         fail(texts.errors.audio_empty)

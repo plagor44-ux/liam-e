@@ -388,6 +388,37 @@
         "title": "AudioCapabilitiesOut",
         "type": "object"
       },
+      "BrowserLocaleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "locale": {
+            "enum": [
+              "de",
+              "en"
+            ],
+            "title": "Locale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "locale"
+        ],
+        "title": "BrowserLocaleIn",
+        "type": "object"
+      },
+      "BrowserLocaleOut": {
+        "properties": {
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmed"
+        ],
+        "title": "BrowserLocaleOut",
+        "type": "object"
+      },
       "BulkMessageActionIn": {
         "additionalProperties": false,
         "properties": {
@@ -1439,14 +1470,20 @@
             "title": "Expected Mail Scope Version"
           },
           "locale": {
-            "default": "en",
-            "description": "Browser language when the saved setting follows the browser",
-            "enum": [
-              "de",
-              "en"
+            "anyOf": [
+              {
+                "enum": [
+                  "de",
+                  "en"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Locale",
-            "type": "string"
+            "description": "Browser language when the saved setting follows the browser",
+            "title": "Locale"
           },
           "model": {
             "anyOf": [
@@ -1530,6 +1567,20 @@
             "description": "Request a concise spoken response for this turn",
             "title": "Voice Response",
             "type": "boolean"
+          },
+          "voice_stt_elapsed_ms": {
+            "anyOf": [
+              {
+                "maximum": 60000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content-free time from STT turn end to submit",
+            "title": "Voice Stt Elapsed Ms"
           },
           "without_preferences": {
             "default": false,
@@ -1618,14 +1669,20 @@
             "title": "Expected Mail Scope Version"
           },
           "locale": {
-            "default": "en",
-            "description": "Browser language when the saved setting follows the browser",
-            "enum": [
-              "de",
-              "en"
+            "anyOf": [
+              {
+                "enum": [
+                  "de",
+                  "en"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Locale",
-            "type": "string"
+            "description": "Browser language when the saved setting follows the browser",
+            "title": "Locale"
           },
           "message": {
             "maxLength": 8000,
@@ -7133,6 +7190,16 @@
             "title": "Revision",
             "type": "integer"
           },
+          "speech_pace": {
+            "default": "normal",
+            "enum": [
+              "slow",
+              "normal",
+              "fast"
+            ],
+            "title": "Speech Pace",
+            "type": "string"
+          },
           "swipe_left": {
             "enum": [
               "none",
@@ -7193,6 +7260,22 @@
               }
             ],
             "title": "Locale"
+          },
+          "speech_pace": {
+            "anyOf": [
+              {
+                "enum": [
+                  "slow",
+                  "normal",
+                  "fast"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speech Pace"
           },
           "swipe_left": {
             "anyOf": [
@@ -8105,6 +8188,21 @@
                     "title": "Conversation Id",
                     "type": "string"
                   },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "de",
+                          "en"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Locale"
+                  },
                   "message_id": {
                     "maxLength": 200,
                     "minLength": 1,
@@ -8171,6 +8269,21 @@
                     "minLength": 1,
                     "title": "Conversation Id",
                     "type": "string"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "de",
+                          "en"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Locale"
                   },
                   "message_id": {
                     "maxLength": 200,
@@ -10178,13 +10291,19 @@
             "name": "locale",
             "required": false,
             "schema": {
-              "default": "en",
-              "enum": [
-                "de",
-                "en"
+              "anyOf": [
+                {
+                  "enum": [
+                    "de",
+                    "en"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "title": "Locale",
-              "type": "string"
+              "title": "Locale"
             }
           }
         ],
@@ -11079,6 +11198,41 @@
           }
         },
         "summary": "Update Ui Settings"
+      }
+    },
+    "/api/v1/settings/ui/browser-locale": {
+      "post": {
+        "description": "Remember this browser hint for jobs without a browser request.",
+        "operationId": "settings_ui_browser_locale_confirm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserLocaleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserLocaleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Expected revision is stale"
+          },
+          "422": {
+            "description": "Invalid fields; the rejected payload is not echoed"
+          }
+        },
+        "summary": "Confirm Browser Locale"
       }
     },
     "/api/v1/skills": {

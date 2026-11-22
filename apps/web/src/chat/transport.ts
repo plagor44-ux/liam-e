@@ -56,13 +56,19 @@ export type VoiceAudio = { push: (data: string) => void; end: () => Promise<void
 export async function* streamVoiceChatTurn(body: ChatStreamRequest, signal: AbortSignal, audio: VoiceAudio): AsyncIterable<ChatEvent | VoiceTextDone> {
   const url = new URL(`${apiBaseUrl()}/api/v1/audio/live/turn`, window.location.href)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const openedAt = performance.now()
   const socket = new WebSocket(url)
   const pending: (ChatEvent | VoiceTextDone | VoiceRefusal)[] = []
   let wake: (() => void) | undefined, closed = false, terminal = false
   const notify = () => { wake?.(); wake = undefined }
   const abort = () => { closed = true; socket.close(); notify() }
   signal.addEventListener('abort', abort, { once: true })
-  socket.onopen = () => { if (!signal.aborted) socket.send(JSON.stringify(body)) }
+  socket.onopen = () => {
+    if (!signal.aborted) {
+      const elapsed = body.voice_stt_elapsed_ms
+      socket.send(JSON.stringify({ ...body, ...(elapsed == null ? {} : { voice_stt_elapsed_ms: Math.min(60000, elapsed + Math.round(performance.now() - openedAt)) }) }))
+    }
+  }
   socket.onmessage = message => {
     try {
       const event = JSON.parse(message.data)

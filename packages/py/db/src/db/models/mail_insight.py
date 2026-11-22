@@ -16,5 +16,6 @@ class MailInsight(SQLModel, table=True):
     deadline: date | None = None
     needs_reply: bool = False
     followups_json: str = "[]"
+    locale: str | None = None
     model: str
     created_at: datetime = Field(default_factory=utcnow, sa_column=utc_datetime_column())

@@ -10,7 +10,7 @@ import { createLiveVoice } from './live-voice'
 import type { VoiceAudio } from './transport'
 
 type Reply = { conversationId: string; messageId: string }
-type Props = { conversationId: string; disabled: boolean; contextKey: string; send: (text: string, audio?: VoiceAudio) => Promise<Reply | undefined>; stopChat: () => void; registerStop: (stop: (() => void) | null) => void; onStart?: () => void }
+type Props = { conversationId: string; disabled: boolean; contextKey: string; send: (text: string, audio?: VoiceAudio, sttElapsedMs?: number) => Promise<Reply | undefined>; stopChat: () => void; registerStop: (stop: (() => void) | null) => void; onStart?: () => void }
 
 // Transcription input is signed 16-bit little-endian mono at 24 kHz.
 function pcm(input: Float32Array, inputRate: number): ArrayBuffer {
@@ -23,9 +23,9 @@ function pcm(input: Float32Array, inputRate: number): ArrayBuffer {
   return output
 }
 
-export async function playReply(context: AudioContext, reply: Reply, signal: AbortSignal) {
+export async function playReply(context: AudioContext, reply: Reply, signal: AbortSignal, locale?: 'de' | 'en') {
   // The generated schema describes binary output as Blob, but parseAs: stream returns response.body.
-  const stream = await unwrap(audioLiveSpeech({ body: { conversation_id: reply.conversationId, message_id: reply.messageId }, parseAs: 'stream', signal, throwOnError: true })) as unknown as ReadableStream<Uint8Array> | null
+  const stream = await unwrap(audioLiveSpeech({ body: { conversation_id: reply.conversationId, message_id: reply.messageId, ...(locale ? { locale } : {}) }, parseAs: 'stream', signal, throwOnError: true })) as unknown as ReadableStream<Uint8Array> | null
   if (!stream) throw new Error('audio_unavailable')
   return playPcm(context, stream, signal)
 }
@@ -89,7 +89,7 @@ function liveAudio(context: AudioContext, signal: AbortSignal, onPlaying: () => 
 }
 
 export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat, registerStop, onStart }: Props) {
-  const { texts } = useI18n()
+  const { texts, locale, browserLocale } = useI18n()
   const [available, setAvailable] = useState(false)
   const [state, setState] = useState<'idle' | 'starting' | 'listening' | 'answering' | 'speaking' | 'resuming' | 'error'>('idle')
   const active = useRef<{ stop: () => void; interrupt: () => void } | null>(null)
@@ -105,7 +105,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     void unwrap(audioLiveStatus({ signal: controller.signal, throwOnError: true })).then(result => { if (!controller.signal.aborted) setAvailable(result.available === true) }).catch(() => {})
     return () => controller.abort()
   }, [])
-  useEffect(() => () => stop(), [contextKey, stop])
+  useEffect(() => () => stop(), [contextKey, stop, locale, browserLocale])
   useEffect(() => { const hidden = () => { if (document.hidden) stop() }; document.addEventListener('visibilitychange', hidden); return () => document.removeEventListener('visibilitychange', hidden) }, [stop])
   const shown = state !== 'idle' && state !== 'error'
   const trap = useFocusTrap(shown, stop)
@@ -122,7 +122,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     const openSocket = async () => {
       await socketClosed
       if (active.current !== session) return
-      const url = new URL(`${apiBaseUrl()}/api/v1/audio/live/transcription`, window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+      const url = new URL(`${apiBaseUrl()}/api/v1/audio/live/transcription`, window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('locale', browserLocale)
       const candidate = new WebSocket(url); socket = candidate; candidate.binaryType = 'arraybuffer'
       let closed!: () => void
       let opened = false
@@ -145,9 +145,9 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
           await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)))
         }
       },
-      send: async (text, _conversation, audio) => { const result = await current.current.send(text, audio); if (!result) throw new Error('chat_failed'); return result },
+      send: async (text, _conversation, audio, sttElapsedMs) => { const result = await current.current.send(text, audio, sttElapsedMs); if (!result) throw new Error('chat_failed'); return result },
       startLiveAudio: signal => liveAudio(context!, signal, () => { if (!signal.aborted) setState('speaking') }),
-      speak: (reply, signal) => playReply(context!, reply, signal), stopChat: () => current.current.stopChat(),
+      speak: (reply, signal) => playReply(context!, reply, signal, browserLocale), stopChat: () => current.current.stopChat(),
       onState: next => { if (next === 'error') { stop(); setState('error') } else setState(next) } })
     active.current = session
     try {

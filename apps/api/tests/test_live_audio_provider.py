@@ -20,11 +20,11 @@ class Socket:
 
 async def test_transcription_configures_pcm_and_forwards_bounded_audio():
     socket = Socket([{"type": "session.created"}, {"type": "session.updated", "session": {"audio_format": {"encoding": "pcm_s16le", "sample_rate": 24000}, "turn_detection": {}}}, {"type": "turn.start", "time_s": 1.0}, {"type": "transcription.text.delta", "text": "Hallo"}])
-    session = LiveTranscription(socket)
+    session = LiveTranscription(socket, "de")
     await session.start()
     await session.append(b"\x00\x01")
     assert socket.sent == [
-        {"type": "session.update", "session": {"audio_format": {"encoding": "pcm_s16le", "sample_rate": 24000}, "target_streaming_delay_ms": 480, "turn_detection": {}}},
+        {"type": "session.update", "session": {"audio_format": {"encoding": "pcm_s16le", "sample_rate": 24000}, "target_streaming_delay_ms": 480, "turn_detection": {}, "language": "de"}},
         {"type": "input_audio.append", "audio": "AAE="},
     ]
     assert await session.receive() == {"type": "turn.start", "time_s": 1.0}
@@ -35,7 +35,7 @@ async def test_transcription_configures_pcm_and_forwards_bounded_audio():
 
 async def test_speech_streams_validated_audio_and_does_not_echo_provider_error():
     socket = Socket([{"type": "session.created"}, {"type": "session.updated", "session": {"response_format": "pcm", "voice": "voice_481"}}, {"type": "speech.audio.delta", "audio_data": "AAA="}, {"type": "speech.audio.delta", "audio_data": "AD8="}, {"type": "error", "error": {"message": "private content"}}])
-    session = LiveSpeech(socket)
+    session = LiveSpeech(socket, "de")
     await session.start()
     await session.append("Hallo")
     await session.finish()
@@ -75,10 +75,10 @@ async def test_speech_failure_logs_only_safe_classification(monkeypatch, caplog)
         async def finish(self): pass
         async def receive(self): raise ValueError('private provider contents')
     @asynccontextmanager
-    async def fake_live(kind):
+    async def fake_live(kind, **kwargs):
         yield Provider()
     monkeypatch.setattr(speech, 'live_remaining', lambda _: 60)
-    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=object()))
+    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=speech.SpeechReference(conversation_id='c', message_id='m')))
     monkeypatch.setattr(speech, '_visible_reply', AsyncMock(return_value='Synthetic response'))
     monkeypatch.setattr(speech, 'mistral_live', fake_live)
     response = await speech.synthesize(object())
@@ -87,3 +87,19 @@ async def test_speech_failure_logs_only_safe_classification(monkeypatch, caplog)
     assert 'code=stream_failure class=ValueError' in caplog.text
     assert 'private provider contents' not in caplog.text
     assert 'Synthetic response' not in caplog.text
+
+@pytest.mark.parametrize(('locale', 'voice'), [('de', 'voice_481'), ('en', 'voice_478')])
+async def test_language_and_voice_are_fixed_before_audio(locale, voice):
+    transcription = Socket([{'type': 'session.created'}, {'type': 'session.updated', 'session': {'audio_format': {'encoding': 'pcm_s16le', 'sample_rate': 24000}, 'turn_detection': {}}}])
+    session = LiveTranscription(transcription, locale)
+    await session.start()
+    await session.append(b'\x00\x01')
+    assert transcription.sent[0]['session']['language'] == locale
+    assert [event['type'] for event in transcription.sent] == ['session.update', 'input_audio.append']
+    speech = Socket([{'type': 'session.created'}, {'type': 'session.updated', 'session': {'response_format': 'pcm', 'voice': voice}}])
+    await LiveSpeech(speech, locale).start()
+    assert speech.sent[0]['session']['voice'] == voice
+
+async def test_invalid_live_language_is_rejected():
+    with pytest.raises(LiveAudioError):
+        LiveTranscription(Socket([]), 'fr')

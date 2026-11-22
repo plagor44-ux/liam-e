@@ -66,3 +66,21 @@ test('a stale English mirror stays separate from the German browser hint until s
   expect(await screen.findByText('de/de')).toBeTruthy()
   await waitFor(() => expect(document.cookie).not.toContain(LOCALE_COOKIE + '=en'))
 })
+
+test('speech speed saves the selected value with the confirmed revision', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, speech_pace: 'fast', revision: 2 } } as never)
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /Sprechtempo Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Tempo speichern' }))
+  await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ speech_pace: 'fast', expected_revision: 1 }))
+  expect(await screen.findByText('Tempo gespeichert.')).toBeTruthy()
+})
+
+test('a confirmed settings read reports the browser language for background jobs', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
+  const confirm = spyOn(sdk, 'settingsUiBrowserLocaleConfirm').mockResolvedValue({ data: { confirmed: true } } as never)
+  open()
+  await waitFor(() => expect(confirm.mock.calls[0]?.[0]?.body).toEqual({ locale: 'de' }))
+})

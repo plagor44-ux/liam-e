@@ -14,7 +14,6 @@ from utils.mistral import MistralNotConfiguredError, mistral_app_token
 
 _TRANSCRIPTION_TIMEOUT = 20
 _MAX_TRANSCRIPTION_RESPONSE = 256 * 1024
-_SPEECH_PRESET = "voice_481"
 
 
 async def _audio_request(path: str, *, timeout: int, max_response_bytes: int, **payload: Any) -> dict:
@@ -70,11 +69,13 @@ class MistralAudio:
             raise audio_error("audio_empty")
         return text.strip(), reported_model
 
-    async def synthesize(self, text: str, *, model: str, limits: SpeechLimitsOut) -> bytes:
+    async def synthesize(self, text: str, *, model: str, limits: SpeechLimitsOut, locale: str = "en", pace: str = "normal") -> bytes:
+        voice = "voice_481" if locale == "de" else "voice_478"
+        text = {"slow": "[pace=slow]", "fast": "[pace=fast]", "normal": ""}[pace] + text
         encoded_limit = 4 * ((limits.max_response_bytes + 2) // 3)
         result = await _audio_request(
             "/v1/audio/speech", timeout=limits.timeout_seconds, max_response_bytes=encoded_limit + 8192,
-            json={"input": text, "model": model, "voice_id": _SPEECH_PRESET, "response_format": "mp3"},
+            json={"input": text, "model": model, "voice_id": voice, "response_format": "mp3"},
         )
         encoded = result.get("audio_data")
         if not isinstance(encoded, str) or len(encoded) > encoded_limit:

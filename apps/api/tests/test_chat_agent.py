@@ -307,7 +307,7 @@ async def test_system_prompt_contains_tone_and_safety_rules():
     assert 'drei' in prompt
     from api.mail.agent_prompt import TERMS_AND_FORMATS
     assert TERMS_AND_FORMATS in prompt
-    for text in ('Diese Regeln gelten für Antworten an den Nutzer.', 'Schreibe du und dein klein.', 'Sprache und Anrede der ursprünglichen Mail', 'mit Anrede und Grußformel', 'frag danach, bevor du create_draft aufrufst', 'erfinde nie eine Adresse', 'Nach propose_action oder create_draft ist noch nichts geschehen', 'erst nach Bestätigung', 'Infinitiv mit Objekt und einem bis vier Wörtern', 'niemals als Fragen', 'Biete auch im Text nichts als Frage an.', '„Gerne“', '„Natürlich“', '„Ich hoffe, das hilft“', 'Begrüßungen nach Tageszeit'):
+    for text in ('Diese Regeln gelten für Antworten an den Nutzer.', 'Schreibe du und dein klein.', 'Anrede der ursprünglichen Mail', 'mit Anrede und Grußformel', 'frag danach, bevor du create_draft aufrufst', 'erfinde nie eine Adresse', 'Nach propose_action oder create_draft ist noch nichts geschehen', 'erst nach Bestätigung', 'Infinitiv mit Objekt und einem bis vier Wörtern', 'niemals als Fragen', 'Biete auch im Text nichts als Frage an.', '„Gerne“', '„Natürlich“', '„Ich hoffe, das hilft“', 'Begrüßungen nach Tageszeit'):
         assert text in prompt
     for text in ('Entwurf statt Draft', 'abrufen statt synchronisieren', 'in den Papierkorb legen statt löschen', 'abbestellen statt abmelden', 'bestätigen statt zustimmen', 'Mail statt E-Mail', 'Konto statt Account oder Postfach', 'Freitag, 21. November', '8:57 Uhr', '184,20 €', '2.314', 'Zahlen bis zwölf', '„…“', '„–“'):
         assert text in TERMS_AND_FORMATS
@@ -514,15 +514,14 @@ async def test_chat_turn_still_returns_messages(store, monkeypatch):
     ('en', 'Englisch', 'Was ist heute fällig?'),
     ('de', 'Deutsch', 'What is due today?'),
 ])
-async def test_current_user_language_instruction_takes_priority_over_ui_locale(store, monkeypatch, locale, fallback, message):
+async def test_app_locale_takes_priority_over_current_message_language(store, monkeypatch, locale, fallback, message):
     fake = FakeMistral(streams=[['Example answer']])
     monkeypatch.setattr(agent, 'mistral_client', lambda: fake)
     events = [event async for event in agent.run_turn_events(conversation_id=None, text=message, locale=locale)]
     sent = fake.requests[0]['messages']
     assert sent[-1]['content'] == message
-    assert 'Antworte in der Sprache des aktuellen eigenen Beitrags des Nutzers.' in sent[0]['content']
-    assert f'unklar ist, antworte auf {fallback}' in sent[0]['content']
-    assert 'Sprache und Anrede der ursprünglichen Mail' in sent[0]['content']
+    assert f'Antworte immer auf {fallback} (aktive App-Sprache)' in sent[0]['content']
+    assert f'Schreibe Mails für create_draft auf {fallback}' in sent[0]['content']
     assert events[-1].event == 'done'
 
 
@@ -530,7 +529,7 @@ async def test_current_user_language_instruction_takes_priority_over_ui_locale(s
 async def test_saved_locale_is_used_as_chat_fallback_for_missing_or_stale_hints(store, monkeypatch, ui_locale_in_browser_mode, hint):
     ui_locale_in_browser_mode.return_value.locale = "de"
     _, fake = await run(store, monkeypatch, [["Example answer"]], **hint)
-    assert "unklar ist, antworte auf Deutsch" in fake.requests[0]["messages"][0]["content"]
+    assert "Antworte immer auf Deutsch" in fake.requests[0]["messages"][0]["content"]
     ui_locale_in_browser_mode.assert_awaited_once()
 
 
@@ -984,7 +983,7 @@ async def test_calendar_edit_does_not_set_a_target_for_the_next_create(store, mo
 
 
 async def test_voice_response_prompt_preserves_scope_rules_and_current_user_text(store, monkeypatch):
-    events, fake = await run(store, monkeypatch, [['Neue Antwort.']], voice_response=True)
+    events, fake = await run(store, monkeypatch, [['Neue Antwort.']], voice_response=True, locale='de')
     messages = fake.requests[0]['messages']
     assert 'ein bis drei kurzen' in messages[0]['content']
     assert 'Bestätigung' in messages[0]['content']

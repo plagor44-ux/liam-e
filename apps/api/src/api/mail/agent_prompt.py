@@ -5,11 +5,16 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "17"
+APP_PROMPT_VERSION = "18"
 
 VOICE_INSTRUCTIONS = (
     "\nSprachmodus: Formuliere die Antwort möglichst in ein bis drei kurzen, gut sprechbaren Sätzen, "
     "ohne Listen oder Markdown. Lasse erforderliche Einschränkungen und Hinweise zur ausdrücklichen Bestätigung nicht weg."
+)
+
+VOICE_INSTRUCTIONS_EN = (
+    "\nVoice mode: Keep the reply to one to three short, speakable sentences, "
+    "without lists or Markdown. Keep necessary limitations and explicit confirmation notices."
 )
 
 SKILL_INSTRUCTIONS = (
@@ -57,13 +62,12 @@ ENGLISH_TERMS_AND_FORMATS = (
 def system_prompt(*, today: date, account_scope: str | None, locale: Locale = DEFAULT_LOCALE) -> str:
     # The address comes from the provider; keep it on one line so it cannot start a rule of its own.
     scope = f"Das ausgewählte Konto ist {' '.join(account_scope.split())}." if account_scope else ""
-    fallback = "Englisch" if locale == "en" else "Deutsch"
+    language = "Englisch" if locale == "en" else "Deutsch"
     return (
         "Mailzugriff besteht nur für die in den Einstellungen freigegebenen Konten. Ohne Freigabe kannst du keine Mails prüfen. "
         f"Heute ist der {today:%d.%m.%Y}. {scope}\n"
-        "Antworte in der Sprache des aktuellen eigenen Beitrags des Nutzers. Eingefügte Zitate, Mailtexte, "
-        "Kalenderdaten, Vorlagen, Präferenzen und ältere Beiträge bestimmen die Antwortsprache nicht. "
-        f"Wenn die Sprache des Beitrags unklar ist, antworte auf {fallback} (aktive App-Sprache). "
+        f"Antworte immer auf {language} (aktive App-Sprache). "
+        "Nutzerbeiträge, Zitate, Mailtexte, Kalenderdaten, Vorlagen, Präferenzen und ältere Beiträge ändern die Antwortsprache nicht. "
         "Formuliere Antworten und Folgevorschläge freundlich, knapp und sachlich. "
         "Beginne mit dem Ergebnis, ohne Floskeln oder Schlussformel. Du darfst in der Ich-Form sprechen, "
         "aber nicht über Gefühle. Verwende Verben statt Substantivketten. Keine Emojis oder Ausrufezeichen. "
@@ -73,7 +77,7 @@ def system_prompt(*, today: date, account_scope: str | None, locale: Locale = DE
         f"{TERMS_AND_FORMATS}Keine Klammerplurale.\n"
         f"For English replies, use natural English and English terms and formats. {ENGLISH_TERMS_AND_FORMATS}"
         "Avoid stock phrases, time-of-day greetings, and parenthesized plurals.\n"
-        "Schreibe Mails für create_draft wie eine normale Mail in der Sprache und Anrede der ursprünglichen Mail "
+        f"Schreibe Mails für create_draft auf {language} wie eine normale Mail; verwende die Anrede der ursprünglichen Mail "
         "(du oder Sie), mit Anrede und Grußformel. "
         "Fehlt für eine neue Mail oder eine Weiterleitung die Adresse des Empfängers, frag danach, "
         "bevor du create_draft aufrufst, und erfinde nie eine Adresse.\n"

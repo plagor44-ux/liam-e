@@ -10,9 +10,9 @@ from db.accessors import ui_settings as access
 from db.models.ui_settings import UiSettings
 
 
-def row(revision=1, swipe_left='archive', swipe_right='toggle_read', locale='browser') -> UiSettings:
+def row(revision=1, swipe_left='archive', swipe_right='toggle_read', locale='browser', speech_pace='normal') -> UiSettings:
     return UiSettings(id='ui', owner_scope='installation', swipe_left=swipe_left,
-                      swipe_right=swipe_right, locale=locale, revision=revision, updated_at=datetime.now(timezone.utc))
+                      swipe_right=swipe_right, locale=locale, speech_pace=speech_pace, revision=revision, updated_at=datetime.now(timezone.utc))
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def test_get_returns_the_canonical_first_configuration(client):
     assert body['revision'] == 1
     assert datetime.fromisoformat(body['updated_at']).tzinfo is not None
     assert body['locale'] == 'browser'
-    assert set(body) == {'swipe_left', 'swipe_right', 'locale', 'revision', 'updated_at'}
+    assert set(body) == {'swipe_left', 'swipe_right', 'locale', 'speech_pace', 'revision', 'updated_at'}
 
 
 def test_patch_applies_valid_actions_and_bumps_the_revision(client):
@@ -53,6 +53,8 @@ def test_patch_language_only_keeps_the_swipe_settings(client, locale):
 
 @pytest.mark.parametrize('payload', [
     {'expected_revision': 1, 'locale': 'fr'},
+    {'expected_revision': 1, 'speech_pace': 'faster'},
+    {'expected_revision': 1, 'speech_pace': None},
     {'expected_revision': 1, 'locale': None},
     {'expected_revision': 1, 'locale': 'en', 'owner_scope': 'untrusted'},
     {'expected_revision': 1, 'swipe_left': 'spam'},
@@ -84,3 +86,17 @@ def test_database_failures_answer_503(client, monkeypatch):
     monkeypatch.setattr(access, 'update', AsyncMock(side_effect=OperationalError('down', None, Exception())))
     assert client.get('/api/v1/settings/ui').status_code == 503
     assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'swipe_left': 'trash'}).status_code == 503
+
+
+@pytest.mark.parametrize('pace', ['slow', 'normal', 'fast'])
+def test_pace_is_revision_guarded(client, pace):
+    response = client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'speech_pace': pace})
+    assert response.status_code == 200 and response.json()['speech_pace'] == pace
+    access.update.assert_awaited_once_with(1, speech_pace=pace)
+
+
+def test_browser_locale_confirmation_validates_hint(client):
+    response = client.post('/api/v1/settings/ui/browser-locale', json={'locale': 'de'})
+    assert response.status_code == 200 and response.json() == {'confirmed': True}
+    access.remember_browser_locale.assert_awaited_once_with('de')
+    assert client.post('/api/v1/settings/ui/browser-locale', json={'locale': 'fr'}).status_code == 422

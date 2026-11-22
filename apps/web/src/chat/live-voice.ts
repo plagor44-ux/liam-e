@@ -9,7 +9,7 @@ type Options = {
   scheduleTail: (fn: () => void) => () => void
   suspendInput: () => void
   resumeInput: () => Promise<void>
-  send: (text: string, conversationId: string | undefined, audio?: VoiceAudio) => Promise<{ conversationId: string; messageId: string }>
+  send: (text: string, conversationId: string | undefined, audio?: VoiceAudio, sttElapsedMs?: number) => Promise<{ conversationId: string; messageId: string }>
   startLiveAudio?: (signal: AbortSignal) => VoiceAudio
   speak: (reply: { conversationId: string; messageId: string }, signal: AbortSignal) => Promise<void>
   stopChat: () => void
@@ -17,7 +17,7 @@ type Options = {
 }
 
 export function createLiveVoice(options: Options) {
-  let enabled = false, listening = false, epoch = 0, transcript = '', inTurn = false
+  let enabled = false, listening = false, epoch = 0, transcript = '', inTurn = false, endTime = 0
   let conversationId = options.conversationId
   let cancelTimer: (() => void) | undefined, cancelTail: (() => void) | undefined
   let playback: AbortController | undefined
@@ -51,7 +51,7 @@ export function createLiveVoice(options: Options) {
     options.onState('answering')
     if (options.startLiveAudio) playback = new AbortController()
     const liveAudio = playback && options.startLiveAudio?.(playback.signal)
-    void options.send(text, conversationId, liveAudio).then(async result => {
+    void options.send(text, conversationId, liveAudio, endTime ? Math.min(60000, Math.max(0, Math.round(performance.now() - endTime))) : undefined).then(async result => {
       if (!enabled || epoch !== generation) return
       working = false
       conversationId = result.conversationId
@@ -92,6 +92,7 @@ export function createLiveVoice(options: Options) {
         if (inTurn && transcript.length + event.text.length > 8000) throw new Error('audio_unavailable')
         if (inTurn) transcript += event.text
       } else if (event.type === 'turn.end' && inTurn && !cancelTimer) {
+        endTime = performance.now()
         cancelTimer = options.schedule(submit)
       }
     },

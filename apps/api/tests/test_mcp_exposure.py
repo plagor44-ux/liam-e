@@ -63,6 +63,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
         "mail_messages_bulk_action",
         "mail_sync_all",
         "settings_ui_update",
+        "settings_ui_browser_locale_confirm",
         "chat_settings_update",
         "chat_model_settings_update",
         "calendar_settings_update",

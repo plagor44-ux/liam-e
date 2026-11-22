@@ -219,7 +219,7 @@ test('voice survives automatic one-turn skill consumption but stops on an explic
     static OPEN = 1
     readyState = 1; bufferedAmount = 0; binaryType = ''
     onopen?: () => void; onclose?: () => void; onmessage?: (event: { data: string }) => void
-    constructor(url: string) { if (String(url).endsWith('/transcription')) socket = this; else voiceSocket = this; queueMicrotask(() => this.onopen?.()) }
+    constructor(url: string) { if (new URL(url).pathname.endsWith('/transcription')) socket = this; else voiceSocket = this; queueMicrotask(() => this.onopen?.()) }
     send(data: string | ArrayBuffer) { if (typeof data === 'string') { const value = JSON.parse(data); if (value.text) sentBodies.push(value) } } close() { this.readyState = 3; this.onclose?.() }
   }
   class FakeContext {

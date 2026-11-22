@@ -29,7 +29,7 @@ async def test_speaks_each_current_visible_sentence_before_chat_done(monkeypatch
                 return b'\x00\x00\x00\x00'
             return None
     @asynccontextmanager
-    async def provider(kind): yield Provider()
+    async def provider(kind, **kwargs): yield Provider()
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
@@ -67,7 +67,7 @@ async def test_revocation_cancels_speech_and_discards_later_content(monkeypatch)
         async def finish(self): pass
         async def receive(self): await asyncio.Future()
     @asynccontextmanager
-    async def provider(kind):
+    async def provider(kind, **kwargs):
         try: yield Provider()
         finally: closed.set()
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
@@ -96,7 +96,7 @@ async def test_disconnect_cancels_provider_and_chat(monkeypatch):
         async def finish(self): pass
         async def receive(self): await asyncio.Future()
     @asynccontextmanager
-    async def provider(kind):
+    async def provider(kind, **kwargs):
         try: yield Provider()
         finally: provider_closed.set()
     class DisconnectedSocket(Socket):
@@ -123,7 +123,7 @@ async def test_transient_speech_error_keeps_the_saved_chat_reply(monkeypatch):
     class Provider:
         async def append(self, text): raise ValueError('private provider content')
     @asynccontextmanager
-    async def provider(kind): yield Provider()
+    async def provider(kind, **kwargs): yield Provider()
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
@@ -153,7 +153,7 @@ async def test_revocation_after_audio_is_sent_prevents_done_until_playback(monke
                 return bytes(4)
             return None
     @asynccontextmanager
-    async def provider(kind): yield Provider()
+    async def provider(kind, **kwargs): yield Provider()
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     async def is_live(_): return live
@@ -177,7 +177,7 @@ async def test_revocation_after_audio_is_sent_prevents_done_until_playback(monke
 async def test_provider_401_marks_speech_failure_terminal_without_losing_text(monkeypatch):
     from websockets.exceptions import InvalidStatus
     @asynccontextmanager
-    async def provider(kind):
+    async def provider(kind, **kwargs):
         raise InvalidStatus(SimpleNamespace(status_code=401))
         yield
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
@@ -208,7 +208,7 @@ async def test_proposal_cards_are_forwarded_but_never_sent_to_speech(monkeypatch
         async def finish(self): pass
         async def receive(self): return None
     @asynccontextmanager
-    async def provider(kind): yield Provider()
+    async def provider(kind, **kwargs): yield Provider()
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
@@ -242,7 +242,7 @@ async def test_sentence_boundaries_do_not_depend_on_delta_chunks(monkeypatch, ch
         async def finish(self): pass
         async def receive(self): return None
     @asynccontextmanager
-    async def provider(kind): yield Provider()
+    async def provider(kind, **kwargs): yield Provider()
     monkeypatch.setattr(voice_turn, 'mistral_live', provider)
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
@@ -255,3 +255,58 @@ async def test_sentence_boundaries_do_not_depend_on_delta_chunks(monkeypatch, ch
     assert spoken == expected
     await socket.input.put({'event': 'playback_finished'})
     await asyncio.wait_for(task, 1)
+
+@pytest.mark.parametrize(('pace', 'expected'), [('slow', '[pace=slow]Hallo.'), ('normal', 'Hallo.'), ('fast', '[pace=fast]Hallo.')])
+async def test_pace_tags_are_only_sent_to_provider(monkeypatch, pace, expected):
+    spoken = []
+    class Provider:
+        async def append(self, text): spoken.append(text)
+        async def finish(self): pass
+        async def receive(self): return None
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='Hallo.')
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket()
+    task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context', locale='de', pace=pace))
+    output = []
+    while True:
+        event = await asyncio.wait_for(socket.output.get(), 1); output.append(event)
+        if event['event'] == 'voice_audio_end': break
+    assert spoken == [expected]
+    assert next(event['text'] for event in output if event['event'] == 'delta') == 'Hallo.'
+    await socket.input.put({'event': 'playback_finished'})
+    await asyncio.wait_for(task, 1)
+
+async def test_voice_metrics_are_content_free(monkeypatch, caplog):
+    import logging
+    class Provider:
+        async def append(self, text): pass
+        async def finish(self): self.sent = False
+        async def receive(self):
+            if self.sent: return None
+            self.sent = True
+            return bytes(9600)
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='Synthetic private sentence.')
+        yield DoneEvent(conversation_id='private-conversation', message_id='private-message', stopped=False)
+    caplog.set_level(logging.INFO, logger=voice_turn.__name__)
+    socket = Socket()
+    task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'private-context', locale='de', pace='slow', stt_elapsed_ms=480))
+    while (await asyncio.wait_for(socket.output.get(), 1))['event'] != 'voice_audio_end': pass
+    await socket.input.put({'event': 'playback_finished'})
+    await asyncio.wait_for(task, 1)
+    assert 'voice_metrics locale=de pace=slow stt_elapsed_ms=480' in caplog.text
+    assert 'first_token_ms=' in caplog.text and 'first_sentence_ms=' in caplog.text and 'first_audio_ms=' in caplog.text
+    assert 'gap_ms=' in caplog.text and 'audio_seconds_per_character=' in caplog.text
+    assert 'Synthetic private sentence' not in caplog.text and 'private-conversation' not in caplog.text
+    assert 'private-message' not in caplog.text and 'private-context' not in caplog.text

@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from mistralai_capabilities.fastapi.sse import event_stream_response, format_sse
 
 from api.errors import quiet_validation_route, refuse
-from api.locales import DEFAULT_LOCALE, Locale
+from api.locales import Locale
 from api.mail.agent import run_turn_events
 from api.mail.context_resolver import resolve_context
 from api.mail.chat_events import ChatEvent as ChatEventUnion, ErrorEvent
@@ -35,8 +35,9 @@ class ChatStreamRequest(BaseModel):
     skill_id: str | None = Field(default=None, max_length=100)
     skill_revision_id: str | None = Field(default=None, max_length=100)
     without_preferences: bool = False
+    voice_stt_elapsed_ms: int | None = Field(default=None, ge=0, le=60000, description="Content-free time from STT turn end to submit")
     voice_response: bool = Field(default=False, description="Request a concise spoken response for this turn")
-    locale: Locale = Field(default=DEFAULT_LOCALE, description="Browser language when the saved setting follows the browser")
+    locale: Locale | None = Field(default=None, description="Browser language when the saved setting follows the browser")
     context_message_id: str | None = None
     context_occurrence_id: str | None = None
     calendar_source_ids: list[str] | None = Field(default=None, description="Omit to include every currently readable calendar. An explicit list narrows this turn.")
@@ -89,6 +90,6 @@ async def chat_stream(body: ChatStreamRequest, request: Request) -> StreamingRes
         raise refuse(404, 'conversation_not_found', 'Diese Unterhaltung gibt es nicht mehr. Starte eine neue Unterhaltung.')
     if body.conversation_id is None and body.model is not None:
         require_available_model(body.model, await list_chat_models())
-    resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response'}))
-    events = run_turn_events(**body.model_dump(), resolved_context=resolved)
+    resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response', 'voice_stt_elapsed_ms'}))
+    events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved)
     return event_stream_response(sse_frames(events, request.is_disconnected))

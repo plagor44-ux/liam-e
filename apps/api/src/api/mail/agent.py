@@ -15,7 +15,7 @@ from api.locales import DEFAULT_LOCALE, Locale, resolve_locale
 from api.mail.context_resolver import resolve_context
 from env.mail import env as mail_env
 from api.mail.chat_client import mistral_client
-from api.mail.agent_prompt import VOICE_INSTRUCTIONS, system_prompt
+from api.mail.agent_prompt import VOICE_INSTRUCTIONS, VOICE_INSTRUCTIONS_EN, system_prompt
 from api.mail.agent_tools import TurnContext, execute_tool, tool_status, tools_for_context
 from api.mail.chat_events import ChatEvent, StartEvent, StatusEvent, DeltaEvent, MailsEvent, MailRefOut, CalendarsEvent, ProposalEvent, SuggestionsEvent, DoneEvent, ErrorEvent
 from api.mail.chat_schemas import ChatExtrasOut, ContextOut, to_message_out
@@ -101,10 +101,10 @@ async def _turn_scope_note(ctx: TurnContext) -> str:
     return '\n'.join(lines)
 
 
-async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale = DEFAULT_LOCALE, voice_response: bool = False, resolved_context=None) -> AsyncIterator[ChatEvent]:
+async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale | None = None, voice_response: bool = False, resolved_context=None, resolved_locale: Locale | None = None) -> AsyncIterator[ChatEvent]:
     """All rounds share one persisted snapshot; revocation is checked at each boundary."""
     try:
-        effective_locale = await resolve_locale(locale)
+        effective_locale = resolved_locale or await resolve_locale(locale)
     except SQLAlchemyError as error:
         logger.warning("UI settings lookup failed: %s", type(error).__name__)
         yield ErrorEvent(code='internal')
@@ -173,7 +173,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
         account = await mail_account.get_account(account_id) if account_id else None
         ctx = TurnContext(conversation.id, account.id if account else None, datetime.now(ZoneInfo(calendar_timezone)).date(), account_ids=scope_ids, context_id=snapshot.id, source_message_id=user.id,
                           calendar_source_ids=json.loads(getattr(snapshot, 'calendar_scope_json', '[]')), calendar_timezone=calendar_timezone, user_text=text,
-                          task_scope=json.loads(getattr(snapshot, 'task_scope_json', '{"source":"none"}')), locale=effective_locale, browser_locale=locale,
+                          task_scope=json.loads(getattr(snapshot, 'task_scope_json', '{"source":"none"}')), locale=effective_locale, browser_locale=locale or effective_locale,
                           allowed_tools=active_skill.allowed_tools if active_skill else None,
                           active_skill_id=active_skill.id if active_skill else None,
                           active_skill_revision_id=active_skill.revision_id if active_skill else None)
@@ -201,7 +201,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
             history = [row for row in history if not (row.role == 'assistant' and row.stopped)]
         messages = _to_model_messages(history, prompt=system_prompt(today=ctx.today, account_scope=account.email_address if account else None, locale=effective_locale))
         if voice_response:
-            messages[0]['content'] += VOICE_INSTRUCTIONS
+            messages[0]['content'] += VOICE_INSTRUCTIONS_EN if effective_locale == 'en' else VOICE_INSTRUCTIONS
         if preference_ids:
             messages.insert(1, {'role': 'user', 'content': 'Passende manuell bestätigte Stilpräferenzen (nachrangig zur aktuellen Bitte und Vorlage):\n' +
                 json.dumps([{'key': rev.key, 'scope': rev.scope, 'value': rev.value} for rev in revisions], ensure_ascii=False)})
