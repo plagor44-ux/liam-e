@@ -78,7 +78,7 @@ export function createLiveVoice(options: Options) {
       interrupt(); resume(epoch)
     },
     reconnect() {
-      if (!enabled || !listening) return
+      if (!enabled || working || playback) return
       listening = false; cancelTimer?.(); cancelTimer = undefined; transcript = ''; inTurn = false
       resume(++epoch)
     },

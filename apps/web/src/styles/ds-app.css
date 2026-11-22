@@ -32,6 +32,7 @@
 .le-composer-spacer { flex: 1; }
 .le-composer-options, .le-composer-options-items { display: flex; align-items: center; gap: var(--space-1); }
 .le-composer-options-toggle { display: none; }
+.le-composer-options-popup { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-overlay); }
 .le-audio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 @media (max-width: 639px) {
   .le-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
@@ -40,8 +41,7 @@
   .le-composer-bar { flex-wrap: nowrap; gap: var(--space-1); padding: var(--space-1); }
   .le-composer-spacer { display: none; }
   .le-composer-options-toggle { display: grid; place-items: center; width: var(--control-height-lg); height: var(--control-height-lg); border: 0; border-radius: 50%; background: transparent; color: var(--ink); }
-  .le-composer-options-items { display: none; position: absolute; z-index: 20; bottom: 100%; left: 0; max-width: 100%; flex-wrap: wrap; padding: var(--space-2); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-overlay); }
-  .le-composer-options-items.is-open { display: flex; }
+  .le-composer-options-items { display: none; }
   .le-composer:has(.le-audio-status:not(.le-voice-status):not(:empty)) { display: block; }
   .le-composer:has(.le-audio-status:not(.le-voice-status):not(:empty)) .le-composer-bar { flex-wrap: wrap; }
   .le-voice-status:not(:empty) { position: absolute; right: 0; bottom: calc(100% + var(--space-1)); padding: var(--space-2); background: var(--surface); border-radius: var(--radius-sm); box-shadow: var(--shadow-overlay); }

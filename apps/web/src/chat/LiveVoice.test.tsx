@@ -273,3 +273,61 @@ test('an explicit STT policy close ends voice mode without retrying', async () =
   expect(await screen.findByText('Sprachmodus nicht verfügbar')).toBeTruthy()
   expect(count).toBe(1)
 })
+
+test('repeated post-open provider failures stop after three silent sockets', async () => {
+  let first!: FakeSocket, count = 0, stopped = 0
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''
+    onopen?: () => void; onclose?: (event?: { code: number }) => void; onmessage?: (event: { data: string }) => void
+    constructor() { const n = ++count; if (n === 1) first = this; queueMicrotask(() => { this.onopen?.(); if (n > 1) setTimeout(() => this.onclose?.({ code: 1011 }), 20) }) }
+    send() {} close() { this.readyState = 3; this.onclose?.({ code: 1000 }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => { stopped++ } }] }) } })
+  render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async () => undefined} />)
+  fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
+  await screen.findByText('Zuhören')
+  await act(async () => { first.onclose?.({ code: 1011 }) })
+  await screen.findByText('Sprachmodus nicht verfügbar', {}, { timeout: 5000 })
+  expect(count).toBe(3); expect(stopped).toBe(1)
+})
+
+test('a valid transcription event resets the post-open failure count', async () => {
+  const sockets: FakeSocket[] = []
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''
+    onopen?: () => void; onclose?: (event?: { code: number }) => void; onmessage?: (event: { data: string }) => void
+    constructor() { sockets.push(this); queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.({ code: 1000 }) }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+  render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async () => undefined} />)
+  fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
+  await screen.findByText('Zuhören')
+  await act(async () => { sockets[0]!.onclose?.({ code: 1011 }) })
+  await waitFor(() => expect(sockets.length).toBe(2), { timeout: 2000 })
+  await screen.findByText('Zuhören')
+  await act(async () => { sockets[1]!.emit({ type: 'turn.start' }); sockets[1]!.onclose?.({ code: 1011 }) })
+  await waitFor(() => expect(sockets.length).toBe(3), { timeout: 2000 })
+  await screen.findByText('Zuhören')
+  await act(async () => { sockets[2]!.onclose?.({ code: 1011 }) })
+  await waitFor(() => expect(sockets.length).toBe(4), { timeout: 2500 })
+  expect(screen.queryByText('Sprachmodus nicht verfügbar')).toBeNull()
+  fireEvent.click(screen.getByLabelText('Sprachmodus beenden'))
+}, 7000)

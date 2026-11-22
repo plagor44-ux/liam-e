@@ -75,7 +75,7 @@ async def test_revocation_cancels_speech_and_discards_later_content(monkeypatch)
     async def is_live(_): return live
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', is_live)
     async def events():
-        yield DeltaEvent(text='Hallo.')
+        yield DeltaEvent(text='Hallo. ')
         await asyncio.Future()
     socket = Socket()
     task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
@@ -108,7 +108,7 @@ async def test_disconnect_cancels_provider_and_chat(monkeypatch):
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
     async def events():
         try:
-            yield DeltaEvent(text='Hallo.')
+            yield DeltaEvent(text='Hallo. ')
             await asyncio.Future()
         finally: chat_closed.set()
     socket = DisconnectedSocket()
@@ -128,7 +128,7 @@ async def test_transient_speech_error_keeps_the_saved_chat_reply(monkeypatch):
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
     async def events():
-        yield DeltaEvent(text='Hallo.')
+        yield DeltaEvent(text='Hallo. ')
         yield DoneEvent(conversation_id='c', message_id='saved', stopped=False)
     socket = Socket()
     task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
@@ -184,7 +184,7 @@ async def test_provider_401_marks_speech_failure_terminal_without_losing_text(mo
     monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
     monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
     async def events():
-        yield DeltaEvent(text='Hallo.')
+        yield DeltaEvent(text='Hallo. ')
         yield DoneEvent(conversation_id='c', message_id='saved', stopped=False)
     socket = Socket()
     task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
@@ -225,5 +225,32 @@ async def test_proposal_cards_are_forwarded_but_never_sent_to_speech(monkeypatch
         if event['event'] == 'voice_audio_end': break
     assert any(event['event'] == 'proposal' for event in output)
     assert spoken == ['Bitte bestätige die Karte.']
+    await socket.input.put({'event': 'playback_finished'})
+    await asyncio.wait_for(task, 1)
+
+
+@pytest.mark.parametrize(('chunks', 'expected'), [
+    (['Um 10.', '30 Uhr.'], ['Um 10.30 Uhr.']),
+    (['Der Wert ist 3.', '14 Euro.'], ['Der Wert ist 3.14 Euro.']),
+    (['Zum Beispiel z.', 'B. heute.'], ['Zum Beispiel z.B.', ' heute.']),
+])
+async def test_sentence_boundaries_do_not_depend_on_delta_chunks(monkeypatch, chunks, expected):
+    spoken = []
+    class Provider:
+        async def append(self, text): spoken.append(text)
+        async def finish(self): pass
+        async def receive(self): return None
+    @asynccontextmanager
+    async def provider(kind): yield Provider()
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        for chunk in chunks: yield DeltaEvent(text=chunk)
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket()
+    task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    while (await asyncio.wait_for(socket.output.get(), 1))['event'] != 'voice_audio_end': pass
+    assert spoken == expected
     await socket.input.put({'event': 'playback_finished'})
     await asyncio.wait_for(task, 1)

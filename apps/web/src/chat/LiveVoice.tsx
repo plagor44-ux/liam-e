@@ -117,7 +117,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     onStart?.()
     setState('starting')
     let stream: MediaStream | undefined, socket: WebSocket | undefined, context: AudioContext | undefined, processor: ScriptProcessorNode | undefined
-    let socketClosed: Promise<void> = Promise.resolve(), started = false
+    let socketClosed: Promise<void> = Promise.resolve(), started = false, silentFailures = 0
     const session = { stop: () => { voice.stop(); processor?.disconnect(); socket?.close(); stream?.getTracks().forEach(track => track.stop()); void context?.close() }, interrupt: () => voice.interrupt() }
     const openSocket = async () => {
       await socketClosed
@@ -130,13 +130,13 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
       await new Promise<void>((resolve, reject) => {
         candidate.onopen = () => { opened = true; resolve() }
         candidate.onerror = () => reject(new Error('audio_unavailable'))
-        candidate.onclose = event => { closed(); if (!opened) reject(new Error('audio_unavailable')); else if (socket === candidate && active.current === session) { socket = undefined; if (!started || event?.code === 1008) { stop(); setState('error') } else voice.reconnect() } }
+        candidate.onclose = event => { closed(); if (!opened) reject(new Error('audio_unavailable')); else if (socket === candidate && active.current === session) { socket = undefined; if (!started || event?.code === 1008 || ++silentFailures >= 3) { stop(); setState('error') } else voice.reconnect() } }
       })
       if (active.current !== session || socket !== candidate) { candidate.close(); return }
-      candidate.onmessage = message => { if (socket !== candidate) return; try { voice.event(JSON.parse(message.data)) } catch { stop(); setState('error') } }
+      candidate.onmessage = message => { if (socket !== candidate) return; try { const event = JSON.parse(message.data); if (!['turn.start', 'turn.end', 'turn.eager_end', 'turn.resume', 'transcription.text.delta', 'transcription.done'].includes(event?.type)) throw new Error('audio_unavailable'); voice.event(event); silentFailures = 0 } catch { stop(); setState('error') } }
     }
     const voice = createLiveVoice({ conversationId, schedule: fn => { const timer = setTimeout(fn, 480); return () => clearTimeout(timer) },
-      scheduleTail: fn => { const timer = setTimeout(fn, 400); return () => clearTimeout(timer) },
+      scheduleTail: fn => { const timer = setTimeout(fn, 400 + silentFailures * 350); return () => clearTimeout(timer) },
       suspendInput: () => { const previous = socket; socket = undefined; previous?.close() },
       resumeInput: async () => {
         for (let attempt = 0; attempt < 3; attempt++) {

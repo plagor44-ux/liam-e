@@ -188,3 +188,26 @@ test('input and composer show the standard 2 px focus ring instead of their own 
   expect(css).not.toContain('0 0 0 4px var(--accent-soft)')
   expect(rule('.le-composer:focus-within, .le-composer.is-focus')).toContain('border-color: var(--control-border)')
 })
+
+test('mobile composer options are portaled and return focus on Escape', async () => {
+  const original = window.matchMedia
+  window.matchMedia = (() => ({ matches: true, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  try {
+    const view = render(<Composer value="" onChange={() => {}} onSubmit={() => {}} onStop={() => {}} busy={false} placeholder="Frage" controls={<><button>Favoriten</button><button>Aufgaben</button></>} />)
+    const trigger = screen.getByRole('button', { name: 'Weitere Optionen' })
+    fireEvent.click(trigger)
+    const popup = await screen.findByRole('group', { name: 'Weitere Optionen' })
+    expect(popup.parentElement).toBe(document.body)
+    expect(view.container.contains(popup)).toBe(false)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Favoriten' }))
+    const last = screen.getByRole('button', { name: 'Aufgaben' }); last.focus()
+    fireEvent.keyDown(last, { key: 'Tab' })
+    expect(screen.queryByRole('group', { name: 'Weitere Optionen' })).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    fireEvent.click(trigger)
+    await screen.findByRole('group', { name: 'Weitere Optionen' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'Weitere Optionen' })).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  } finally { window.matchMedia = original }
+})

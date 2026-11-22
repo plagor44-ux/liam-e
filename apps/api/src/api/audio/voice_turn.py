@@ -16,7 +16,7 @@ from api.mail.chat_events import ChatEvent
 
 _LOG = logging.getLogger(__name__)
 _MAX_AUDIO = 24_000_000
-_SENTENCE_END = re.compile(r'[.!?](?=\s|$)')
+_SENTENCE_END = re.compile(r'[.!?](?=\s)')
 
 
 class VoiceRevoked(Exception):
