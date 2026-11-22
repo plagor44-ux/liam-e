@@ -1090,10 +1090,11 @@ async def test_strict_model_double_rejects_invalid_role_order(messages):
 ])
 async def test_voice_reasoning_only_uses_verified_resolved_model(store, monkeypatch, resolved, expected):
     from api.mail import models_catalog
+    from api.audio.metrics import VoiceMetrics
     model = models_catalog.ChatModelOut(id='mistral-medium-latest', label='test', description='', is_default=True,
                                         resolved_id=resolved)
     monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
-    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True)
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_metrics=VoiceMetrics(), live_voice_turn=True)
     assert fake.requests[0].get('reasoning_effort') == expected
     if expected is not None:
         assert fake.requests[0]['model'] == resolved
@@ -1108,6 +1109,12 @@ async def test_text_chat_does_not_add_reasoning_effort(store, monkeypatch):
 async def test_text_chat_ignores_voice_model(store, monkeypatch):
     events, fake = await run(store, monkeypatch, [['Answer']], voice_model='mistral-small-latest')
     assert fake.requests[0]['model'] == 'mistral-medium-latest'
+    assert 'reasoning_effort' not in fake.requests[0]
+    assert any(event.event == 'done' for event in events)
+
+
+async def test_http_concise_response_does_not_enable_live_reasoning(store, monkeypatch):
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True)
     assert 'reasoning_effort' not in fake.requests[0]
     assert any(event.event == 'done' for event in events)
 
@@ -1137,10 +1144,11 @@ async def test_voice_metrics_count_tool_rounds(store, monkeypatch):
 ])
 async def test_voice_model_uses_available_selection_or_falls_back(store, monkeypatch, choice, availability, used):
     from api.mail import models_catalog
+    from api.audio.metrics import VoiceMetrics
     small = models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False,
                                         resolved_id='mistral-small-2603', availability=availability)
     monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[small]))
-    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_model=choice)
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_model=choice, voice_metrics=VoiceMetrics(), live_voice_turn=True)
     assert fake.requests[0]['model'] == used
     assert next(event.model for event in events if event.event == 'start') == used
     answer = next(row for row in store.rows if row.role == 'assistant')

@@ -106,7 +106,7 @@ async def _turn_scope_note(ctx: TurnContext) -> str:
     return '\n'.join(lines)
 
 
-async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale | None = None, voice_response: bool = False, resolved_context=None, resolved_locale: Locale | None = None, voice_metrics: VoiceMetrics | None = None, voice_model: str = 'chat') -> AsyncIterator[ChatEvent]:
+async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale | None = None, voice_response: bool = False, resolved_context=None, resolved_locale: Locale | None = None, voice_metrics: VoiceMetrics | None = None, voice_model: str = 'chat', live_voice_turn: bool = False) -> AsyncIterator[ChatEvent]:
     """All rounds share one persisted snapshot; revocation is checked at each boundary."""
     try:
         effective_locale = resolved_locale or await resolve_locale(locale)
@@ -147,7 +147,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
             return
     model = conversation.model or mail_env.mail_chat_model
     reasoning_effort = None
-    if voice_response:
+    if voice_response and live_voice_turn:
         candidate = model if voice_model == 'chat' else voice_model
         try:
             models = await asyncio.wait_for(models_catalog.list_chat_models(candidate), timeout=2)

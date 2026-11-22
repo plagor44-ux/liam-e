@@ -54,7 +54,7 @@ async def voice_turn(socket: WebSocket) -> None:
                 return
             locale = await resolve_locale(body.locale)
             settings = await ui_settings.get_or_create()
-            events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved, resolved_locale=locale, voice_metrics=metrics, voice_model=settings.voice_model)
+            events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved, resolved_locale=locale, voice_metrics=metrics, voice_model=settings.voice_model, live_voice_turn=True)
             pace = settings.speech_pace
             await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at, metrics=metrics)
     except (ValidationError, ValueError):

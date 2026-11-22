@@ -164,6 +164,7 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
             ws.send_json({'event': 'playback_finished'})
             assert ws.receive_json()['message_id'] == 'new'
     assert agent_options[0]['voice_model'] == 'mistral-small-latest'
+    assert agent_options[0]['live_voice_turn'] is True
     assert capsys.readouterr().err.count('voice_metrics ') == 1
 
 
