@@ -35,9 +35,8 @@
   .le-composer-bar { gap: var(--space-1); }
   .le-composer-spacer { min-width: 0; }
   .le-composer-bar > .le-audio-controls, .le-composer-bar > :last-child { flex: none; }
-  .le-composer-bar:has(.le-audio-status:not(:empty)) { flex-wrap: wrap; }
   .le-composer-bar > .le-audio-controls:has(.le-audio-status:not(:empty)) { flex: 1 1 100%; min-width: 0; }
-  .le-audio-controls .le-audio-status:not(:empty) { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+  .le-composer-bar .le-audio-controls .le-audio-status:not(:empty) { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
 }
 .le-audio-status { font-size: var(--font-size-small); color: var(--ink-muted); }
 .le-audio-status:empty { display: none; }

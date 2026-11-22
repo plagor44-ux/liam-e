@@ -95,6 +95,41 @@ def test_live_speech_requires_test_opt_in_and_still_uses_saved_reply(speech_clie
     assert response.headers["cache-control"] == "no-store"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize('over_limit', [False, True])
+async def test_live_speech_float_pcm_byte_limit(monkeypatch, over_limit):
+    from contextlib import asynccontextmanager
+    from api.routers.api.v1.audio.live import speech
+
+    class FakeSpeech:
+        def __init__(self):
+            # Two chunks cross the previous 12 MB limit; an optional extra sample crosses 24 MB.
+            self.frames = iter([b'\0' * 12_000_000, b'\0' * 12_000_000] + ([b'\0' * 4] if over_limit else []) + [None])
+        async def append(self, text): pass
+        async def finish(self): pass
+        async def receive(self): return next(self.frames)
+
+    @asynccontextmanager
+    async def fake_live(kind):
+        assert kind == 'speech'
+        yield FakeSpeech()
+
+    monkeypatch.setattr(speech, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=REFERENCE))
+    monkeypatch.setattr(speech, '_visible_reply', AsyncMock(return_value='Synthetic reply'))
+    monkeypatch.setattr(speech, 'mistral_live', fake_live)
+    response = await speech.synthesize(None)
+    sizes = []
+    if over_limit:
+        with pytest.raises(RuntimeError, match='audio_unavailable'):
+            async for chunk in response.body_iterator:
+                sizes.append(len(chunk))
+    else:
+        async for chunk in response.body_iterator:
+            sizes.append(len(chunk))
+    assert sizes == [12_000_000, 12_000_000]
+
+
 def test_speech_release_gate_is_independent_and_fails_closed(speech_client, monkeypatch):
     from env.audio import env
 

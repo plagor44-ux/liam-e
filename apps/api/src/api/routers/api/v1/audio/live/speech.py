@@ -12,6 +12,7 @@ from api.audio.live_provider import mistral_live
 from api.routers.api.v1.audio.speech import SpeechReference, _speech_reference, _visible_reply
 
 router = APIRouter()
+MAX_SPEECH_BYTES = 24_000_000  # float32 PCM: same duration budget as 12 MB of 16-bit PCM
 
 
 @router.post(
@@ -46,7 +47,7 @@ async def synthesize(request: Request) -> StreamingResponse:
                     if chunk is None:
                         return
                     total += len(chunk)
-                    if total > 12_000_000:
+                    if total > MAX_SPEECH_BYTES:
                         raise RuntimeError('audio_unavailable')
                     yield chunk
         except Exception:
