@@ -148,16 +148,37 @@ test('suggestions switch explains transmission and patches only its own opt-in v
   expect(await screen.findByText('Keine offenen Vorschläge. Du kannst im Chat mit „Merke dir:“ um eine Präferenz bitten.')).toBeTruthy()
 })
 
-test('suggestion version conflicts offer a reload that restores the confirmed switch state', async () => {
-  setup('/settings/preferences', async req => req.method === 'PATCH' ? Response.json({ detail: { code: 'preference_conflict' } }, { status: 409 }) : undefined)
+test('suggestion version conflicts offer a reload or discard that restores the confirmed switch state', async () => {
+  let stored = { use_preferences: false, suggest_preferences: false, version: 1 }
+  setup('/settings/preferences', async req => {
+    if (req.method === 'PATCH') {
+      const body = await req.json() as { personalization: { expected_version: number; suggest_preferences?: boolean } }
+      if (body.personalization.expected_version !== stored.version) {
+        return Response.json({ detail: { code: 'preference_conflict' } }, { status: 409 })
+      }
+      stored = { ...stored, ...body.personalization, version: stored.version + 1 }
+      return Response.json({ personalization: stored })
+    }
+    if (new URL(req.url).pathname.endsWith('/settings')) {
+      return Response.json({ personalization: stored })
+    }
+  })
   const toggle = await screen.findByRole('switch', { name: 'Aus meinen Nachrichten Vorschläge machen' })
   fireEvent.click(toggle)
+  stored = { ...stored, version: 2 }
   fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
-  const reload = await screen.findByRole('button', { name: 'Aktuelle Fassung laden' })
+  await screen.findByRole('button', { name: 'Aktuelle Fassung laden' })
   const reads = requests.filter(r => r.method === 'GET' && r.path.endsWith('/settings')).length
-  fireEvent.click(reload)
+  fireEvent.click(screen.getByRole('button', { name: 'Verwerfen' }))
   await waitFor(() => expect(requests.filter(r => r.method === 'GET' && r.path.endsWith('/settings')).length).toBeGreaterThan(reads))
   expect(toggle.getAttribute('aria-checked')).toBe('false')
+
+  fireEvent.click(toggle)
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(requests.filter(r => r.method === 'PATCH').map(r => r.body)).toEqual([
+    { personalization: { expected_version: 1, suggest_preferences: true } },
+    { personalization: { expected_version: 2, suggest_preferences: true } },
+  ]))
 })
 
 test('a scope whose account is gone says so once the accounts are loaded', async () => {

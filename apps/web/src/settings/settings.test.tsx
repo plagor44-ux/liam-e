@@ -328,23 +328,36 @@ test('chat grants persist across page loads and the last checkbox can be cleared
 })
 
 test('a stale chat grant reloads the other device’s selection before allowing another edit', async () => {
-  let changed = false
+  let grant = { version: 1, account_ids: [] as string[] }
   setup('/settings/chat', async request => {
     if (new URL(request.url).pathname.endsWith('/mail/accounts')) return Response.json(chatAccounts)
     if (request.method === 'PATCH') {
-      changed = true
-      return Response.json({ detail: { code: 'version_conflict' } }, { status: 409 })
+      const body = await request.json() as { expected_version: number; account_ids: string[] }
+      if (body.expected_version !== grant.version) {
+        return Response.json({ detail: { code: 'version_conflict' } }, { status: 409 })
+      }
+      grant = { version: grant.version + 1, account_ids: body.account_ids }
     }
-    return Response.json(changed ? { version: 2, account_ids: ['home'] } : { version: 1, account_ids: [] })
+    return Response.json(grant)
   })
   fireEvent.click(await screen.findByRole('checkbox', { name: /Work/ }))
+  grant = { version: 2, account_ids: ['home'] }
   fireEvent.click(screen.getByRole('button', { name: de.settingsUi.save }))
   await screen.findByText(de.chatAccounts.conflict)
   expect((screen.getByRole('button', { name: de.settingsUi.save }) as HTMLButtonElement).disabled).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.reload }))
+
+  // Clicking Discard on the global save bar reloads the competing version and rebases the next edit.
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.discard }))
   await waitFor(() => expect((screen.getByRole('checkbox', { name: /home@example/ }) as HTMLInputElement).checked).toBe(true))
   expect((screen.getByRole('checkbox', { name: /Work/ }) as HTMLInputElement).checked).toBe(false)
-  expect(requests.filter(item => item.method === 'PATCH')).toHaveLength(1)
+
+  fireEvent.click(screen.getByRole('checkbox', { name: /Work/ }))
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.save }))
+  await screen.findByText(de.settingsUi.saved)
+  expect(requests.filter(item => item.method === 'PATCH').map(item => item.body)).toEqual([
+    { expected_version: 1, account_ids: ['work'] },
+    { expected_version: 2, account_ids: ['home', 'work'] },
+  ])
 })
 
 test('a previous API response without eligibility cannot clear a stored chat grant', async () => {
@@ -438,16 +451,22 @@ test('the calendar default can be set and cleared while read-only and paused cho
   ])
 })
 
-test('a conflicting calendar edit can reload the other device’s default', async () => {
+test('a conflicting calendar edit can reload the other device’s default via reload or discard', async () => {
   const { changeElsewhere } = calendarForm()
   const select = await screen.findByRole<HTMLSelectElement>('combobox', { name: de.calendarSettings.title })
   fireEvent.change(select, { target: { value: 'work' } })
   changeElsewhere()
   fireEvent.click(screen.getByRole('button', { name: de.settingsUi.save }))
   expect(await screen.findByText(de.calendarSettings.conflict)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.reload }))
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.discard }))
   await waitFor(() => expect(select.value).toBe('personal'))
-  expect(requests.filter(r => r.method === 'PATCH')).toHaveLength(1)
+  fireEvent.change(select, { target: { value: 'work' } })
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.save }))
+  await screen.findByText(de.settingsUi.saved)
+  expect(requests.filter(r => r.method === 'PATCH').map(r => r.body)).toEqual([
+    { default_source_id: 'work', expected_version: 1 },
+    { default_source_id: 'work', expected_version: 2 },
+  ])
 })
 
 test('a removed default stays visible until the owner changes it', async () => {

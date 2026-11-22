@@ -32,8 +32,10 @@ export function CalendarSettings() {
 
   function discard() {
     if (saving.current) return
+    const needsReload = status === 'conflict' || status === 'invalid' || status === 'error'
     setEdit(undefined)
     setStatus(undefined)
+    if (needsReload) void reload()
   }
 
   async function reload() {

@@ -87,9 +87,11 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
 
   const discardDraft = () => {
     if (lock.current) return
+    const needsReload = error
     setDraft(undefined)
     setError(false)
     setConfirm(false)
+    if (needsReload) void query.refetch()
   }
 
   useSettingsSlice(saved ? 'personalization-inline' : 'personalization', {

@@ -151,22 +151,31 @@ test('opens model details dialog from default model selector', async () => {
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
-test('version conflict disables edits, avoids auto-retry and loads competing change on reload', async () => {
-  let changed = false
+test('version conflict disables edits, avoids auto-retry and loads competing change on reload or discard', async () => {
+  let state: ChatModelSettingsOut = {
+    version: 1,
+    default_model: null,
+    effective_default_model: 'mistral-medium-latest',
+    app_default_model: 'mistral-medium-latest',
+    status: 'app_default',
+  }
   setup(async request => {
     const url = new URL(request.url)
     if (url.pathname.endsWith('/settings/chat/model')) {
       if (request.method === 'PATCH') {
-        changed = true
-        return Response.json({ detail: { code: 'version_conflict' } }, { status: 409 })
+        const body = await request.json() as { expected_version: number; default_model: string | null }
+        if (body.expected_version !== state.version) {
+          return Response.json({ detail: { code: 'version_conflict' } }, { status: 409 })
+        }
+        state = {
+          ...state,
+          version: state.version + 1,
+          default_model: body.default_model,
+          effective_default_model: body.default_model ?? 'mistral-medium-latest',
+          status: body.default_model ? 'available' : 'app_default',
+        }
       }
-      return Response.json({
-        version: changed ? 2 : 1,
-        default_model: changed ? 'mistral-medium-latest' : null,
-        effective_default_model: 'mistral-medium-latest',
-        app_default_model: 'mistral-medium-latest',
-        status: changed ? 'available' : 'app_default',
-      } satisfies ChatModelSettingsOut)
+      return Response.json(state)
     }
     return undefined
   })
@@ -174,14 +183,30 @@ test('version conflict disables edits, avoids auto-retry and loads competing cha
   const picker = await screen.findByRole('button', { name: de.chatModel.choiceLabel })
   fireEvent.click(picker)
   fireEvent.click(screen.getByRole('menuitemradio', { name: /Mistral Small/ }))
+  state = {
+    version: 2,
+    default_model: 'mistral-medium-latest',
+    effective_default_model: 'mistral-medium-latest',
+    app_default_model: 'mistral-medium-latest',
+    status: 'available',
+  }
   fireEvent.click(screen.getAllByRole('button', { name: de.settingsUi.save })[0]!)
   await screen.findByText(de.chatModel.conflict)
   expect(requests.filter(r => r.method === 'PATCH')).toHaveLength(1)
   expect((picker as HTMLButtonElement).disabled).toBe(true)
 
-  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.reload }))
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.discard }))
   await waitFor(() => expect(picker.textContent).toContain('Mistral Medium'))
   expect((picker as HTMLButtonElement).disabled).toBe(false)
+
+  fireEvent.click(picker)
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Mistral Small/ }))
+  fireEvent.click(screen.getAllByRole('button', { name: de.settingsUi.save })[0]!)
+  await screen.findByText(de.settingsUi.saved)
+  expect(requests.filter(r => r.method === 'PATCH').map(r => r.body)).toEqual([
+    { expected_version: 1, default_model: 'mistral-small-latest' },
+    { expected_version: 2, default_model: 'mistral-small-latest' },
+  ])
 })
 
 test('retired default explains fallback and can still be reset when workspace catalog is empty or offline', async () => {

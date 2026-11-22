@@ -137,8 +137,10 @@ function ChatModelSettingsForm({
 
   const discard = () => {
     if (lock.current) return
+    const needsReload = outcome === 'conflict' || outcome === 'rejected' || outcome === 'error'
     const latest = settings.version >= base.version ? settings : base
     setBase(latest); setDraft(latest.default_model); setOutcome(undefined); setRejectedCode(undefined)
+    if (needsReload) void refreshAll()
   }
 
   useSettingsSlice('chat-model', { dirty, canSave, busy, save: () => save(draft), discard })
