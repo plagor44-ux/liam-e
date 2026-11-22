@@ -257,6 +257,8 @@ def test_alembic_upgrade_from_previous_head_preserves_existing_installation(monk
 
         asyncio.run(seed_previous())
         command.upgrade(config, "84c042b6122f")
+        # The current API expects all later, unrelated schema changes too.
+        command.upgrade(config, "heads")
 
         monkeypatch.setattr(catalog.mail_env, "mail_chat_model", "mistral-medium-latest")
         monkeypatch.setattr(catalog, "mistral_client", lambda: _FakeMistral(models=[NS(data=[

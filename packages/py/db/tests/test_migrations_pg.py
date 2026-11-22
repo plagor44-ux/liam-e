@@ -270,6 +270,8 @@ def test_mail_move_upgrade_preserves_open_undo_and_index(scratch, monkeypatch):
     assert asyncio.run(_scalar(url, """SELECT previous_json FROM mail_action WHERE id='open-token'
         AND undone_at IS NULL AND inbox_source_uid IS NULL AND imap_source_uidvalidity IS NULL""")) == previous
     assert asyncio.run(_scalar(url, "SELECT count(*) FROM mail_message WHERE imap_uidvalidity IS NULL")) == 2
+    # The new API uses later independent schema additions as well.
+    command.upgrade(config, "heads")
 
     async def undo_on_new_api():
         await db_engine.dispose_engine()
@@ -363,7 +365,7 @@ def _assert_imap_downgrade_handoff(config, url, monkeypatch):
 
 def test_imap_downgrade_keeps_the_hidden_delivery_on_the_base_workers_cursor(scratch, monkeypatch):
     config, url = scratch
-    command.upgrade(config, "10d2e525afe6")
+    command.upgrade(config, "heads")
     _assert_imap_downgrade_handoff(config, url, monkeypatch)
 
 
