@@ -156,3 +156,25 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch):
             assert spoken == ['Hallo.']
             ws.send_json({'event': 'playback_finished'})
             assert ws.receive_json()['message_id'] == 'new'
+
+
+def test_voice_turn_preserves_context_refusals_and_missing_conversation(monkeypatch):
+    from unittest.mock import AsyncMock
+    from api.audio.access import get_audio_owner_verifier
+    from api.errors import refuse
+    from api.routers.api.v1.audio.live import turn
+
+    monkeypatch.setattr(turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(turn.chat_conversation, 'get_conversation', AsyncMock(return_value=object()))
+    monkeypatch.setattr(turn, 'resolve_context', AsyncMock(side_effect=refuse(409, 'chat_settings_changed', 'private detail')))
+    app = build_app()
+    async def allow(_): return True
+    app.dependency_overrides[get_audio_owner_verifier] = lambda: allow
+    with TestClient(app) as client:
+        with client.websocket_connect('/api/v1/audio/live/turn') as ws:
+            ws.send_json({'conversation_id': 'c', 'text': 'synthetic', 'voice_response': True})
+            assert ws.receive_json() == {'event': 'refusal', 'code': 'chat_settings_changed'}
+        monkeypatch.setattr(turn.chat_conversation, 'get_conversation', AsyncMock(return_value=None))
+        with client.websocket_connect('/api/v1/audio/live/turn') as ws:
+            ws.send_json({'conversation_id': 'missing', 'text': 'synthetic', 'voice_response': True})
+            assert ws.receive_json() == {'event': 'refusal', 'code': 'conversation_not_found'}

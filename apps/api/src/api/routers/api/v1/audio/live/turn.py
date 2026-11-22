@@ -4,7 +4,7 @@ import logging
 from contextlib import suppress
 
 from db.accessors import chat_conversation
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, HTTPException, WebSocket
 from pydantic import ValidationError
 
 from api.audio.live_access import live_remaining
@@ -35,9 +35,14 @@ async def voice_turn(socket: WebSocket) -> None:
                 await socket.close(code=1008)
                 return
             if await chat_conversation.get_conversation(body.conversation_id) is None:
-                await socket.send_json({'event': 'error', 'code': 'internal'})
+                await socket.send_json({'event': 'refusal', 'code': 'conversation_not_found'})
                 return
-            resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response'}))
+            try:
+                resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response'}))
+            except HTTPException as error:
+                code = error.detail.get('code') if isinstance(error.detail, dict) else None
+                await socket.send_json({'event': 'refusal', 'code': code if isinstance(code, str) else 'internal'})
+                return
             events = run_turn_events(**body.model_dump(), resolved_context=resolved)
             await run_voice_turn(socket, events, resolved[1].id)
     except (ValidationError, ValueError):

@@ -100,3 +100,23 @@ test('voice transport plays server audio before done and acknowledges only after
   socket.emit({ event: 'done', conversation_id: 'c', message_id: 'new', stopped: false })
   expect((await result).map(event => event.event)).toEqual(['start', 'delta', 'done'])
 })
+
+test.each([['chat_settings_changed', 'chat_settings_changed'], ['unexpected_code', 'internal']])('voice transport maps refusal %s to %s', async (code, expected) => {
+  let socket!: FakeSocket
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1
+    onopen?: () => void; onmessage?: (event: { data: string }) => void; onclose?: () => void; onerror?: () => void
+    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.() }
+    emit(event: object) { this.onmessage?.({ data: JSON.stringify(event) }) }
+  }
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  const result = Array.fromAsync(streamVoiceChatTurn({ text: 'Hallo', conversation_id: 'c', voice_response: true }, new AbortController().signal, { push() {}, end: async () => {}, fail() {} }))
+  await Promise.resolve()
+  socket.emit({ event: 'refusal', code })
+  const error = await result.catch(value => value)
+  expect(error).toBeInstanceOf(ChatStreamError)
+  expect(error.code).toBe(expected)
+  expect(error.detailCode).toBe(code)
+})

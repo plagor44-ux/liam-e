@@ -192,3 +192,29 @@ test('interrupting playback after text completion preserves the saved reply stat
     expect(screen.getByTestId('voice-id').textContent).toBe('new')
   } finally { globalThis.WebSocket = originalSocket }
 })
+
+test('voice refusal retains the context code for conversation recovery', async () => {
+  const originalSocket = globalThis.WebSocket
+  let socket!: FakeSocket
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1
+    onopen?: () => void; onmessage?: (event: { data: string }) => void; onclose?: () => void; onerror?: () => void
+    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.() }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  try {
+    window.matchMedia = (() => ({ matches: true })) as unknown as typeof window.matchMedia
+    function Consumer() {
+      const { state, send } = useChatSession()
+      return <><button onClick={() => void send({ text: 'Hallo', conversation_id: 'c', voice_response: true }, { voiceAudio: { push() {}, end: async () => {}, fail() {} } })}>voice</button><div data-testid="voice-error">{state.errorCode}</div></>
+    }
+    render(<QueryClientProvider client={clientWithGrants()}><ChatSessionProvider><Consumer /></ChatSessionProvider></QueryClientProvider>)
+    fireEvent.click(screen.getByText('voice'))
+    await waitFor(() => expect(socket).toBeDefined())
+    await act(async () => { socket.emit({ event: 'refusal', code: 'preferences_unavailable' }) })
+    await waitFor(() => expect(screen.getByTestId('voice-error').textContent).toBe('preferences_unavailable'))
+  } finally { globalThis.WebSocket = originalSocket }
+})
