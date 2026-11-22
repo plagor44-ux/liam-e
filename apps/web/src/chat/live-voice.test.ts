@@ -43,15 +43,18 @@ test('stop discards pending and late results', async () => {
 
 test('speech interrupts a still-playing response and stop cancels the pending turn', async () => {
   let flush: (() => void) | undefined, stopped = 0, interrupted = false
+  const states: string[] = []
   const voice = createLiveVoice({
     conversationId: 'c', schedule: fn => { flush = fn; return () => { flush = undefined } },
     send: async () => ({ conversationId: 'c', messageId: 'm' }),
     speak: async (_reply, signal) => new Promise<void>(resolve => signal.addEventListener('abort', () => { interrupted = true; resolve() })),
-    stopChat: () => { stopped++ }, onState: () => {},
+    stopChat: () => { stopped++ }, onState: state => { states.push(state) },
   })
   voice.start(); voice.event({ type: 'turn.start' }); voice.event({ type: 'transcription.text.delta', text: 'Hallo' }); voice.event({ type: 'turn.end' }); flush!()
-  await Promise.resolve(); voice.event({ type: 'turn.start' })
+  expect(states.at(-1)).toBe('answering')
+  await Promise.resolve(); expect(states.at(-1)).toBe('speaking'); voice.event({ type: 'turn.start' })
   expect(interrupted).toBe(true)
+  expect(states.at(-1)).toBe('listening')
   voice.event({ type: 'transcription.text.delta', text: 'Abbruch' }); voice.event({ type: 'turn.end' })
   voice.stop(); expect(flush).toBeUndefined(); expect(stopped).toBe(0)
 })

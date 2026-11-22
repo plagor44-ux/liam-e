@@ -1,6 +1,6 @@
 /** Voice turn coordination, independent of media and network transport. */
 type Event = { type: 'turn.start' | 'turn.end' | 'turn.eager_end' | 'turn.resume' } | { type: 'transcription.text.delta'; text: string }
-type State = 'idle' | 'listening' | 'answering' | 'error'
+type State = 'idle' | 'listening' | 'answering' | 'speaking' | 'error'
 type Options = {
   conversationId?: string
   schedule: (fn: () => void) => () => void
@@ -35,6 +35,7 @@ export function createLiveVoice(options: Options) {
       conversationId = result.conversationId
       if (inTurn) return
       playback = new AbortController()
+      options.onState('speaking')
       await options.speak(result, playback.signal)
       if (enabled && epoch === generation) options.onState('listening')
     }).catch(() => {
