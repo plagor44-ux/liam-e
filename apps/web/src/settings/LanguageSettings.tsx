@@ -91,7 +91,13 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
       const saved = result.data
       if (errorCode(result.error) === 'ui_settings_conflict') {
         const current = await reload()
-        setBase(current)
+        setBase(prev => ({
+          ...prev,
+          ...(!attempted.locale ? { locale: current.locale } : {}),
+          ...(!attempted.pace ? { speech_pace: current.speech_pace } : {}),
+        }))
+        if (!attempted.locale) setLocale(current.locale ?? 'browser')
+        if (!attempted.pace) setPace(current.speech_pace ?? 'normal')
         setOutcome('conflict')
       } else if (!saved) {
         setOutcome('error')
@@ -130,7 +136,7 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
       {outcome === 'saved' && touchedFields.locale && <Notice tone="success">{texts.language.success}</Notice>}
       {outcome === 'error' && touchedFields.locale && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
       {outcome === 'conflict' && touchedFields.locale && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: discard }}>
-        {texts.language.conflict(texts.language.options[baseLocale])}
+        {texts.language.conflict(texts.language.options[settings.locale ?? 'browser'])}
       </Notice>}
     </section>
     <section className="le-swipe" aria-labelledby="le-pace-title">

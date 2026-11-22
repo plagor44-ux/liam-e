@@ -127,3 +127,42 @@ test('a confirmed settings read reports the browser language for background jobs
   open()
   await waitFor(() => expect(confirm.mock.calls[0]?.[0]?.body).toEqual({ locale: 'de' }))
 })
+
+test('a speech-speed conflict against another device language change never marks the untouched language as edited', async () => {
+  let stored: UiSettingsOut = { ...browserDefaults }
+  spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: stored })) as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockImplementation((async ({ body }: { body: { expected_revision: number; speech_pace?: 'slow' | 'normal' | 'fast'; locale?: 'browser' | 'de' | 'en' } }) => {
+    if (body.expected_revision !== stored.revision) {
+      return { error: { detail: { code: 'ui_settings_conflict' } } }
+    }
+    stored = { ...stored, ...body, revision: stored.revision + 1 }
+    return { data: stored }
+  }) as never)
+  open()
+
+  fireEvent.click(await screen.findByRole('button', { name: /Sprechtempo Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
+
+  // Another device changes the language to English before this save lands.
+  stored = { ...stored, locale: 'en', revision: 2 }
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  expect(await screen.findByText('Settings changed. Reload and review your choice.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /App language English/ })).toBeTruthy()
+
+  // Selecting another speed before resolving the conflict keeps the original baseline revision and never includes locale.
+  fireEvent.click(screen.getByRole('button', { name: /Speech speed Fast/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Slow' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save choices' }))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+  expect(save.mock.calls[1]?.[0]?.body).toEqual({ expected_revision: 1, speech_pace: 'slow' })
+  expect(await screen.findByText('Settings changed. Reload and review your choice.')).toBeTruthy()
+
+  // Explicit reload adopts revision 2; a subsequent speed edit saves only speech_pace at revision 2.
+  fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+  expect(await screen.findByRole('button', { name: /App language English/ })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /Speech speed Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fast' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save choices' }))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(3))
+  expect(save.mock.calls[2]?.[0]?.body).toEqual({ expected_revision: 2, speech_pace: 'fast' })
+})
