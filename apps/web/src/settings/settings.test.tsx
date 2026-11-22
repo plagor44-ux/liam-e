@@ -195,14 +195,29 @@ test('the choices stay locked while a save is pending', async () => {
   expect(screen.getByRole('button', { name: 'Nach links wischen' }).textContent).toContain('In den Papierkorb')
 })
 
-test('a failed save keeps the selection editable', async () => {
+test('a failed save keeps the selection editable and re-enables the save bar in the same commit as the error notice', async () => {
+  const pending: ((value: Response) => void)[] = []
   setup('/settings/controls', async request => request.method === 'PATCH'
-    ? Response.json({ detail: { code: 'settings_unavailable', message: 'Nicht erreichbar' } }, { status: 503 }) : undefined)
+    ? await new Promise<Response>(resolve => { pending.push(resolve) }) : undefined)
   fireEvent.click(await screen.findByRole('button', { name: 'Nach rechts wischen' }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Keine Aktion' }))
   fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(pending).toHaveLength(1))
+  expect((screen.getByRole('button', { name: 'Auswahl speichern' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Verwerfen' }) as HTMLButtonElement).disabled).toBe(true)
+
+  // Resolve outside act(...) so findByRole('alert') wakes on the DOM MutationObserver microtask.
+  pending[0]!(Response.json({ detail: { code: 'settings_unavailable', message: 'Nicht erreichbar' } }, { status: 503 }))
   expect((await screen.findByRole('alert')).textContent).toContain('Die Änderung wurde nicht gespeichert. Deine Auswahl bleibt erhalten.')
   expect((screen.getByRole('button', { name: 'Nach rechts wischen' })).textContent).toContain('Keine Aktion')
+  expect((screen.getByRole('button', { name: 'Auswahl speichern' }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole('button', { name: 'Verwerfen' }) as HTMLButtonElement).disabled).toBe(false)
+
+  // Clicking save immediately on that microtask must dispatch a second PATCH instead of being dropped.
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(pending).toHaveLength(2))
+  pending[1]!(Response.json({ ...confirmed, swipe_right: 'none', revision: 2 }))
+  expect(await screen.findByText('Gespeichert.')).toBeTruthy()
 })
 
 test('restoring the defaults saves both directions with the current revision', async () => {

@@ -1,6 +1,6 @@
 // i18n-exempt: CSS classes and internal slice identifiers.
 import { useBlocker, useRouter } from '@tanstack/react-router'
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '../ds'
 import { useFocusTrap } from '../ds/useFocusTrap'
@@ -40,6 +40,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback((id: string, meta: SliceMeta, handlers: { save: () => Promise<void>; discard: () => void }) => {
     handlersRef.current[id] = handlers
+    metaRef.current = { ...metaRef.current, [id]: meta }
     setSlices(prev => {
       const current = prev[id]
       if (current && current.dirty === meta.dirty && current.canSave === meta.canSave && current.busy === meta.busy) {
@@ -51,6 +52,11 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
 
   const unregister = useCallback((id: string) => {
     delete handlersRef.current[id]
+    if (id in metaRef.current) {
+      const nextMeta = { ...metaRef.current }
+      delete nextMeta[id]
+      metaRef.current = nextMeta
+    }
     setSlices(prev => {
       if (!(id in prev)) return prev
       const next = { ...prev }
@@ -157,7 +163,7 @@ export function useSettingsSlice(id: string, state: SettingsSliceState) {
   saveRef.current = state.save
   discardRef.current = state.discard
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!register) return
     register(
       id,
@@ -166,5 +172,5 @@ export function useSettingsSlice(id: string, state: SettingsSliceState) {
     )
   }, [register, id, state.dirty, state.canSave, state.busy])
 
-  useEffect(() => () => { unregister?.(id) }, [unregister, id])
+  useLayoutEffect(() => () => { unregister?.(id) }, [unregister, id])
 }

@@ -4,6 +4,13 @@ import pytest
 from api.audio import voices
 
 
+@pytest.fixture(autouse=True)
+def clear_voice_cache():
+    voices.reset_cache()
+    yield
+    voices.reset_cache()
+
+
 @pytest.mark.asyncio
 async def test_catalog_accepts_only_presets_and_falls_back_on_failure(monkeypatch):
     async def listed():
@@ -60,3 +67,4 @@ async def test_failed_catalogue_is_cached_briefly_and_logs_only_exception_class(
     now[0] += 61
     assert not (await voices.list_voices()).verified
     assert len(calls) == 2
+    voices.reset_cache()
