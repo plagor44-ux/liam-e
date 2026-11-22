@@ -92,9 +92,12 @@ test('a conflict keeps the inputs, names the competing change and never retries 
   expect(requests.filter(item => item.method === 'PATCH')).toHaveLength(1)
   fireEvent.click(screen.getByRole('button', { name: 'Neu laden' }))
   await waitFor(() => expect((screen.getByRole('button', { name: 'Nach links wischen' })).textContent).toContain('Keine Aktion'))
+  expect(screen.queryByRole('button', { name: 'Auswahl speichern' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Nach links wischen' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Archivieren' }))
   fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
   await waitFor(() => expect(requests.filter(item => item.method === 'PATCH')).toHaveLength(2))
-  expect(requests.filter(item => item.method === 'PATCH')[1]?.body).toEqual({ expected_revision: 2, swipe_left: 'none', swipe_right: 'trash' })
+  expect(requests.filter(item => item.method === 'PATCH')[1]?.body).toEqual({ expected_revision: 2, swipe_left: 'archive', swipe_right: 'trash' })
 })
 
 test('saving again after a conflict consciously replaces the assignment the notice named', async () => {
@@ -349,6 +352,7 @@ test('a previous API response without eligibility cannot clear a stored chat gra
     ? Response.json([{ id: 'work', display_name: 'Work', is_active: true }])
     : Response.json({ version: 3, account_ids: ['work'] }))
   expect(await screen.findByText(de.chatAccounts.eligibilityUnavailable)).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: /Work/ }))
   expect((screen.getByRole('button', { name: de.settingsUi.save }) as HTMLButtonElement).disabled).toBe(true)
   expect(requests.filter(item => item.method === 'PATCH')).toHaveLength(0)
 })
@@ -360,10 +364,9 @@ test('editing a visible account preserves a newly granted account omitted from a
     return Response.json({ version: 7, account_ids: ['elsewhere'] })
   })
   const visible = await screen.findByRole('checkbox', { name: /Work/ })
-  const save = screen.getByRole('button', { name: de.settingsUi.save }) as HTMLButtonElement
-  expect(save.disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: de.settingsUi.save })).toBeNull()
   fireEvent.click(visible)
-  fireEvent.click(save)
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.save }))
   await screen.findByText(de.settingsUi.saved)
   expect(requests.find(item => item.method === 'PATCH')?.body).toEqual({ expected_version: 7, account_ids: ['elsewhere', 'work'] })
 })
@@ -426,8 +429,31 @@ test('a removed default stays visible until the owner changes it', async () => {
   calendarForm('removed')
   const select = await screen.findByRole<HTMLSelectElement>('combobox', { name: de.calendarSettings.title })
   expect(select.selectedOptions[0]?.textContent).toBe(de.calendarSettings.missing)
-  expect((screen.getByRole('button', { name: de.settingsUi.save }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: de.settingsUi.save })).toBeNull()
   expect(requests.filter(r => r.method === 'PATCH')).toHaveLength(0)
+})
+
+test('leaving a settings page with unsaved changes warns and lets the owner stay or discard', async () => {
+  const { router } = setup('/settings/controls')
+  fireEvent.click(await screen.findByRole('button', { name: 'Nach links wischen' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'In den Papierkorb' }))
+  expect(screen.getByRole('region', { name: de.settingsUi.unsaved })).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('link', { name: 'Chat' }))
+  const dialog = await screen.findByRole('dialog', { name: de.settingsUi.leaveTitle })
+  expect(dialog.textContent).toContain(de.settingsUi.leaveDescription)
+  expect(router.state.location.pathname).toBe('/settings/controls')
+
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.keepEditing }))
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: de.settingsUi.leaveTitle })).toBeNull())
+  expect(router.state.location.pathname).toBe('/settings/controls')
+  expect(screen.getByRole('button', { name: 'Nach links wischen' }).textContent).toContain('In den Papierkorb')
+
+  fireEvent.click(screen.getByRole('link', { name: 'Chat' }))
+  await screen.findByRole('dialog', { name: de.settingsUi.leaveTitle })
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.discardAndLeave }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/settings/chat'))
+  expect(screen.queryByRole('region', { name: de.settingsUi.unsaved })).toBeNull()
 })
 
 test('a paused or read-only saved default displays an explanatory notice', async () => {

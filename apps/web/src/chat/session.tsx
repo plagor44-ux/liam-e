@@ -13,7 +13,8 @@ type State = { phase: 'idle' | 'working' | 'streaming' | 'done' | 'stopped' | 'e
 export type TaskScope = { source: 'none' | 'all' | 'unlinked' | 'account' | 'account_and_unlinked'; account_id?: string }
 export type SkillPersistence = 'turn' | 'until_stopped'
 export type SelectedSkillEntry = { skill: ActiveSkillSelection; persistence: SkillPersistence }
-type Session = { taskScopes: Record<string, TaskScope>; setTaskScope: (id: string, scope: TaskScope) => void; composerTexts: Record<string, string>; setComposerText: (id: string, text: string | ((previous: string) => string)) => void; selectedSkills: Record<string, SelectedSkillEntry | null>; setSelectedSkill: (id: string, skill: ActiveSkillSelection | null, persistence?: SkillPersistence) => void; setSkillPersistence: (id: string, persistence: SkillPersistence) => void; audioDraftLocked: boolean; setAudioDraftLocked: (locked: boolean) => void; state: State; send: (request: ChatStreamRequest, options?: { preserveDraft?: boolean; voiceAudio?: VoiceAudio }) => Promise<{ conversationId: string; messageId: string } | undefined>; stop: () => void; retry: () => Promise<void>; retryWithoutPreferences: () => Promise<void> }
+type SendOptions = { preserveDraft?: boolean; voiceAudio?: VoiceAudio; onConversationCreated?: (id: string) => void }
+type Session = { taskScopes: Record<string, TaskScope>; setTaskScope: (id: string, scope: TaskScope) => void; composerTexts: Record<string, string>; setComposerText: (id: string, text: string | ((previous: string) => string)) => void; selectedSkills: Record<string, SelectedSkillEntry | null>; setSelectedSkill: (id: string, skill: ActiveSkillSelection | null, persistence?: SkillPersistence) => void; setSkillPersistence: (id: string, persistence: SkillPersistence) => void; audioDraftLocked: boolean; setAudioDraftLocked: (locked: boolean) => void; state: State; send: (request: ChatStreamRequest, options?: SendOptions) => Promise<{ conversationId: string; messageId: string } | undefined>; stop: () => void; retry: () => Promise<void>; retryWithoutPreferences: () => Promise<void> }
 const initial = (): State => ({ phase: 'idle', text: '', mails: [], proposal: null, suggestions: [] })
 const Context = createContext<Session | null>(null)
 
@@ -70,7 +71,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     invalidate(turn.conversationId)
   }, [invalidate])
   useEffect(() => () => { const turn = active.current; active.current = null; turn?.controller.abort(); turn?.writer.cancel() }, [])
-  const send = useCallback(async (request: ChatStreamRequest, options?: { preserveDraft?: boolean; voiceAudio?: VoiceAudio }) => {
+  const send = useCallback(async (request: ChatStreamRequest, options?: SendOptions) => {
     if (active.current) return
     const composerKey = composerDraftKey(request.conversation_id, request.context_message_id)
     const liveTasks = request.conversation_id && conversation.current === request.conversation_id ? last.current : undefined
@@ -119,6 +120,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
               })
             }
             turn.conversationId = conversation.current = event.conversation_id
+            options?.onConversationCreated?.(event.conversation_id)
             setState(s => ({ ...s, conversationId: event.conversation_id, userMessageId: event.user_message_id, model: event.model }))
             void client.invalidateQueries({ queryKey: ['conversations'] }); break
           case 'status': setState(s => ({ ...s, status: event })); break

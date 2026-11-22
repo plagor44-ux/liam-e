@@ -12,6 +12,7 @@ from api.audio.live_access import live_remaining
 from api.audio.voice_turn import run_voice_turn
 from api.mail.agent import run_turn_events
 from api.mail.context_resolver import resolve_context
+from api.mail.models_catalog import list_chat_models, require_available_model
 from api.routers.api.v1.chat.stream import ChatStreamRequest
 from api.locales import resolve_locale
 from db.accessors import ui_settings
@@ -35,13 +36,15 @@ async def voice_turn(socket: WebSocket) -> None:
                 await socket.close(code=1009)
                 return
             body = ChatStreamRequest.model_validate_json(raw)
-            if not body.voice_response or not body.conversation_id:
+            if not body.voice_response or body.conversation_id == '':
                 await socket.close(code=1008)
                 return
-            if await chat_conversation.get_conversation(body.conversation_id) is None:
+            if body.conversation_id is not None and await chat_conversation.get_conversation(body.conversation_id) is None:
                 await socket.send_json({'event': 'refusal', 'code': 'conversation_not_found'})
                 return
             try:
+                if body.conversation_id is None and body.model is not None:
+                    require_available_model(body.model, await list_chat_models())
                 resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response', 'voice_stt_elapsed_ms'}))
             except HTTPException as error:
                 code = error.detail.get('code') if isinstance(error.detail, dict) else None

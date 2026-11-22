@@ -35,10 +35,10 @@
 .le-composer-options-popup { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-overlay); }
 .le-audio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 @media (max-width: 639px) {
-  .le-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+  .le-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .le-composer-selection { grid-column: 1 / -1; }
-  .le-composer textarea { min-width: 0; padding: var(--space-3); }
-  .le-composer-bar { flex-wrap: nowrap; gap: var(--space-1); padding: var(--space-1); }
+  .le-composer textarea { min-width: 0; padding: var(--space-4) var(--space-3) var(--space-4) var(--space-4); line-height: 20px; }
+  .le-composer-bar { align-self: end; flex-wrap: nowrap; gap: var(--space-1); padding: var(--space-1); }
   .le-composer-spacer { display: none; }
   .le-composer-options-toggle { display: grid; place-items: center; width: var(--control-height-lg); height: var(--control-height-lg); border: 0; border-radius: 50%; background: transparent; color: var(--ink); }
   .le-composer-options-items { display: none; }

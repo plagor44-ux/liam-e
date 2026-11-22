@@ -6,9 +6,14 @@ import { chatSettingsUpdate } from '../api/generated/sdk.gen'
 import type { ChatSettingsOut } from '../api/generated/types.gen'
 import { accountsQuery, chatSettingsQuery, summaryQuery } from '../api/queries'
 import { errorCode } from '../api/unwrap'
-import { Button, Notice } from '../ds'
+import { Notice } from '../ds'
 import { useI18n } from '../i18n/I18n'
+import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 import './settings.css'
+
+function sameAccounts(a: string[], b: string[]) {
+  return a.length === b.length && a.every(id => b.includes(id))
+}
 
 export function ChatAccountSettings() {
   const { texts } = useI18n()
@@ -22,12 +27,24 @@ export function ChatAccountSettings() {
   const shown = edit ?? settings.data
   const eligible = new Set(choices.filter(account => account.chat_eligibility === 'eligible').map(account => account.id))
   const eligibilityReady = accounts.isSuccess && choices.every(account => account.chat_eligibility != null)
-  const canSave = eligibilityReady && !!edit
+  const hasChange = Boolean(edit && settings.data && !sameAccounts(edit.account_ids, settings.data.account_ids))
+  const dirty = hasChange || status === 'conflict' || status === 'invalid' || status === 'error'
+  const canSave = eligibilityReady && hasChange && status !== 'saving' && status !== 'conflict'
 
   function toggle(id: string, checked: boolean) {
     if (!shown) return
     const ids = checked ? [...shown.account_ids, id] : shown.account_ids.filter(item => item !== id)
-    setEdit({ version: shown.version, account_ids: ids })
+    if (settings.data && sameAccounts(ids, settings.data.account_ids)) {
+      setEdit(undefined)
+    } else {
+      setEdit({ version: settings.data?.version ?? shown.version, account_ids: ids })
+    }
+    setStatus(undefined)
+  }
+
+  function discard() {
+    if (saving.current) return
+    setEdit(undefined)
     setStatus(undefined)
   }
 
@@ -67,13 +84,15 @@ export function ChatAccountSettings() {
     }
   }
 
-  return <section className="le-swipe" aria-labelledby="le-chat-accounts-title">
+  useSettingsSlice('chat-accounts', { dirty, canSave, busy: status === 'saving', save, discard })
+
+  return <SettingsSaveScope><section className="le-swipe" aria-labelledby="le-chat-accounts-title">
     <h2 id="le-chat-accounts-title" className="heading">{texts.chatAccounts.title}</h2>
     <p className="le-swipe-intro">{texts.chatAccounts.description}</p>
     {settings.isError || accounts.isError
       ? <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { void reload() } }}>{texts.settingsUi.error}</Notice>
       : !shown || accounts.isPending ? <p role="status">{texts.settingsUi.loading}</p>
-      : <form onSubmit={event => { event.preventDefault(); void save() }}>
+      : <div>
         {choices.length ? <fieldset className="le-chat-account-list" disabled={status === 'saving' || status === 'conflict'}>
           <legend className="le-sr">{texts.chatAccounts.title}</legend>
           {choices.map(account => <label key={account.id}>
@@ -86,7 +105,6 @@ export function ChatAccountSettings() {
         {status === 'invalid' && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { void reload() } }}>{texts.errors.chat_settings_invalid}</Notice>}
         {status === 'error' && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
         {status === 'conflict' && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { void reload() } }}>{texts.chatAccounts.conflict}</Notice>}
-        <div className="le-swipe-actions"><Button type="submit" variant="primary" disabled={!canSave || status === 'saving' || status === 'conflict'}>{texts.settingsUi.save}</Button></div>
-      </form>}
-  </section>
+      </div>}
+  </section></SettingsSaveScope>
 }

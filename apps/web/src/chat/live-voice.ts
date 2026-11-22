@@ -83,6 +83,7 @@ export function createLiveVoice(options: Options) {
       resume(++epoch)
     },
     acceptsAudio() { return enabled && listening },
+    setConversationId(id: string) { conversationId = id },
     event(event: Event) {
       if (!enabled || !listening) return
       if (event.type === 'turn.start') {

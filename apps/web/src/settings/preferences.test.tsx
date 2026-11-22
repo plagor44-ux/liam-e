@@ -43,7 +43,7 @@ function setup(path: string, respond?: (request: Request) => Promise<Response | 
 }
 afterEach(() => { cleanup(); globalThis.fetch = original; api.setConfig(config) })
 
-test('list names scope, source and status, with explicit opt-in confirmation', async () => {
+test('list names scope, source and status, with explicit opt-in confirmation and global save', async () => {
   setup('/settings/preferences')
   expect(await screen.findByText('test-only')).toBeTruthy()
   expect(screen.getByText(/Alle Konten · Von dir eingetragen · Aktiv/)).toBeTruthy()
@@ -54,7 +54,11 @@ test('list names scope, source and status, with explicit opt-in confirmation', a
   expect(requests.filter(r => r.method === 'PATCH')).toHaveLength(0)
   fireEvent.click(within(dialog).getByRole('button', { name: 'Verwendung einschalten' }))
   await screen.findByText('Verwendung eingeschaltet')
-  expect(requests.find(r => r.method === 'PATCH')?.body).toEqual({ personalization: { expected_version: 1, use_preferences: true } })
+  expect(screen.getByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeTruthy()
+  expect(requests.filter(r => r.method === 'PATCH')).toHaveLength(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(requests.find(r => r.method === 'PATCH')?.body).toEqual({ personalization: { expected_version: 1, use_preferences: true } }))
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeNull())
 })
 
 test('manual save does not opt in, guards double-clicks and preserves focus', async () => {
@@ -129,28 +133,31 @@ test('an answer names its preferences only when it used some', async () => {
   }
 })
 
-test('suggestions switch explains transmission and patches only its own opt-in with a version', async () => {
+test('suggestions switch explains transmission and patches only its own opt-in via the global save bar', async () => {
   setup('/settings/preferences')
   const toggle = await screen.findByRole('switch', { name: 'Aus meinen Nachrichten Vorschläge machen' })
   expect(toggle.getAttribute('aria-checked')).toBe('false')
   expect(screen.getByText(/ausgewählte neue Nachrichten von dir an Mistral übermittelt/)).toBeTruthy()
   expect(screen.getByText(/Sie bleiben also nicht nur in der App-Datenbank/)).toBeTruthy()
   fireEvent.click(toggle)
-  await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
-  expect(requests.find(r => r.method === 'PATCH')?.body).toEqual({ personalization: { expected_version: 1, suggest_preferences: true } })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  expect(screen.getByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(requests.find(r => r.method === 'PATCH')?.body).toEqual({ personalization: { expected_version: 1, suggest_preferences: true } }))
   expect(screen.getByText('Präferenzen aus')).toBeTruthy()
   expect(await screen.findByText('Keine offenen Vorschläge. Du kannst im Chat mit „Merke dir:“ um eine Präferenz bitten.')).toBeTruthy()
 })
 
-test('suggestion version conflicts do not flip the switch and offer a reload', async () => {
+test('suggestion version conflicts offer a reload that restores the confirmed switch state', async () => {
   setup('/settings/preferences', async req => req.method === 'PATCH' ? Response.json({ detail: { code: 'preference_conflict' } }, { status: 409 }) : undefined)
   const toggle = await screen.findByRole('switch', { name: 'Aus meinen Nachrichten Vorschläge machen' })
   fireEvent.click(toggle)
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
   const reload = await screen.findByRole('button', { name: 'Aktuelle Fassung laden' })
-  expect(toggle.getAttribute('aria-checked')).toBe('false')
   const reads = requests.filter(r => r.method === 'GET' && r.path.endsWith('/settings')).length
   fireEvent.click(reload)
   await waitFor(() => expect(requests.filter(r => r.method === 'GET' && r.path.endsWith('/settings')).length).toBeGreaterThan(reads))
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
 })
 
 test('a scope whose account is gone says so once the accounts are loaded', async () => {

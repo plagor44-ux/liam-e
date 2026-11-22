@@ -15,3 +15,5 @@
 .le-chat-account-list { border: 0; margin: 0; padding: 0; }
 .le-chat-account-list label { display: flex; align-items: center; gap: .75rem; min-height: 44px; overflow-wrap: anywhere; }
 .le-chat-account-list small { display: block; }
+.le-settings-bar { position: sticky; bottom: var(--space-3); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--control-border); border-radius: var(--radius-md); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); }
+.le-settings-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }

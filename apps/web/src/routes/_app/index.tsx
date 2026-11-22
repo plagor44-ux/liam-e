@@ -39,6 +39,7 @@ function Greeting() {
   const calendarSettings = useQuery({ ...calendarSettingsQuery(), enabled: !about })
   const reference = useQuery(chatMailReferenceQuery(about ?? '', summary.data?.mail_scope_version))
   const [started, setStarted] = useState(false)
+  const [voiceActive, setVoiceActive] = useState(false)
   // The model chosen in the chip rides along with the first message and becomes the model of the new conversation.
   const [model, setModel] = useState<string>()
   const [revision, setRevision] = useState<string | null>(null)
@@ -89,11 +90,11 @@ function Greeting() {
     }
   }, [modelGone, skillGone, client])
   useEffect(() => {
-    if (started && state.conversationId) {
+    if (started && !voiceActive && state.conversationId) {
       setStarted(false)
       void navigate({ to: '/chat/$conversationId', params: { conversationId: state.conversationId } })
     }
-  }, [started, state.conversationId, navigate])
+  }, [started, voiceActive, state.conversationId, navigate])
   const readable = calendars.data?.filter(readableCalendar) ?? []
   const dueSources = [
     ...(effectiveAccounts.length ? [texts.calendarSettings.deadlines] : []),
@@ -168,7 +169,7 @@ function Greeting() {
         {mail && account && <MailReference compact mail={mail} accountLabel={account && providerLabel(account)} onOpen={() => { void navigate({ to: '/mail/$messageId', params: { messageId: mail.id } }) }} />}
         <IconButton icon="x" label={texts.chat.removeReference} onClick={() => { void navigate({ to: '/', search: { about: undefined } }) }} />
       </div>}
-      {(!about || (mail && account)) && <ChatComposer key={about} autoFocus={Boolean(about)} contextMail={mail} contextOccurrenceId={calendarAbout} model={model} promptRevisionId={revision} onPromptRevisionChange={setRevision} onSend={() => setStarted(true)} />}
+      {(!about || (mail && account)) && <ChatComposer key={about} autoFocus={Boolean(about)} contextMail={mail} contextOccurrenceId={calendarAbout} model={model} promptRevisionId={revision} onPromptRevisionChange={setRevision} onSend={() => setStarted(true)} onVoiceActiveChange={setVoiceActive} />}
     </div>}
   </div>
 }

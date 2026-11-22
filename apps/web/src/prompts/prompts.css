@@ -13,4 +13,6 @@
 .le-chat-topbar, .le-chat-header { flex-wrap: wrap; gap: var(--space-2); }
 .le-template-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .le-template-control .le-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.le-settings-bar { position: sticky; bottom: var(--space-3); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--control-border); border-radius: var(--radius-md); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); }
+.le-settings-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
 @media (max-width: 639px) { .le-settings { padding: var(--space-3); } }

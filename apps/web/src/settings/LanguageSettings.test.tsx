@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
 import type { UiSettingsOut } from '../api/generated/types.gen'
 import { AppLocale } from '../i18n/AppLocale'
@@ -9,33 +9,39 @@ import { LOCALE_COOKIE } from '../i18n/locales'
 import { LanguageSettings } from './LanguageSettings'
 
 const browserDefaults: UiSettingsOut = {
-  locale: 'browser', swipe_left: 'archive', swipe_right: 'toggle_read', revision: 1, updated_at: '2026-01-01T00:00:00Z',
+  locale: 'browser', speech_pace: 'normal', swipe_left: 'archive', swipe_right: 'toggle_read', revision: 1, updated_at: '2026-01-01T00:00:00Z',
 }
 
-function open() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  render(<QueryClientProvider client={client}>
+function open(client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })) {
+  const view = render(<QueryClientProvider client={client}>
     <AppLocale initial={{ page: 'de', browser: 'de' }}><LanguageSettings /></AppLocale>
   </QueryClientProvider>)
+  return { client, view }
 }
 
-afterEach(() => { document.cookie = LOCALE_COOKIE + '=; Max-Age=0; Path=/' })
+afterEach(() => {
+  cleanup()
+  document.cookie = LOCALE_COOKIE + '=; Max-Age=0; Path=/'
+})
 
-test('language changes after the owner setting is saved, with the confirmed revision', async () => {
+test('language changes after the owner setting is saved via the global save bar, with the confirmed revision', async () => {
   spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: browserDefaults })) as never)
   let resolve!: (value: unknown) => void
   const save = spyOn(sdk, 'settingsUiUpdate').mockImplementation((() => new Promise(done => { resolve = done })) as never)
   open()
 
+  expect(screen.queryByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeNull()
   fireEvent.click(await screen.findByRole('button', { name: /Sprache des Browsers verwenden/ }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Englisch' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Sprache speichern' }))
+  expect(screen.getByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
   expect(save.mock.calls[0]?.[0]?.body).toEqual({ locale: 'en', expected_revision: 1 })
   expect(screen.queryByRole('heading', { name: 'App language' })).toBeNull()
   await act(async () => { resolve({ data: { ...browserDefaults, locale: 'en', revision: 2 } }) })
 
   expect(await screen.findByRole('heading', { name: 'App language' })).toBeTruthy()
   expect(screen.getByText('Language saved.')).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Unsaved changes' })).toBeNull()
   await waitFor(() => expect(document.cookie).toContain(LOCALE_COOKIE + '=en'))
 })
 
@@ -45,7 +51,6 @@ test('a second device applies the saved language without relying on a cookie', a
   expect(await screen.findByRole('heading', { name: 'App language' })).toBeTruthy()
   expect(screen.getByRole('button', { name: /App language English/ })).toBeTruthy()
 })
-
 
 function LocaleProbe() {
   const { locale, browserLocale } = useI18n()
@@ -67,16 +72,53 @@ test('a stale English mirror stays separate from the German browser hint until s
   await waitFor(() => expect(document.cookie).not.toContain(LOCALE_COOKIE + '=en'))
 })
 
-test('speech speed saves the selected value with the confirmed revision', async () => {
-  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
-  const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, speech_pace: 'fast', revision: 2 } } as never)
-  open()
-  expect(await screen.findByText(/Experimentell: Wähle das Tempo/)).toBeTruthy()
-  fireEvent.click(await screen.findByRole('button', { name: /Sprechtempo Normal/ }))
-  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Tempo speichern' }))
+test('speech speed saves via the global bar and persists when returning from voice mode', async () => {
+  let stored: UiSettingsOut = { ...browserDefaults, locale: 'en' }
+  spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: stored })) as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockImplementation((async ({ body }: { body: { expected_revision: number; speech_pace?: 'slow' | 'normal' | 'fast'; locale?: 'browser' | 'de' | 'en' } }) => {
+    stored = { ...stored, ...body, revision: body.expected_revision + 1 }
+    return { data: stored }
+  }) as never)
+  const { client, view } = open()
+  expect(await screen.findByText(/Experimental: Choose the speed/)).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: /Speech speed Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fast' }))
+  expect(screen.getByRole('region', { name: 'Unsaved changes' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save choices' }))
   await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ speech_pace: 'fast', expected_revision: 1 }))
-  expect(await screen.findByText('Tempo gespeichert.')).toBeTruthy()
+  expect(await screen.findByText('Speed saved.')).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Unsaved changes' })).toBeNull()
+
+  // Simulate navigating away to test voice mode and returning to Settings -> Language.
+  view.unmount()
+  open(client)
+  expect(await screen.findByRole('button', { name: /Speech speed Fast/ })).toBeTruthy()
+})
+
+test('changing language and speech speed together saves both atomically with one revision and can be discarded', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, locale: 'en', speech_pace: 'fast', revision: 2 } } as never)
+  open()
+
+  fireEvent.click(await screen.findByRole('button', { name: /Sprache des Browsers verwenden/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Englisch' }))
+  fireEvent.click(screen.getByRole('button', { name: /Sprechtempo Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
+  expect(screen.getByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Verwerfen' }))
+  expect(screen.queryByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeNull()
+  expect(screen.getByRole('button', { name: /Sprache des Browsers verwenden/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Sprechtempo Normal/ })).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: /Sprache des Browsers verwenden/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Englisch' }))
+  fireEvent.click(screen.getByRole('button', { name: /Sprechtempo Normal/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, locale: 'en', speech_pace: 'fast' }))
+  expect(await screen.findByText('Language saved.')).toBeTruthy()
+  expect(screen.getByText('Speed saved.')).toBeTruthy()
 })
 
 test('a confirmed settings read reports the browser language for background jobs', async () => {

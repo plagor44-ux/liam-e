@@ -2,6 +2,7 @@
 import { Link, Outlet } from '@tanstack/react-router'
 import type { Catalogue } from '../i18n/catalogue'
 import { useI18n } from '../i18n/I18n'
+import { SettingsSaveBar, SettingsSaveProvider } from '../settings/SettingsSave'
 import './prompts.css'
 
 // Add implemented preferences and controls sections here; no placeholder destinations.
@@ -15,5 +16,5 @@ export const settingsSections = (texts: Catalogue) => [
 ] as const
 export function Settings() {
   const { texts } = useI18n()
-  return <section className="le-settings"><h1 className="title">{texts.prompts.settings}</h1><nav aria-label={texts.prompts.settings}>{settingsSections(texts).map(section => <Link key={section.to} to={section.to} className="le-btn le-btn--secondary">{section.label}</Link>)}</nav><Outlet /></section>
+  return <SettingsSaveProvider><section className="le-settings"><h1 className="title">{texts.prompts.settings}</h1><nav aria-label={texts.prompts.settings}>{settingsSections(texts).map(section => <Link key={section.to} to={section.to} className="le-btn le-btn--secondary">{section.label}</Link>)}</nav><Outlet /><SettingsSaveBar /></section></SettingsSaveProvider>
 }

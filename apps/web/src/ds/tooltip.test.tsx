@@ -161,6 +161,28 @@ describe('Tooltip accessibility', () => {
     view.unmount()
     expect(document.body.querySelectorAll('[role="tooltip"]')).toHaveLength(0)
   })
+
+  test('does not stick on touch tap or stay open when a menu or drawer opens', async () => {
+    layout(box(16, 16, 44, 44))
+    render(<Tooltip content="Open menu"><button>Open menu</button></Tooltip>)
+    const button = screen.getByRole('button', { name: 'Open menu' })
+
+    // Touch tap fires touchstart, emulated mouseenter, focus and click without mouseleave.
+    fireEvent.touchStart(button)
+    fireEvent.mouseEnter(button)
+    act(() => button.focus())
+    fireEvent.click(button)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)) })
+    expect(screen.queryByRole('tooltip')).toBeNull()
+
+    // Restore keyboard interaction and verify that opening a menu/drawer dismisses any visible tooltip.
+    act(() => button.blur())
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    act(() => button.focus())
+    expect(screen.getByRole('tooltip').textContent).toBe('Open menu')
+    act(() => { document.dispatchEvent(new Event('liam-menu-open')) })
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
 })
 
 test('the bubble is fixed, ignores the pointer and sits above the scrim of dialogs', () => {

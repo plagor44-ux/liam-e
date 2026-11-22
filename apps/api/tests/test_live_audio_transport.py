@@ -182,3 +182,61 @@ def test_voice_turn_preserves_context_refusals_and_missing_conversation(monkeypa
         with client.websocket_connect('/api/v1/audio/live/turn') as ws:
             ws.send_json({'conversation_id': 'missing', 'text': 'synthetic', 'voice_response': True})
             assert ws.receive_json() == {'event': 'refusal', 'code': 'conversation_not_found'}
+
+
+def test_voice_turn_creates_conversation_when_started_from_empty_chat(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from api.audio.access import get_audio_owner_verifier
+    from api.audio import voice_turn as voice_bridge
+    from api.errors import refuse
+    from api.mail.chat_events import StartEvent, DeltaEvent, DoneEvent
+    from api.routers.api.v1.audio.live import turn
+
+    spoken = []
+    class Provider:
+        async def append(self, text): spoken.append(text)
+        async def finish(self): self.first = True
+        async def receive(self):
+            if self.first:
+                self.first = False
+                return bytes(4)
+            return None
+    @asynccontextmanager
+    async def fake_live(kind, **kwargs): yield Provider()
+    async def fake_events(**kwargs):
+        assert kwargs.get('conversation_id') is None
+        yield StartEvent(conversation_id='created-conv', user_message_id='u1', model='mistral-small-latest')
+        yield DeltaEvent(text='Erste Antwort.')
+        yield DoneEvent(conversation_id='created-conv', message_id='m1', stopped=False)
+
+    monkeypatch.setattr(turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_bridge, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(turn, 'list_chat_models', AsyncMock(return_value=[SimpleNamespace(id='mistral-small-latest', resolved_id=None, availability='available')]))
+    resolve_mock = AsyncMock(return_value=(SimpleNamespace(id='created-conv'), SimpleNamespace(id='ctx-new'), None))
+    monkeypatch.setattr(turn, 'resolve_context', resolve_mock)
+    monkeypatch.setattr(turn, 'run_turn_events', fake_events)
+    monkeypatch.setattr(voice_bridge, 'mistral_live', fake_live)
+    monkeypatch.setattr(voice_bridge.chat_context, 'is_live', AsyncMock(return_value=True))
+    app = build_app()
+    async def allow(_): return True
+    app.dependency_overrides[get_audio_owner_verifier] = lambda: allow
+    with TestClient(app) as client:
+        with client.websocket_connect('/api/v1/audio/live/turn') as ws:
+            ws.send_json({'text': 'Erster gesprochener Beitrag', 'voice_response': True, 'model': 'mistral-small-latest'})
+            events = []
+            while True:
+                event = ws.receive_json(); events.append(event)
+                if event['event'] == 'voice_audio_end': break
+            assert events[0] == {'event': 'start', 'conversation_id': 'created-conv', 'user_message_id': 'u1', 'model': 'mistral-small-latest'}
+            assert spoken == ['Erste Antwort.']
+            ws.send_json({'event': 'playback_finished'})
+            done = ws.receive_json()
+            assert done['conversation_id'] == 'created-conv' and done['message_id'] == 'm1'
+            assert resolve_mock.await_args.kwargs['conversation_id'] is None
+            assert resolve_mock.await_args.kwargs['model'] == 'mistral-small-latest'
+
+        monkeypatch.setattr(turn, 'require_available_model', lambda *_: (_ for _ in ()).throw(refuse(404, 'model_unknown', 'unknown')))
+        with client.websocket_connect('/api/v1/audio/live/turn') as ws:
+            ws.send_json({'text': 'Mit unbekanntem Modell', 'voice_response': True, 'model': 'gone'})
+            assert ws.receive_json() == {'event': 'refusal', 'code': 'model_unknown'}

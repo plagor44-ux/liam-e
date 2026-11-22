@@ -124,5 +124,10 @@ def test_speech_pace_revision_and_browser_hint_are_independent(pg_db):
         with pytest.raises(ValueError): await settings.update(row.revision, speech_pace='faster')
         updated = await settings.update(row.revision, speech_pace='fast')
         assert updated.speech_pace == 'fast' and updated.browser_locale == 'de'
+        reread = await settings.get_or_create()
+        assert reread.speech_pace == 'fast' and reread.revision == updated.revision
+        combined = await settings.update(reread.revision, locale='en', speech_pace='slow')
+        assert combined.locale == 'en' and combined.speech_pace == 'slow'
+        assert (await settings.get_or_create()).speech_pace == 'slow'
         with pytest.raises(settings.StaleRevision): await settings.update(row.revision, speech_pace='slow')
     asyncio.run(run())

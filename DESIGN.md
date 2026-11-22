@@ -633,8 +633,17 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   library, as does `/settings/prompts`. Further completed areas can be added to `settingsSections`;
   there are no empty landing pages. The current area is marked in section navigation like the current
   sidebar entry.
+- Direct settings sections (`/settings/chat`, `/settings/calendar`, `/settings/controls`,
+  `/settings/preferences` personalization toggles, `/settings/language` including speech speed) do not
+  render per-setting save buttons. Instead, unsaved changes are detected across the active settings
+  view and surfaced in a global sticky bar („Ungespeicherte Änderungen“ / “Unsaved changes”) with
+  „Auswahl speichern“ (“Save choices”) and „Verwerfen“ (“Discard”). Existing endpoint revision and
+  version checks remain authoritative; leaving a dirty settings view opens a confirmation dialog
+  („Ungespeicherte Änderungen verwerfen?“ / “Discard unsaved changes?”) and sets `beforeunload`.
 - The library shows name, short preview, version and, if known, modification date. Create and edit
   open separate views (`/settings/prompts/new`, `/settings/prompts/$promptId`), including on desktop.
+  These dedicated create/edit views (and `/settings/preferences/new`,
+  `/settings/preferences/$preferenceId`) retain their own form save, pause and delete actions.
 - Name and instructions use TextField with counters (80 and 8,000 characters respectively). Saving
   is explicit; errors preserve inputs. A version conflict offers the current version without itself
   overwriting. Deletion requires a dialog with focus management and names consequences including

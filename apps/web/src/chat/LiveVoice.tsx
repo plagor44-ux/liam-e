@@ -10,7 +10,16 @@ import { createLiveVoice } from './live-voice'
 import type { VoiceAudio } from './transport'
 
 type Reply = { conversationId: string; messageId: string }
-type Props = { conversationId: string; disabled: boolean; contextKey: string; send: (text: string, audio?: VoiceAudio, sttElapsedMs?: number) => Promise<Reply | undefined>; stopChat: () => void; registerStop: (stop: (() => void) | null) => void; onStart?: () => void }
+type Props = {
+  conversationId?: string
+  disabled: boolean
+  contextKey: string
+  send: (text: string, audio?: VoiceAudio, sttElapsedMs?: number, conversationId?: string, onConversationId?: (id: string) => void) => Promise<Reply | undefined>
+  stopChat: () => void
+  registerStop: (stop: (() => void) | null) => void
+  onStart?: () => void
+  onActiveChange?: (active: boolean) => void
+}
 
 // Transcription input is signed 16-bit little-endian mono at 24 kHz.
 function pcm(input: Float32Array, inputRate: number): ArrayBuffer {
@@ -88,7 +97,7 @@ function liveAudio(context: AudioContext, signal: AbortSignal, onPlaying: () => 
   }
 }
 
-export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat, registerStop, onStart }: Props) {
+export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat, registerStop, onStart, onActiveChange }: Props) {
   const { texts, locale, browserLocale } = useI18n()
   const [available, setAvailable] = useState(false)
   const [state, setState] = useState<'idle' | 'starting' | 'listening' | 'answering' | 'speaking' | 'resuming' | 'error'>('idle')
@@ -96,8 +105,14 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
   const control = useRef<HTMLDivElement>(null)
   const endButton = useRef<HTMLButtonElement>(null)
   const restoreFocus = useRef(false)
-  const current = useRef({ send, stopChat }); current.current = { send, stopChat }
-  const stop = useCallback(() => { const session = active.current; active.current = null; session?.stop(); setState('idle') }, [])
+  const current = useRef({ send, stopChat, onActiveChange }); current.current = { send, stopChat, onActiveChange }
+  const stop = useCallback(() => {
+    const session = active.current
+    active.current = null
+    session?.stop()
+    setState('idle')
+    current.current.onActiveChange?.(false)
+  }, [])
   useEffect(() => { registerStop(stop); return () => registerStop(null) }, [registerStop, stop])
   useEffect(() => {
     if (!globalThis.isSecureContext || typeof AudioContext === 'undefined' || !navigator.mediaDevices?.getUserMedia) return
@@ -115,6 +130,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     if (disabled || active.current || document.hidden) return
     restoreFocus.current = true
     onStart?.()
+    current.current.onActiveChange?.(true)
     setState('starting')
     let stream: MediaStream | undefined, socket: WebSocket | undefined, context: AudioContext | undefined, processor: ScriptProcessorNode | undefined
     let socketClosed: Promise<void> = Promise.resolve(), started = false, silentFailures = 0
@@ -145,7 +161,11 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
           await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)))
         }
       },
-      send: async (text, _conversation, audio, sttElapsedMs) => { const result = await current.current.send(text, audio, sttElapsedMs); if (!result) throw new Error('chat_failed'); return result },
+      send: async (text, targetConversationId, audio, sttElapsedMs) => {
+        const result = await current.current.send(text, audio, sttElapsedMs, targetConversationId, id => voice.setConversationId(id))
+        if (!result) throw new Error('chat_failed')
+        return result
+      },
       startLiveAudio: signal => liveAudio(context!, signal, () => { if (!signal.aborted) setState('speaking') }),
       speak: (reply, signal) => playReply(context!, reply, signal, browserLocale), stopChat: () => current.current.stopChat(),
       onState: next => { if (next === 'error') { stop(); setState('error') } else setState(next) } })

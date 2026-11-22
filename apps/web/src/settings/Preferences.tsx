@@ -12,6 +12,7 @@ import { useFocusTrap } from '../ds/useFocusTrap'
 import { useI18n } from '../i18n/I18n'
 import { preferencesQuery, personalizationQuery } from './preferenceQueries'
 import { PreferenceCandidates } from './PreferenceCandidates'
+import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 
 const codeOf = (cause: unknown) => errorCode(cause instanceof Error ? cause.cause : cause)
 function useRefresh() {
@@ -24,9 +25,24 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
   const t = texts.preferences
   const query = useQuery(personalizationQuery()), refresh = useRefresh(), explanationId = useId()
   const [confirm, setConfirm] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(false)
+  const [draft, setDraft] = useState<{ use_preferences: boolean; suggest_preferences: boolean; version: number }>()
   const lock = useRef(false)
   const config = query.data?.personalization
-  const change = async (use: boolean, field: 'use_preferences' | 'suggest_preferences' = 'use_preferences') => {
+
+  const shownUse = saved ? (config?.use_preferences ?? false) : (draft?.use_preferences ?? config?.use_preferences ?? false)
+  const shownSuggest = saved ? (config?.suggest_preferences ?? false) : (draft?.suggest_preferences ?? config?.suggest_preferences ?? false)
+
+  const stageChange = (nextUse: boolean, nextSuggest: boolean) => {
+    if (!config) return
+    setError(false)
+    if (nextUse === config.use_preferences && nextSuggest === config.suggest_preferences) {
+      setDraft(undefined)
+    } else {
+      setDraft({ use_preferences: nextUse, suggest_preferences: nextSuggest, version: config.version })
+    }
+  }
+
+  const changeImmediate = async (use: boolean, field: 'use_preferences' | 'suggest_preferences' = 'use_preferences') => {
     if (!config || lock.current) return
     lock.current = true; setBusy(true); setError(false)
     try {
@@ -34,13 +50,68 @@ export function Personalization({ saved = false }: { saved?: boolean }) {
       setConfirm(false); refresh()
     } catch { setError(true) } finally { lock.current = false; setBusy(false) }
   }
+
+  const hasChange = !saved && Boolean(
+    draft && config && (draft.use_preferences !== config.use_preferences || draft.suggest_preferences !== config.suggest_preferences),
+  )
+  const dirty = !saved && (hasChange || error)
+  const canSave = !saved && hasChange && !busy && !error
+
+  const saveDraft = async () => {
+    if (!draft || !config || !hasChange || lock.current) return
+    lock.current = true; setBusy(true); setError(false)
+    try {
+      const patch: { expected_version: number; use_preferences?: boolean; suggest_preferences?: boolean } = {
+        expected_version: draft.version,
+      }
+      if (draft.use_preferences !== config.use_preferences) patch.use_preferences = draft.use_preferences
+      if (draft.suggest_preferences !== config.suggest_preferences) patch.suggest_preferences = draft.suggest_preferences
+      await unwrap(settingsUpdate({ body: { personalization: patch }, throwOnError: true }))
+      setDraft(undefined)
+      refresh()
+    } catch {
+      setError(true)
+    } finally {
+      lock.current = false; setBusy(false)
+    }
+  }
+
+  const discardDraft = () => {
+    if (lock.current) return
+    setDraft(undefined)
+    setError(false)
+    setConfirm(false)
+  }
+
+  useSettingsSlice(saved ? 'personalization-inline' : 'personalization', {
+    dirty,
+    canSave,
+    busy,
+    save: saveDraft,
+    discard: discardDraft,
+  })
+
   if (!config) return query.isPending ? <p role="status">{t.loading}</p> : <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void query.refetch() } }}>{t.error}</Notice>
   return <div className="le-prompts">
-    <Notice tone="info" action={{ label: config.use_preferences ? t.disable : t.enable, onClick: () => { if (busy) return; if (config.use_preferences) void change(false); else setConfirm(true) } }}>{saved ? config.use_preferences ? t.saved : t.savedOff : config.use_preferences ? t.on : t.off}</Notice>
-    <Button variant="secondary" role="switch" aria-checked={config.suggest_preferences} aria-describedby={explanationId} disabled={busy} onClick={() => { void change(!config.suggest_preferences, 'suggest_preferences') }}>{t.suggestionsSwitch}</Button>
-    <p id={explanationId} className="le-hint">{config.suggest_preferences ? t.suggestionsOn : t.suggestionsOff} {t.suggestionsExplanation}</p>
-    {error && <Notice tone="danger" action={{ label: t.reload, onClick: () => { void query.refetch() } }}>{t.conflict}</Notice>}
-    {confirm && <PreferenceDialog title={t.enable} close={() => { if (!busy) setConfirm(false) }}><p>{t.transfer}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setConfirm(false)}>{texts.controls.cancel}</Button><Button variant="primary" disabled={busy} onClick={() => { void change(true) }}>{t.enable}</Button></div></PreferenceDialog>}
+    <Notice tone="info" action={{ label: shownUse ? t.disable : t.enable, onClick: () => {
+      if (busy) return
+      if (shownUse) {
+        if (saved) void changeImmediate(false)
+        else stageChange(false, shownSuggest)
+      } else {
+        setConfirm(true)
+      }
+    } }}>{saved ? shownUse ? t.saved : t.savedOff : shownUse ? t.on : t.off}</Notice>
+    <Button variant="secondary" role="switch" aria-checked={shownSuggest} aria-describedby={explanationId} disabled={busy} onClick={() => {
+      if (saved) void changeImmediate(!shownSuggest, 'suggest_preferences')
+      else stageChange(shownUse, !shownSuggest)
+    }}>{t.suggestionsSwitch}</Button>
+    <p id={explanationId} className="le-hint">{shownSuggest ? t.suggestionsOn : t.suggestionsOff} {t.suggestionsExplanation}</p>
+    {error && <Notice tone="danger" action={{ label: t.reload, onClick: () => { discardDraft(); void query.refetch() } }}>{t.conflict}</Notice>}
+    {confirm && <PreferenceDialog title={t.enable} close={() => { if (!busy) setConfirm(false) }}><p>{t.transfer}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setConfirm(false)}>{texts.controls.cancel}</Button><Button variant="primary" disabled={busy} onClick={() => {
+      if (saved) void changeImmediate(true)
+      else { stageChange(true, shownSuggest); setConfirm(false) }
+    }}>{t.enable}</Button></div></PreferenceDialog>}
   </div>
 }
 
@@ -62,14 +133,14 @@ export function Preferences() {
   const t = texts.preferences
   const query = useQuery(preferencesQuery())
   const scope = useScopeLabel()
-  return <section className="le-prompts"><div className="le-prompt-actions"><h2 className="heading">{t.title}</h2><Link className="le-btn le-btn--primary" to="/settings/preferences/new">{t.add}</Link></div>
+  return <SettingsSaveScope><section className="le-prompts"><div className="le-prompt-actions"><h2 className="heading">{t.title}</h2><Link className="le-btn le-btn--primary" to="/settings/preferences/new">{t.add}</Link></div>
     <Personalization />
     {query.isPending && <><p role="status">{t.loading}</p>{[0, 1, 2].map(i => <div className="le-prompt-placeholder" key={i} aria-hidden="true" />)}</>}
     {query.isError && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void query.refetch() } }}>{t.error}</Notice>}
     {query.data?.length === 0 && <p>{t.empty}</p>}
     {query.data?.map(row => <div className="le-prompt-row" key={row.id}><strong>{t.keys[row.key]}</strong><span className="le-prompt-preview">{row.value}</span><small>{scope(row.scope)} · {row.source === 'confirmed_candidate' ? t.confirmedSource : t.source} · {t.statuses[row.status]}</small><Link className="le-btn le-btn--secondary" to="/settings/preferences/$preferenceId" params={{ preferenceId: row.id }}>{t.edit}</Link></div>)}
     <PreferenceCandidates />
-  </section>
+  </section></SettingsSaveScope>
 }
 
 export function PreferenceEditor({ id }: { id?: string }) {

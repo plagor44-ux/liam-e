@@ -7,6 +7,7 @@ import { cacheUiSettings, uiSettingsQuery } from '../api/queries'
 import { errorCode, unwrap } from '../api/unwrap'
 import { Button, Chip, Icon, Menu, Notice, Tooltip, type IconName } from '../ds'
 import { useI18n } from '../i18n/I18n'
+import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 import type { SwipeAction } from './useSwipeSettings'
 import './settings.css'
 
@@ -23,11 +24,11 @@ export function SwipeSettings() {
     {query.isPending ? <><p role="status">{texts.settingsUi.loading}</p>{[0, 1].map(index => <div key={index} className="le-swipe-placeholder" aria-hidden="true" />)}</>
       : <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void query.refetch() } }}>{texts.settingsUi.error}</Notice>}
   </section>
-  return <SwipeSettingsForm settings={query.data} reload={async () => {
+  return <SettingsSaveScope><SwipeSettingsForm settings={query.data} reload={async () => {
     const result = await query.refetch()
     if (result.isError || !result.data) throw result.error
     return result.data
-  }} />
+  }} /></SettingsSaveScope>
 }
 
 /**
@@ -65,7 +66,21 @@ function SwipeSettingsForm({ settings, reload }: { settings: UiSettingsOut; relo
       } else setOutcome('error')
     } finally { lock.current = false; setBusy(false) }
   }
-  return <form className="le-swipe" onSubmit={event => { event.preventDefault(); void save({ left, right }) }}>
+  const discard = () => {
+    if (lock.current) return
+    const latest = settings.revision >= base.revision ? settings : base
+    setBase(latest); setLeft(latest.swipe_left); setRight(latest.swipe_right); setOutcome(undefined)
+  }
+  const hasChange = left !== base.swipe_left || right !== base.swipe_right
+  const dirty = hasChange || outcome === 'conflict' || outcome === 'error'
+  useSettingsSlice('ui-swipe', {
+    dirty,
+    canSave: dirty && !busy,
+    busy,
+    save: () => save({ left, right }),
+    discard,
+  })
+  return <section className="le-swipe">
     <h2 className="heading">{texts.settingsUi.title}</h2>
     <p className="le-swipe-intro">{texts.settingsUi.intro}</p>
     <div className="le-swipe-fields">
@@ -77,10 +92,9 @@ function SwipeSettingsForm({ settings, reload }: { settings: UiSettingsOut; relo
     {outcome === 'conflict' && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { setLeft(base.swipe_left); setRight(base.swipe_right); setOutcome(undefined) } }}>
       {texts.settingsUi.conflict(texts.settingsUi.actions[base.swipe_left], texts.settingsUi.actions[base.swipe_right])}</Notice>}
     <div className="le-swipe-actions">
-      <Button type="submit" variant="primary" disabled={busy}>{texts.settingsUi.save}</Button>
       <Tooltip content={texts.settingsUi.restoreTip}><Button variant="secondary" disabled={busy} onClick={() => { void save(DEFAULTS) }}>{texts.settingsUi.restore}</Button></Tooltip>
     </div>
-  </form>
+  </section>
 }
 
 function SwipeSelect({ id, label, action, disabled, onSelect }: { id: string; label: string; action: SwipeAction; disabled: boolean; onSelect: (action: SwipeAction) => void }) {

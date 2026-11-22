@@ -95,6 +95,45 @@ def test_pace_is_revision_guarded(client, pace):
     access.update.assert_awaited_once_with(1, speech_pace=pace)
 
 
+def test_speech_pace_persists_across_browser_locale_confirm_and_reread(monkeypatch):
+    stored = row()
+
+    async def get_current():
+        return stored
+
+    async def apply_update(expected_revision, **changes):
+        nonlocal stored
+        if stored.revision != expected_revision:
+            raise access.StaleRevision(expected_revision)
+        data = {
+            'swipe_left': stored.swipe_left,
+            'swipe_right': stored.swipe_right,
+            'locale': stored.locale,
+            'speech_pace': stored.speech_pace,
+            **changes,
+        }
+        stored = row(revision=stored.revision + 1, **data)
+        return stored
+
+    monkeypatch.setattr(access, 'get_or_create', AsyncMock(side_effect=get_current))
+    monkeypatch.setattr(access, 'update', AsyncMock(side_effect=apply_update))
+    monkeypatch.setattr(access, 'remember_browser_locale', AsyncMock())
+    stateful_client = TestClient(build_app())
+
+    patched = stateful_client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'locale': 'en', 'speech_pace': 'fast'})
+    assert patched.status_code == 200
+    assert patched.json()['locale'] == 'en'
+    assert patched.json()['speech_pace'] == 'fast'
+    assert patched.json()['revision'] == 2
+
+    assert stateful_client.post('/api/v1/settings/ui/browser-locale', json={'locale': 'en'}).status_code == 200
+    reread = stateful_client.get('/api/v1/settings/ui')
+    assert reread.status_code == 200
+    assert reread.json()['speech_pace'] == 'fast'
+    assert reread.json()['locale'] == 'en'
+    assert reread.json()['revision'] == 2
+
+
 def test_browser_locale_confirmation_validates_hint(client):
     response = client.post('/api/v1/settings/ui/browser-locale', json={'locale': 'de'})
     assert response.status_code == 200 and response.json() == {'confirmed': True}

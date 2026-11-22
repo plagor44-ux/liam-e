@@ -211,3 +211,11 @@ test('mobile composer options are portaled and return focus on Escape', async ()
     expect(document.activeElement).toBe(trigger)
   } finally { window.matchMedia = original }
 })
+
+test('mobile single-line composer centers its 20 px line box inside the 54 px height', async () => {
+  const appCss = await Bun.file(new URL('../styles/ds-app.css', import.meta.url)).text()
+  const mobileBlock = appCss.match(/@media \(max-width: 639px\) \{([\s\S]*?)\n\}/u)?.[1] ?? ''
+  expect(mobileBlock).toContain('.le-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }')
+  expect(mobileBlock).toContain('.le-composer textarea { min-width: 0; padding: var(--space-4) var(--space-3) var(--space-4) var(--space-4); line-height: 20px; }')
+  expect(mobileBlock).toContain('.le-composer-bar { align-self: end; flex-wrap: nowrap; gap: var(--space-1); padding: var(--space-1); }')
+})

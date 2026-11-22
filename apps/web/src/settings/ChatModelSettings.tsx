@@ -9,6 +9,7 @@ import { ModelDetails } from '../chat/ModelDetails'
 import { modelMenuItems } from '../chat/model-menu-items'
 import { Button, Chip, Icon, Menu, Notice, Tooltip } from '../ds'
 import { useI18n } from '../i18n/I18n'
+import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 import './settings.css'
 
 const codeOf = (cause: unknown) => errorCode(cause instanceof Error ? cause.cause : cause)
@@ -26,14 +27,14 @@ export function ChatModelSettings() {
     if (result.isError || !result.data) throw result.error
     return result.data
   }
-  return <section className="le-swipe" aria-labelledby="le-chat-model-title">
+  return <SettingsSaveScope><section className="le-swipe" aria-labelledby="le-chat-model-title">
     <h2 id="le-chat-model-title" className="heading">{texts.chatModel.title}</h2>
     <p className="le-swipe-intro">{texts.chatModel.description}</p>
     {settings.isError
       ? <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { void settings.refetch(); void catalogue.refetch() } }}>{texts.settingsUi.error}</Notice>
       : !settings.data || catalogue.isPending ? <p role="status">{texts.settingsUi.loading}</p>
       : <ChatModelSettingsForm settings={settings.data} catalogue={catalogue} reload={reload} refreshSettings={() => { void settings.refetch() }} />}
-  </section>
+  </section></SettingsSaveScope>
 }
 
 function ChatModelSettingsForm({
@@ -102,7 +103,9 @@ function ChatModelSettingsForm({
   )
 
   const selectableDraft = draft !== null && models.some(item => item.id === draft && item.availability === 'available')
-  const canSave = !busy && outcome !== 'conflict' && draft !== base.default_model && selectableDraft
+  const hasChange = draft !== base.default_model
+  const dirty = hasChange || outcome === 'conflict' || outcome === 'rejected' || outcome === 'error'
+  const canSave = !busy && outcome !== 'conflict' && hasChange && selectableDraft
   const canReset = !busy && outcome !== 'conflict' && (base.default_model !== null || draft !== null)
 
   const save = async (next: string | null) => {
@@ -132,6 +135,14 @@ function ChatModelSettingsForm({
     }
   }
 
+  const discard = () => {
+    if (lock.current) return
+    const latest = settings.version >= base.version ? settings : base
+    setBase(latest); setDraft(latest.default_model); setOutcome(undefined); setRejectedCode(undefined)
+  }
+
+  useSettingsSlice('chat-model', { dirty, canSave, busy, save: () => save(draft), discard })
+
   const unchanged = draft === base.default_model
   const storedEntry = base.default_model ? models.find(item => item.id === base.default_model) : undefined
   const storedMissing = Boolean(
@@ -143,7 +154,7 @@ function ChatModelSettingsForm({
   const storedUnverified = Boolean(unchanged && base.default_model && base.status === 'unverified')
   const showEmptyNotice = !unverified && details.length === 0 && !storedMissing
 
-  return <form className="le-swipe-fields" onSubmit={event => { event.preventDefault(); if (canSave) void save(draft) }}>
+  return <div className="le-swipe-fields">
     <div className="le-swipe-field">
       <span className="le-swipe-label" id={labelId}>{texts.chatModel.choiceLabel}</span>
       <Menu
@@ -195,7 +206,6 @@ function ChatModelSettingsForm({
     )}
     {outcome === 'error' && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
     <div className="le-swipe-actions">
-      <Button type="submit" variant="primary" disabled={!canSave}>{texts.settingsUi.save}</Button>
       <Tooltip content={texts.chatModel.resetTip}>
         <Button variant="secondary" disabled={!canReset} onClick={() => { void save(null) }}>
           {texts.chatModel.reset}
@@ -203,5 +213,5 @@ function ChatModelSettingsForm({
       </Tooltip>
     </div>
     {detailsOpen && <ModelDetails models={details} unavailable={unverified} onRefresh={refreshCatalogue} onClose={() => setDetailsOpen(false)} />}
-  </form>
+  </div>
 }

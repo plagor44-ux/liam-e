@@ -5,8 +5,9 @@ import type { CalendarSettingsOut } from '../api/generated/types.gen'
 import { calendarSettingsQuery, chatCalendarSourcesQuery } from '../api/queries'
 import { errorCode } from '../api/unwrap'
 import { calendarTargetLabel } from '../calendar/state'
-import { Button, Notice } from '../ds'
+import { Notice } from '../ds'
 import { useI18n } from '../i18n/I18n'
+import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 import './settings.css'
 
 export function CalendarSettings() {
@@ -22,8 +23,16 @@ export function CalendarSettings() {
   const choices = sources.data ?? []
   const selected = choices.find(source => source.id === shown?.default_source_id)
   const missing = Boolean(shown?.default_source_id && !selected)
-  const canSave = !!edit && edit.default_source_id !== settings.data?.default_source_id &&
-    (!edit.default_source_id || selected?.is_active && selected.chat_access === 'writable')
+  const hasChange = Boolean(edit && edit.default_source_id !== settings.data?.default_source_id)
+  const dirty = hasChange || status === 'conflict' || status === 'invalid' || status === 'error'
+  const canSave = hasChange && status !== 'saving' && status !== 'conflict' &&
+    (!edit?.default_source_id || Boolean(selected?.is_active && selected.chat_access === 'writable'))
+
+  function discard() {
+    if (saving.current) return
+    setEdit(undefined)
+    setStatus(undefined)
+  }
 
   async function reload() {
     const [config, list] = await Promise.all([settings.refetch(), sources.refetch()])
@@ -56,16 +65,23 @@ export function CalendarSettings() {
     }
   }
 
+  useSettingsSlice('calendar-default', { dirty, canSave, busy: status === 'saving', save, discard })
+
   const retry = { label: texts.settingsUi.reload, onClick: () => { void reload() } }
-  return <section className="le-swipe" aria-labelledby="le-default-calendar">
+  return <SettingsSaveScope><section className="le-swipe" aria-labelledby="le-default-calendar">
     <h2 className="heading" id="le-default-calendar">{t.title}</h2>
     <p className="le-swipe-intro">{t.description}</p>
     {settings.isError || sources.isError ? <Notice tone="danger" action={retry}>{texts.settingsUi.error}</Notice>
       : !shown || sources.isPending ? <p role="status">{texts.settingsUi.loading}</p>
-      : <form className="le-swipe-fields" onSubmit={event => { event.preventDefault(); void save() }}>
+      : <div className="le-swipe-fields">
         <select className="le-input" aria-label={t.title} value={shown.default_source_id ?? ''}
           disabled={status === 'conflict' || status === 'saving'} onChange={event => {
-            setEdit({ ...shown, default_source_id: event.target.value || null })
+            const nextId = event.target.value || null
+            if (settings.data && nextId === settings.data.default_source_id) {
+              setEdit(undefined)
+            } else {
+              setEdit({ version: settings.data?.version ?? shown.version, default_source_id: nextId })
+            }
             setStatus(undefined)
           }}>
           <option value="">{t.clear}</option>
@@ -80,7 +96,6 @@ export function CalendarSettings() {
         {status === 'invalid' && <Notice tone="danger" action={retry}>{t.invalid}</Notice>}
         {status === 'error' && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
         {status === 'saved' && <Notice tone="success">{texts.settingsUi.saved}</Notice>}
-        <div className="le-swipe-actions"><Button type="submit" variant="primary" disabled={!canSave || status === 'saving' || status === 'conflict'}>{texts.settingsUi.save}</Button></div>
-      </form>}
-  </section>
+      </div>}
+  </section></SettingsSaveScope>
 }

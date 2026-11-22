@@ -32,7 +32,7 @@ type Accounts = AccountSummaryOut[]
 // A retry would send the same request and be refused again.
 const NEEDS_NEW_CONVERSATION = new Set(['conversation_not_found', 'conversation_scope_change_requires_new', 'context_unavailable', 'context_revoked', 'chat_account_not_granted', 'chat_settings_changed'])
 
-export function ChatComposer({ conversationId, contextMail, contextOccurrenceId, model, promptRevisionId, onPromptRevisionChange, onSend, autoFocus, onRecordingStart }: { conversationId?: string; contextMail?: ComposerMail; contextOccurrenceId?: string; model?: string; promptRevisionId?: string | null; onPromptRevisionChange?: (id: string | null) => void; onSend?: () => void; autoFocus?: boolean; onRecordingStart?: () => void }) {
+export function ChatComposer({ conversationId, contextMail, contextOccurrenceId, model, promptRevisionId, onPromptRevisionChange, onSend, autoFocus, onRecordingStart, onVoiceActiveChange }: { conversationId?: string; contextMail?: ComposerMail; contextOccurrenceId?: string; model?: string; promptRevisionId?: string | null; onPromptRevisionChange?: (id: string | null) => void; onSend?: () => void; autoFocus?: boolean; onRecordingStart?: () => void; onVoiceActiveChange?: (active: boolean) => void }) {
   const { texts } = useI18n()
   const navigate = useNavigate()
   const { state, send, stop, composerTexts, setComposerText, selectedSkills, setSelectedSkill, setSkillPersistence, audioDraftLocked, setAudioDraftLocked } = useChatSession()
@@ -264,11 +264,25 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
         />
         <TaskScopeSelector conversationId={conversationId} contextMail={contextMail} disabled={busy || audioDraftLocked} />
       </>}
-      audioControls={<>{conversationId && <LiveVoice conversationId={conversationId} contextKey={liveVoiceContext} disabled={busy || !ready || !tasks.ready || audioDraftLocked} registerStop={registerVoiceStop} onStart={onRecordingStart}
-        stopChat={stop} send={(text, voiceAudio, sttElapsedMs) => send({ text, voice_response: true, voice_stt_elapsed_ms: sttElapsedMs, account_id: scope, conversation_id: conversationId,
-          context_message_id: contextMessageId, context_occurrence_id: contextOccurrenceId,
-          task_source: tasks.scope.source, task_source_account_id: tasks.scope.account_id,
-          ...(activeSkillEntry ? { skill_id: activeSkillEntry.skill.id, skill_revision_id: activeSkillEntry.skill.revision_id } : {}) }, { preserveDraft: true, voiceAudio })} />}
+      audioControls={<><LiveVoice conversationId={conversationId} contextKey={liveVoiceContext} disabled={busy || !ready || !tasks.ready || audioDraftLocked} registerStop={registerVoiceStop} onStart={onRecordingStart} onActiveChange={onVoiceActiveChange}
+        stopChat={stop} send={(text, voiceAudio, sttElapsedMs, targetConversationId, onConversationId) => {
+          const currentConversationId = targetConversationId ?? conversationId
+          const skillEntry = (currentConversationId ? selectedSkills[currentConversationId] : undefined) ?? activeSkillEntry
+          if (!currentConversationId) onSend?.()
+          return send({
+            text,
+            voice_response: true,
+            voice_stt_elapsed_ms: sttElapsedMs,
+            account_id: scope,
+            conversation_id: currentConversationId,
+            context_message_id: contextMessageId,
+            context_occurrence_id: contextOccurrenceId,
+            task_source: tasks.scope.source,
+            task_source_account_id: tasks.scope.account_id,
+            ...(!currentConversationId ? { model, prompt_revision_id: promptRevisionId } : {}),
+            ...(skillEntry ? { skill_id: skillEntry.skill.id, skill_revision_id: skillEntry.skill.revision_id } : {}),
+          }, { preserveDraft: true, voiceAudio, onConversationCreated: onConversationId })
+        }} />
         {stt && format && <AudioRecorder key={voiceContext} format={format}
         limits={stt.app_limits} disabled={busy || !ready || !tasks.ready}
         onLock={lockDraft} onTranscript={appendTranscript} />}</>}

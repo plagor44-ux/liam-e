@@ -27,10 +27,11 @@ function setup(accounts = true, path = '/', unread = 3, lastSync: string | null 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const root = createRootRoute({ component: () => <I18nProvider locale={locale}><QueryClientProvider client={client}><ChatSessionProvider><Outlet /></ChatSessionProvider></QueryClientProvider></I18nProvider> })
   const index = createRoute({ getParentRoute: () => root, path: '/', validateSearch: Route.options.validateSearch, component: Route.options.component })
+  const chatRoute = createRoute({ getParentRoute: () => root, path: '/chat/$conversationId', component: () => <p>Conversation view</p> })
   const accountsRoute = createRoute({ getParentRoute: () => root, path: '/accounts', component: () => <p>Konten</p> })
   const settingsRoute = createRoute({ getParentRoute: () => root, path: '/settings/chat', component: () => <p>Chat</p> })
   const mailRoute = createRoute({ getParentRoute: () => root, path: '/mail/$messageId', component: () => <p>Mail</p> })
-  const router = createRouter({ routeTree: root.addChildren([index, accountsRoute, settingsRoute, mailRoute]), history: createMemoryHistory({ initialEntries: [path] }) })
+  const router = createRouter({ routeTree: root.addChildren([index, chatRoute, accountsRoute, settingsRoute, mailRoute]), history: createMemoryHistory({ initialEntries: [path] }) })
   render(<RouterProvider router={router} />)
   return Object.assign(router, { testClient: client })
 }
@@ -355,4 +356,103 @@ test('an alias that loses authorization hides the previous preview and composer'
   expect(await screen.findByText(de.errors.chat_account_not_granted)).toBeTruthy()
   expect(screen.queryByText('Termin')).toBeNull()
   expect(screen.queryByPlaceholderText(de.inbox.mailQuestionPlaceholder)).toBeNull()
+})
+
+test('voice mode can start directly from the empty start page and creates the conversation on the first spoken turn', async () => {
+  const originalAudio = { AudioContext: globalThis.AudioContext, WebSocket: globalThis.WebSocket, secure: globalThis.isSecureContext, media: navigator.mediaDevices }
+  spyOn(sdk, 'audioLiveStatus').mockResolvedValue({ data: { available: true } } as never)
+  const sttSockets: FakeSocket[] = []
+  const turnPayloads: Record<string, unknown>[] = []
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''; url: string
+    onopen?: () => void; onerror?: () => void; onclose?: (e?: { code: number }) => void; onmessage?: (e: { data: string }) => void
+    constructor(url: URL | string) {
+      this.url = String(url)
+      if (this.url.includes('/audio/live/transcription')) {
+        sttSockets.push(this)
+      }
+      queueMicrotask(() => this.onopen?.())
+    }
+    send(data: string | ArrayBuffer) {
+      if (this.url.includes('/audio/live/turn') && typeof data === 'string') {
+        const parsed = JSON.parse(data) as Record<string, unknown>
+        if (parsed.event === 'playback_finished') {
+          const turnIndex = turnPayloads.length
+          queueMicrotask(() => {
+            this.onmessage?.({ data: JSON.stringify({ event: 'done', conversation_id: 'voice-created-1', message_id: `m-${turnIndex}`, stopped: false }) })
+          })
+          return
+        }
+        turnPayloads.push(parsed)
+        const turnIndex = turnPayloads.length
+        queueMicrotask(() => {
+          this.onmessage?.({ data: JSON.stringify({ event: 'start', conversation_id: 'voice-created-1', user_message_id: `u-${turnIndex}`, model: 'big' }) })
+          this.onmessage?.({ data: JSON.stringify({ event: 'delta', text: 'Gesprochene Antwort.' }) })
+          this.onmessage?.({ data: JSON.stringify({ event: 'voice_text_done', conversation_id: 'voice-created-1', message_id: `m-${turnIndex}` }) })
+          this.onmessage?.({ data: JSON.stringify({ event: 'voice_audio', audio: 'AAAAPw==' }) })
+          this.onmessage?.({ data: JSON.stringify({ event: 'voice_audio_end' }) })
+        })
+      }
+    }
+    close() { this.readyState = 3; this.onclose?.({ code: 1000 }) }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; currentTime = 0; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
+    createBuffer(_c: number, length: number) { const samples = new Float32Array(length); return { duration: 0, getChannelData: () => samples } }
+    createBufferSource() { return { connect() {}, start() { queueMicrotask(() => this.onended?.()) }, stop() {}, onended: null as (() => void) | null, buffer: null } }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+  try {
+    const router = setup(true, '/', 3, null, 'Privat', twoModels)
+    fireEvent.click(await screen.findByRole('button', { name: 'Standardmodell' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Großmodell/ }))
+
+    const voiceButton = await screen.findByRole('button', { name: 'Sprachmodus starten' })
+    fireEvent.click(voiceButton)
+    await screen.findByText('Zuhören')
+    // No conversation is created before the first spoken contribution.
+    expect(turnPayloads).toHaveLength(0)
+    expect(router.state.location.pathname).toBe('/')
+
+    // First spoken contribution creates the conversation with the start page's model and grant version.
+    await act(async () => {
+      sttSockets[0]!.emit({ type: 'turn.start' })
+      sttSockets[0]!.emit({ type: 'transcription.text.delta', text: 'Erste gesprochene Frage' })
+      sttSockets[0]!.emit({ type: 'turn.end' })
+      await new Promise(resolve => setTimeout(resolve, 520))
+    })
+    await waitFor(() => expect(turnPayloads).toHaveLength(1))
+    expect(turnPayloads[0]?.conversation_id).toBeUndefined()
+    expect(turnPayloads[0]?.model).toBe('big')
+    expect(turnPayloads[0]?.expected_mail_scope_version).toBe(7)
+    expect(turnPayloads[0]?.text).toBe('Erste gesprochene Frage')
+
+    // Voice mode stays active on the start page and resumes listening for a second turn in the new conversation.
+    await waitFor(() => expect(sttSockets.length).toBeGreaterThanOrEqual(2), { timeout: 2000 })
+    await screen.findByText('Zuhören')
+    expect(router.state.location.pathname).toBe('/')
+
+    await act(async () => {
+      sttSockets[1]!.emit({ type: 'turn.start' })
+      sttSockets[1]!.emit({ type: 'transcription.text.delta', text: 'Zweite Frage im selben Chat' })
+      sttSockets[1]!.emit({ type: 'turn.end' })
+      await new Promise(resolve => setTimeout(resolve, 520))
+    })
+    await waitFor(() => expect(turnPayloads).toHaveLength(2))
+    expect(turnPayloads[1]?.conversation_id).toBe('voice-created-1')
+    expect(turnPayloads[1]?.text).toBe('Zweite Frage im selben Chat')
+
+    // Ending voice mode navigates to the newly created conversation.
+    fireEvent.click(screen.getByRole('button', { name: 'Sprachmodus beenden' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/chat/voice-created-1'))
+  } finally {
+    Object.assign(globalThis, { AudioContext: originalAudio.AudioContext, WebSocket: originalAudio.WebSocket, isSecureContext: originalAudio.secure })
+    Object.defineProperty(navigator, 'mediaDevices', { value: originalAudio.media, configurable: true })
+  }
 })
