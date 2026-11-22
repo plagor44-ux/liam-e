@@ -289,7 +289,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                         if isinstance(content, list):
                             if voice_metrics is not None:
                                 voice_metrics.thinking_chunks += sum(getattr(c, 'type', None) == 'thinking' for c in content)
-                            content = ''.join(getattr(c, 'text', '') for c in content if getattr(c, 'type', 'text') == 'text' and isinstance(getattr(c, 'text', None), str))
+                            content = ''.join(getattr(c, 'text', '') for c in content if getattr(c, 'type', None) == 'text' and isinstance(getattr(c, 'text', None), str))
                         if isinstance(content, str) and content:
                             all_text += content
                             round_text += content

@@ -1115,10 +1115,11 @@ async def test_voice_thinking_chunks_are_counted_but_never_spoken_or_stored(stor
     from mistralai.client.models import ThinkChunk, TextChunk
     from api.audio.metrics import VoiceMetrics
     metrics = VoiceMetrics()
-    delta = NS(data=NS(choices=[NS(delta=NS(content=[ThinkChunk(thinking=[TextChunk(text='private thought')]), TextChunk(text='Visible')], tool_calls=None))]))
+    delta = NS(data=NS(choices=[NS(delta=NS(content=[ThinkChunk(thinking=[TextChunk(text='private thought')]), NS(text='private untyped'), TextChunk(text='Visible')], tool_calls=None))]))
     events, fake = await run(store, monkeypatch, [[delta, ' answer']], voice_response=True, voice_metrics=metrics)
     assert ''.join(event.text for event in events if event.event == 'delta') == 'Visible answer'
     assert all('private thought' not in row.content for row in store.rows)
+    assert all('private untyped' not in row.content for row in store.rows)
     assert metrics.thinking_chunks == 1
 
 async def test_voice_metrics_count_tool_rounds(store, monkeypatch):
