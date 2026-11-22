@@ -643,6 +643,7 @@ async def test_interrupt_cancels_reopening_and_cleans_sessions(monkeypatch):
 
 @pytest.mark.parametrize(('text', 'expected'), [
     ('Anna <anna@example.org> schrieb um 10:30.', 'Anna schrieb um 10:30.'),
+    ('Deine Buchung bei Shop.example ist bestätigt.', 'Deine Buchung bei Shop.example ist bestätigt.'),
     ('Mail an test@example.org oder https://example.org/path.', 'Mail an  oder .'),
     ('Öffne www.example.org und example.org/test.', 'Öffne  und .'),
     ('Kontakt mailto:person@example.org oder ftp://example.org/file.', 'Kontakt  oder .'),

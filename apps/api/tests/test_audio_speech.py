@@ -310,3 +310,26 @@ def test_voice_preview_requires_tts_attestation(speech_client, monkeypatch):
     response = speech_client.post('/api/v1/audio/voices/preview', json={'locale': 'en', 'voice': 'voice_478'})
     assert response.status_code == 503
     assert response.headers['cache-control'] == 'no-store'
+
+
+@pytest.mark.parametrize(('locale', 'selected', 'listed', 'expected'), [
+    ('de', 'voice_123', True, 'voice_123'),
+    ('en', 'voice_456', True, 'voice_456'),
+    ('de', 'voice_removed', False, 'voice_481'),
+    ('en', 'voice_removed', False, 'voice_478'),
+])
+def test_saved_speech_uses_selected_preset_or_language_default(speech_client, monkeypatch, locale, selected, listed, expected):
+    from types import SimpleNamespace
+    from api.audio import voices
+    from api.routers.api.v1.audio import speech
+    monkeypatch.setattr(speech, 'resolve_locale', AsyncMock(return_value=locale))
+    monkeypatch.setattr(speech.ui_settings, 'get_or_create', AsyncMock(return_value=SimpleNamespace(
+        speech_pace='normal', voice_de=selected, voice_en=selected)))
+    inventory = voices.VoiceCatalogue(verified=True, voices=[voices.Voice(id=selected, name='Synthetic', languages=[locale])] if listed else [])
+    monkeypatch.setattr(voices, 'list_voices', AsyncMock(return_value=inventory))
+    with respx.mock(assert_all_mocked=True) as outbound:
+        provider = outbound.post('https://api.mistral.ai/v1/audio/speech').mock(return_value=Response(
+            200, json={'audio_data': base64.b64encode(MP3).decode()}))
+        response = speech_client.post(PATH, json=REFERENCE)
+    assert response.status_code == 200
+    assert json.loads(provider.calls[0].request.content)['voice_id'] == expected

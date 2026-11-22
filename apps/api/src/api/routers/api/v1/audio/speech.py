@@ -15,6 +15,7 @@ from api.audio.errors import NO_STORE, audio_error
 from api.audio.provider import MistralAudio, get_audio_provider
 from api.audio.requests import bounded_body
 from api.audio.speech_text import speech_text
+from api.audio.voices import effective_voice
 from api.mail.agent import visible_messages
 
 router = APIRouter()
@@ -101,6 +102,8 @@ async def synthesize(
         raise audio_error("audio_text_too_long")
 
     locale = await resolve_locale(reference.locale)
-    pace = (await ui_settings.get_or_create()).speech_pace
-    audio = await provider.synthesize(text, model=capability.model, limits=limits, locale=locale, pace=pace)
+    settings = await ui_settings.get_or_create()
+    selected = getattr(settings, 'voice_de' if locale == 'de' else 'voice_en', None)
+    voice = await effective_voice(selected, locale)
+    audio = await provider.synthesize(text, model=capability.model, limits=limits, locale=locale, pace=settings.speech_pace, voice=voice)
     return Response(audio, media_type="audio/mpeg", headers=NO_STORE)

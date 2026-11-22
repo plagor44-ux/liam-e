@@ -2,7 +2,7 @@
 import re
 
 _EMAIL = re.compile(r'\b[\w.+-]+@[\w-]+(?:\.[\w-]+)*', re.IGNORECASE)
-_URL = re.compile(r'(?i)\b(?:[a-z][a-z0-9+.-]*://|www\.|mailto:)[^\s<>()]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/[^\s<>()]*)?')
+_URL = re.compile(r'(?i)\b(?:[a-z][a-z0-9+.-]*://|www\.|mailto:)[^\s<>()]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}/[^\s<>()]*')
 
 
 def spoken_text(text: str) -> str:

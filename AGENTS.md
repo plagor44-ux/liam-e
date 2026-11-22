@@ -980,8 +980,9 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   contacting Mistral. A transient PostgreSQL lock limits transcription to one active request
   per app database. The browser appends a successful transcript to the current draft.
   Speech takes a conversation and message reference, reads a visible and complete assistant
-  reply from local history. The effective language selects `voice_481` for German or `voice_478`
-  for English; the revision-guarded pace selects a provider-only tag, never stored in history.
+  reply from local history. The effective language selects the saved preset, or `voice_481` for
+  German and `voice_478` for English by default; the revision-guarded pace selects a provider-only
+  tag, never stored in history.
   Voice settings are revision guarded per language, with `null` selecting the existing default. The
   owner-only preset catalogue is cached for ten minutes, excludes custom voices, and falls back
   to the default when the selected preset cannot be verified. A paid owner-and-origin-bound preview
