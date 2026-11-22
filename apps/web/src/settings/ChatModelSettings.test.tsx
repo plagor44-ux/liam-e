@@ -195,7 +195,9 @@ test('version conflict disables edits, avoids auto-retry and loads competing cha
   expect(requests.filter(r => r.method === 'PATCH')).toHaveLength(1)
   expect((picker as HTMLButtonElement).disabled).toBe(true)
 
-  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.discard }))
+  const discard = screen.getByRole('button', { name: de.settingsUi.discard }) as HTMLButtonElement
+  await waitFor(() => expect(discard.disabled).toBe(false))
+  fireEvent.click(discard)
   await waitFor(() => expect(picker.textContent).toContain('Mistral Medium'))
   expect((picker as HTMLButtonElement).disabled).toBe(false)
 
