@@ -31,5 +31,7 @@ class UiSettings(SQLModel, table=True):
     browser_locale: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     speech_pace: str = Field(default="normal", sa_column=Column(String, nullable=False, server_default="normal"))
     voice_model: str = Field(default="chat", sa_column=Column(String, nullable=False, server_default="chat"))
+    voice_de: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    voice_en: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     revision: int = 1
     updated_at: datetime = Field(default_factory=utcnow, sa_column=utc_datetime_column())

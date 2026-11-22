@@ -1,11 +1,11 @@
 // i18n-exempt: CSS classes and preference values.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
-import { settingsUiUpdate } from '../api/generated/sdk.gen'
+import { useEffect, useRef, useState } from 'react'
+import { audioVoicePreview, audioVoicesList, settingsUiUpdate } from '../api/generated/sdk.gen'
 import type { UiSettingsOut } from '../api/generated/types.gen'
 import { cacheUiSettings, uiSettingsQuery, modelsQuery } from '../api/queries'
-import { errorCode } from '../api/unwrap'
-import { Chip, Icon, Menu, Notice } from '../ds'
+import { errorCode, unwrap } from '../api/unwrap'
+import { Button, Chip, Icon, Menu, Notice } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import type { LocalePreference } from '../i18n/locales'
 import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
@@ -39,9 +39,18 @@ export function LanguageSettings() {
 }
 
 function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; reload: () => Promise<UiSettingsOut> }) {
-  const { texts } = useI18n()
+  const { texts, locale: displayLocale } = useI18n()
   const client = useQueryClient()
   const catalogue = useQuery(modelsQuery())
+  const voices = useQuery({ queryKey: ['audio', 'voices'], queryFn: () => unwrap(audioVoicesList({ throwOnError: true })) })
+  const [voiceDe, setVoiceDe] = useState<string | null>(settings.voice_de ?? null)
+  const [voiceEn, setVoiceEn] = useState<string | null>(settings.voice_en ?? null)
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewError, setPreviewError] = useState(false)
+  const playing = useRef<HTMLAudioElement | null>(null)
+  const audioUrl = useRef<string | null>(null)
+  const previewRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => { previewRequest.current?.abort(); playing.current?.pause(); if (audioUrl.current) URL.revokeObjectURL(audioUrl.current) }, [])
   const [base, setBase] = useState<UiSettingsOut>(settings)
   const baseLocale: LocalePreference = base.locale ?? 'browser'
   const basePace: Pace = base.speech_pace ?? 'normal'
@@ -51,21 +60,25 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
   const [model, setModel] = useState(baseModel)
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<'saved' | 'error' | 'conflict'>()
-  const [touchedFields, setTouchedFields] = useState<{ locale: boolean; pace: boolean; model: boolean }>({ locale: false, pace: false, model: false })
+  const [touchedFields, setTouchedFields] = useState<{ locale: boolean; pace: boolean; model: boolean; voiceDe: boolean; voiceEn: boolean }>({ locale: false, pace: false, model: false, voiceDe: false, voiceEn: false })
   const saving = useRef(false)
 
-  if (settings.revision > base.revision && locale === baseLocale && pace === basePace && model === baseModel && !busy && outcome !== 'conflict') {
+  if (settings.revision > base.revision && locale === baseLocale && pace === basePace && model === baseModel && voiceDe === (base.voice_de ?? null) && voiceEn === (base.voice_en ?? null) && !busy && outcome !== 'conflict') {
     setBase(settings)
     setLocale(settings.locale ?? 'browser')
     setPace(settings.speech_pace ?? 'normal')
     setModel(settings.voice_model ?? 'chat')
+    setVoiceDe(settings.voice_de ?? null)
+    setVoiceEn(settings.voice_en ?? null)
     setOutcome(undefined)
   }
 
   const localeChanged = locale !== baseLocale
   const paceChanged = pace !== basePace
   const modelChanged = model !== baseModel
-  const hasChange = localeChanged || paceChanged || modelChanged
+  const voiceDeChanged = voiceDe !== (base.voice_de ?? null)
+  const voiceEnChanged = voiceEn !== (base.voice_en ?? null)
+  const hasChange = localeChanged || paceChanged || modelChanged || voiceDeChanged || voiceEnChanged
   const dirty = hasChange || outcome === 'conflict' || outcome === 'error'
   const canSave = hasChange && !busy && outcome !== 'conflict'
   const availableModels = (catalogue.data ?? []).filter(item => item.availability === 'available')
@@ -79,6 +92,8 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
     setLocale(latest.locale ?? 'browser')
     setPace(latest.speech_pace ?? 'normal')
     setModel(latest.voice_model ?? 'chat')
+    setVoiceDe(latest.voice_de ?? null)
+    setVoiceEn(latest.voice_en ?? null)
     setOutcome(undefined)
   }
 
@@ -87,7 +102,7 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
     saving.current = true
     setBusy(true)
     setOutcome(undefined)
-    const attempted = { locale: localeChanged, pace: paceChanged, model: modelChanged }
+    const attempted = { locale: localeChanged, pace: paceChanged, model: modelChanged, voiceDe: voiceDeChanged, voiceEn: voiceEnChanged }
     setTouchedFields(attempted)
     try {
       const result = await settingsUiUpdate({
@@ -96,6 +111,8 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
           ...(localeChanged ? { locale } : {}),
           ...(paceChanged ? { speech_pace: pace } : {}),
           ...(modelChanged ? { voice_model: model } : {}),
+          ...(voiceDeChanged ? { voice_de: voiceDe } : {}),
+          ...(voiceEnChanged ? { voice_en: voiceEn } : {}),
         },
       })
       const saved = result.data
@@ -106,10 +123,14 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
           ...(!attempted.locale ? { locale: current.locale } : {}),
           ...(!attempted.pace ? { speech_pace: current.speech_pace } : {}),
           ...(!attempted.model ? { voice_model: current.voice_model } : {}),
+          ...(!attempted.voiceDe ? { voice_de: current.voice_de } : {}),
+          ...(!attempted.voiceEn ? { voice_en: current.voice_en } : {}),
         }))
         if (!attempted.locale) setLocale(current.locale ?? 'browser')
         if (!attempted.pace) setPace(current.speech_pace ?? 'normal')
         if (!attempted.model) setModel(current.voice_model ?? 'chat')
+        if (!attempted.voiceDe) setVoiceDe(current.voice_de ?? null)
+        if (!attempted.voiceEn) setVoiceEn(current.voice_en ?? null)
         setOutcome('conflict')
       } else if (!saved) {
         setOutcome('error')
@@ -119,6 +140,8 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
         setLocale(current.locale ?? 'browser')
         setPace(current.speech_pace ?? 'normal')
         setModel(current.voice_model ?? 'chat')
+        setVoiceDe(current.voice_de ?? null)
+        setVoiceEn(current.voice_en ?? null)
         setOutcome('saved')
       }
     } catch {
@@ -127,6 +150,21 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
       saving.current = false
       setBusy(false)
     }
+  }
+
+  async function preview(language: 'de' | 'en', selected: string | null) {
+    setPreviewBusy(true); setPreviewError(false)
+    const controller = new AbortController()
+    previewRequest.current = controller
+    try {
+      playing.current?.pause()
+      if (audioUrl.current) URL.revokeObjectURL(audioUrl.current)
+      const audio = await unwrap(audioVoicePreview({ body: { locale: language, voice: selected ?? (language === 'de' ? 'voice_481' : 'voice_478') }, parseAs: 'blob', signal: controller.signal, throwOnError: true }))
+      if (controller.signal.aborted) return
+      audioUrl.current = URL.createObjectURL(audio)
+      playing.current = new Audio(audioUrl.current)
+      await playing.current.play()
+    } catch { if (!controller.signal.aborted) setPreviewError(true) } finally { if (!controller.signal.aborted) setPreviewBusy(false) }
   }
 
   useSettingsSlice('ui-language', { dirty, canSave, busy, save, discard })
@@ -176,6 +214,50 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
       {outcome === 'error' && touchedFields.model && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
       {outcome === 'conflict' && touchedFields.model && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: discard }}>{texts.speechPace.conflict}</Notice>}
     </section>
+    <section className="le-swipe" aria-labelledby="le-voices-title">
+      <h2 id="le-voices-title" className="heading">{texts.voiceSelection.title}</h2>
+      <p className="le-swipe-intro">{texts.voiceSelection.description}</p>
+      {(['de', 'en'] as const).map(language => {
+        const selected = language === 'de' ? voiceDe : voiceEn
+        const setSelected = language === 'de' ? setVoiceDe : setVoiceEn
+        const item = voices.data?.voices.find(voice => voice.id === selected)
+        const defaultVoice = voices.data?.voices.find(voice => voice.id === (language === 'de' ? 'voice_481' : 'voice_478'))
+        const defaultLabel = defaultVoice ? `${defaultVoice.name} (${texts.voiceSelection.default})` : texts.voiceSelection.default
+        const ordered = [...(voices.data?.voices ?? [])].sort((a, b) => (a.languages[0] ?? '').localeCompare(b.languages[0] ?? '') || a.name.localeCompare(b.name))
+        const grouped = new Map<string, typeof ordered>()
+        for (const voice of ordered) {
+          const code = voice.languages[0] ?? ''
+          grouped.set(code, [...(grouped.get(code) ?? []), voice])
+        }
+        const defaultId = language === 'de' ? 'voice_481' : 'voice_478'
+        if (!defaultVoice) grouped.set(language, grouped.get(language) ?? [])
+        const languageName = (code: string) => {
+          try { return new Intl.DisplayNames([displayLocale], { type: 'language' }).of(code) ?? code } catch { return code || texts.voiceSelection.other }
+        }
+        const groups = [...grouped].map(([code, entries]) => ({
+          label: languageName(code),
+          items: [
+            ...(!defaultVoice && code === language ? [{ label: defaultLabel, checked: selected === null, onSelect: () => { setSelected(null); setOutcome(undefined) } }] : []),
+            ...entries.map(voice => ({ label: voice.id === defaultId ? defaultLabel : voice.name,
+              checked: voice.id === defaultId ? selected === null || selected === defaultId : selected === voice.id,
+              onSelect: () => { setSelected(voice.id === defaultId ? null : voice.id); setOutcome(undefined) } })),
+          ],
+        }))
+        return <div key={language}>
+          <p>{texts.voiceSelection.languages[language]}</p>
+          <Menu trigger={props => <Chip {...props} quiet disabled={busy} aria-label={texts.voiceSelection.languages[language]}><span>{selected ? item?.name ?? selected : defaultLabel}</span><Icon name="chevron-down" size="sm" /></Chip>}
+            groups={groups} />
+          <Button variant="secondary" disabled={previewBusy || !voices.data?.verified} onClick={() => { void preview(language, selected) }}>{texts.voiceSelection.preview}</Button>
+          {selected && voices.data?.verified && !item && <p>{texts.voiceSelection.unavailable}</p>}
+          {item && item.languages.length > 0 && !item.languages.some(value => value.toLowerCase().startsWith(language)) && <p>{texts.voiceSelection.mismatch}</p>}
+        </div>
+      })}
+      {(!voices.data?.verified || voices.isError) && <Notice tone="info">{texts.voiceSelection.unverified}</Notice>}
+      {previewError && <Notice tone="danger">{texts.voiceSelection.previewError}</Notice>}
+      {outcome === 'saved' && (touchedFields.voiceDe || touchedFields.voiceEn) && <Notice tone="success">{texts.settingsUi.saved}</Notice>}
+      {outcome === 'error' && (touchedFields.voiceDe || touchedFields.voiceEn) && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
+      {outcome === 'conflict' && (touchedFields.voiceDe || touchedFields.voiceEn) && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: discard }}>{texts.speechPace.conflict}</Notice>}
+    </section>
     <section className="le-swipe" aria-labelledby="le-pace-title">
       <h2 id="le-pace-title" className="heading">{texts.speechPace.title}</h2>
       <p className="le-swipe-intro">{texts.speechPace.description}</p>
@@ -191,7 +273,7 @@ function LanguageAndPaceForm({ settings, reload }: { settings: UiSettingsOut; re
         }))}
       />
       {outcome === 'saved' && touchedFields.pace && <Notice tone="success">{texts.speechPace.success}</Notice>}
-      {outcome === 'error' && !touchedFields.locale && !touchedFields.model && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
+      {outcome === 'error' && !touchedFields.locale && !touchedFields.model && !touchedFields.voiceDe && !touchedFields.voiceEn && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
       {outcome === 'conflict' && touchedFields.pace && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: discard }}>{texts.speechPace.conflict}</Notice>}
     </section>
   </>

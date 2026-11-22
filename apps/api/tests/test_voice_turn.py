@@ -640,3 +640,146 @@ async def test_interrupt_cancels_reopening_and_cleans_sessions(monkeypatch):
     task.cancel()
     with pytest.raises(asyncio.CancelledError): await task
     assert opens == closed == [0, 1]
+
+@pytest.mark.parametrize(('text', 'expected'), [
+    ('Anna <anna@example.org> schrieb um 10:30.', 'Anna schrieb um 10:30.'),
+    ('Mail an test@example.org oder https://example.org/path.', 'Mail an  oder .'),
+    ('Öffne www.example.org und example.org/test.', 'Öffne  und .'),
+    ('Kontakt mailto:person@example.org oder ftp://example.org/file.', 'Kontakt  oder .'),
+    ('Treffen um 10:30, Wert 3,5 und z. B. heute.', 'Treffen um 10:30, Wert 3,5 und z. B. heute.'),
+])
+async def test_speech_filter_keeps_names_times_and_written_reply(monkeypatch, text, expected):
+    spoken = []
+    class Provider:
+        async def append(self, value): spoken.append(value)
+        async def finish(self): pass
+        async def receive(self): return None
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text=text)
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    output = []
+    while True:
+        event = await asyncio.wait_for(socket.output.get(), 1); output.append(event)
+        if event['event'] == 'voice_audio_end': break
+    assert ''.join(spoken) == expected
+    assert ''.join(item['text'] for item in output if item['event'] == 'delta') == text
+    await socket.input.put({'event': 'playback_finished'}); await task
+
+@pytest.mark.parametrize(('trigger', 'locale'), [('tool', 'de'), ('timer', 'de'), ('tool', 'en'), ('timer', 'en')])
+async def test_one_filler_precedes_reply_without_entering_chat(monkeypatch, trigger, locale, caplog):
+    from api.audio.metrics import VoiceMetrics
+    import time
+    spoken, sent = [], asyncio.Event()
+    release = asyncio.Event()
+    class Provider:
+        async def append(self, text): spoken.append(text); sent.set()
+        async def finish(self): self.first = True
+        async def receive(self):
+            if self.first: self.first = False; return bytes(4)
+            return None
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'FILLER_DELAY_SECONDS', .04)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    metrics = VoiceMetrics()
+    async def events():
+        if trigger == 'tool':
+            metrics.tool_category = 'mail'; metrics.tool_started.set()
+        await release.wait()
+        yield DeltaEvent(text='Antwort.')
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    caplog.set_level('INFO', logger=voice_turn.__name__)
+    started_at = time.monotonic() - 2 if trigger == 'tool' else None
+    pace = 'fast' if locale == 'en' else 'normal'
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context', locale=locale, pace=pace, metrics=metrics, started_at=started_at))
+    await asyncio.wait_for(sent.wait(), 1)
+    if trigger == 'tool': assert 'Mail' in spoken[0] if locale == 'de' else 'email' in spoken[0]
+    release.set()
+    output = []
+    while True:
+        item = await asyncio.wait_for(socket.output.get(), 1); output.append(item)
+        if item['event'] == 'voice_audio_end': break
+    assert len(spoken) == 2 and spoken[1] == ('[pace=fast]Antwort.' if locale == 'en' else 'Antwort.')
+    if locale == 'en': assert spoken[0].startswith('[pace=fast]')
+    assert [item['text'] for item in output if item['event'] == 'delta'] == ['Antwort.']
+    await socket.input.put({'event': 'playback_finished'}); await task
+    assert f'filler={trigger}' in caplog.text and 'filler_ms=' in caplog.text
+    assert spoken[0] not in caplog.text
+
+async def test_no_filler_after_reply_segment_is_ready(monkeypatch):
+    spoken, started = [], asyncio.Event()
+    class Provider:
+        async def append(self, text): spoken.append(text); started.set()
+        async def finish(self): self.first = True
+        async def receive(self):
+            if self.first: self.first = False; return bytes(4)
+            return None
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'FILLER_DELAY_SECONDS', .04)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='Antwort. ')
+        await asyncio.sleep(.1)
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    await asyncio.wait_for(started.wait(), 1)
+    output = []
+    while True:
+        event = await asyncio.wait_for(socket.output.get(), 1); output.append(event)
+        if event['event'] == 'voice_audio_end': break
+    assert any(event['event'] == 'voice_audio' for event in output)
+    assert spoken == ['Antwort.']
+    await socket.input.put({'event': 'playback_finished'}); await task
+
+async def test_interrupt_during_filler_closes_provider_and_chat(monkeypatch):
+    started, closed, chat_closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    class Provider:
+        async def append(self, text): started.set()
+        async def finish(self): pass
+        async def receive(self): await asyncio.Future()
+    @asynccontextmanager
+    async def provider(kind, **kwargs):
+        try: yield Provider()
+        finally: closed.set()
+    monkeypatch.setattr(voice_turn, 'FILLER_DELAY_SECONDS', .01)
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        try:
+            await asyncio.Future()
+            yield
+        finally: chat_closed.set()
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context'))
+    await asyncio.wait_for(started.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError): await task
+    assert closed.is_set() and chat_closed.is_set()
+
+async def test_address_only_reply_sends_no_pace_tag_or_audio(monkeypatch):
+    spoken = []
+    class Provider:
+        async def append(self, value): spoken.append(value)
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='person@example.org')
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket(); task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context', pace='fast'))
+    while (await asyncio.wait_for(socket.output.get(), 1))['event'] != 'voice_audio_end': pass
+    assert spoken == []
+    await socket.input.put({'event': 'playback_finished'}); await task

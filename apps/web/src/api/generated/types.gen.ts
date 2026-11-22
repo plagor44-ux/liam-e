@@ -3956,6 +3956,14 @@ export type UiSettingsOut = {
      */
     updated_at: string;
     /**
+     * Voice De
+     */
+    voice_de?: string | null;
+    /**
+     * Voice En
+     */
+    voice_en?: string | null;
+    /**
      * Voice Model
      */
     voice_model?: string;
@@ -3987,6 +3995,14 @@ export type UiSettingsUpdate = {
      * Swipe Right
      */
     swipe_right?: 'none' | 'archive' | 'toggle_read' | 'trash' | null;
+    /**
+     * Voice De
+     */
+    voice_de?: string | null;
+    /**
+     * Voice En
+     */
+    voice_en?: string | null;
     /**
      * Voice Model
      */
@@ -4061,6 +4077,38 @@ export type VersionIn = {
      * Version
      */
     version: number;
+};
+
+/**
+ * Voice
+ */
+export type Voice = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Languages
+     */
+    languages: Array<string>;
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * VoiceCatalogue
+ */
+export type VoiceCatalogue = {
+    /**
+     * Verified
+     */
+    verified: boolean;
+    /**
+     * Voices
+     */
+    voices: Array<Voice>;
 };
 
 /**
@@ -4629,6 +4677,50 @@ export type AudioTranscribeResponses = {
 };
 
 export type AudioTranscribeResponse = AudioTranscribeResponses[keyof AudioTranscribeResponses];
+
+export type AudioVoicesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/audio/voices';
+};
+
+export type AudioVoicesListResponses = {
+    /**
+     * Successful Response
+     */
+    200: VoiceCatalogue;
+};
+
+export type AudioVoicesListResponse = AudioVoicesListResponses[keyof AudioVoicesListResponses];
+
+export type AudioVoicePreviewData = {
+    /**
+     * PreviewRequest
+     */
+    body: {
+        /**
+         * Locale
+         */
+        locale: 'de' | 'en';
+        /**
+         * Voice
+         */
+        voice: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/audio/voices/preview';
+};
+
+export type AudioVoicePreviewResponses = {
+    /**
+     * Successful Response
+     */
+    200: Blob | File;
+};
+
+export type AudioVoicePreviewResponse = AudioVoicePreviewResponses[keyof AudioVoicePreviewResponses];
 
 export type CalendarGoogleConnectData = {
     body: GoogleConnectInput;

@@ -6,7 +6,9 @@ from fastapi import APIRouter, WebSocket
 
 from api.audio.live_access import live_remaining
 from api.audio.live_provider import mistral_live
+from api.audio.voices import prewarm as prewarm_voices
 from api.locales import resolve_locale
+from api.mail.models_catalog import prewarm_catalog
 
 router = APIRouter()
 _slot = asyncio.Semaphore(1)
@@ -44,6 +46,8 @@ async def transcribe(websocket: WebSocket) -> None:
             await websocket.close(code=1008)
             return
         await websocket.accept()
+        prewarm_catalog()
+        prewarm_voices()
         async with asyncio.timeout(min(600, remaining)), mistral_live('transcription', locale=locale) as session:
             tasks = [asyncio.create_task(upload(session)), asyncio.create_task(download(session))]
             try:

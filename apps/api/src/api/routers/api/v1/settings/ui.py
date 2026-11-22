@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.errors import refuse
 from api.mail import models_catalog
+from api.audio import voices
 from db.accessors import ui_settings
 
 
@@ -53,6 +54,8 @@ class UiSettingsOut(BaseModel):
     locale: UiLocale
     speech_pace: SpeechPace = 'normal'
     voice_model: str = 'chat'
+    voice_de: str | None = None
+    voice_en: str | None = None
     revision: int
     updated_at: datetime
 
@@ -69,11 +72,14 @@ class UiSettingsUpdate(BaseModel):
     speech_pace: SpeechPace | None = None
     voice_model: str | None = Field(default=None, min_length=1, max_length=200)
 
+    voice_de: str | None = Field(default=None, min_length=1, max_length=100)
+    voice_en: str | None = Field(default=None, min_length=1, max_length=100)
+
     @model_validator(mode='after')
     def require_explicit_change(self):
-        fields = ('swipe_left', 'swipe_right', 'locale', 'speech_pace', 'voice_model')
+        fields = ('swipe_left', 'swipe_right', 'locale', 'speech_pace', 'voice_model', 'voice_de', 'voice_en')
         changed = self.model_fields_set.intersection(fields)
-        if not changed or any(getattr(self, key) is None for key in changed):
+        if not changed or any(getattr(self, key) is None for key in changed if key not in {'voice_de', 'voice_en'}):
             raise ValueError('ui_settings_invalid')
         return self
 
@@ -90,6 +96,16 @@ async def update_ui_settings(body: UiSettingsUpdate) -> UiSettingsOut:
     """Apply a validated change while the caller holds the current revision."""
     if body.voice_model is not None and body.voice_model != 'chat':
         models_catalog.require_available_model(body.voice_model, await models_catalog.list_chat_models(body.voice_model))
+    for field, locale in (('voice_de', 'de'), ('voice_en', 'en')):
+        if field in body.model_fields_set and getattr(body, field) == voices.DEFAULTS[locale]:
+            setattr(body, field, None)
+    selected = [getattr(body, field) for field in ('voice_de', 'voice_en') if field in body.model_fields_set and getattr(body, field) is not None]
+    if selected:
+        catalogue = await voices.list_voices()
+        if not catalogue.verified:
+            raise refuse(503, 'audio_unavailable', 'Voice catalogue unavailable.')
+        if any(not any(voice.id == choice for voice in catalogue.voices) for choice in selected):
+            raise refuse(422, 'ui_settings_invalid', 'Unknown voice.')
     try:
         row = await ui_settings.update(body.expected_revision, **body.model_dump(exclude={'expected_revision'}, exclude_unset=True))
     except ui_settings.StaleRevision:

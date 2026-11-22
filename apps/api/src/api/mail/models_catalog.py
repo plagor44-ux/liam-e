@@ -23,6 +23,7 @@ MODEL_TEXTS = {
 _cache = None
 _cached_at = 0.0
 _refresh_lock = asyncio.Lock()
+_refresh_task = None
 
 
 class ChatModelPrice(BaseModel):
@@ -90,10 +91,13 @@ class DefaultModelState(NamedTuple):
 
 
 def reset_cache():
-    global _cache, _cached_at, _refresh_lock
+    global _cache, _cached_at, _refresh_lock, _refresh_task
+    if _refresh_task is not None and not _refresh_task.done():
+        _refresh_task.cancel()
     _cache = None
     _cached_at = 0.0
     _refresh_lock = asyncio.Lock()
+    _refresh_task = None
 
 
 def _group(model_id: str) -> ModelGroup:
@@ -224,10 +228,30 @@ async def _workspace_cards():
         return list(cards)
 
 
+def prewarm_catalog() -> asyncio.Task:
+    """Share one bounded refresh; caller cancellation never cancels the refresh."""
+    global _refresh_task
+    if _refresh_task is None or _refresh_task.done():
+        async def refresh():
+            try:
+                return await asyncio.wait_for(_workspace_cards(), timeout=15)
+            except TimeoutError:
+                return None
+            except Exception as error:
+                logger.warning('%s', type(error).__name__)
+                return None
+        _refresh_task = asyncio.create_task(refresh())
+    return _refresh_task
+
+
+def catalog_ready() -> bool:
+    return _cache is not None and time.monotonic() - _cached_at < 600
+
+
 async def list_chat_models(default: str | None = None, *, app_default: str | None = None) -> list[ChatModelOut]:
     app_model = mail_env.mail_chat_model if app_default is None else app_default
     effective = app_model if default is None else default
-    cards = await _workspace_cards()
+    cards = await asyncio.shield(prewarm_catalog())
     if cards is None:
         out = [_model(effective, effective, 'unverified', app_default=app_model)]
         if app_model != effective:

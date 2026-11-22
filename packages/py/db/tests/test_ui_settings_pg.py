@@ -170,3 +170,16 @@ def test_voice_model_migration_preserves_existing_settings(pg_db):
         row = await settings.get_or_create()
         assert (row.voice_model, row.locale, row.speech_pace, row.swipe_left, row.revision) == ('chat', 'de', 'fast', 'trash', 7)
     asyncio.run(verify())
+
+
+def test_voice_choices_are_revision_guarded_and_can_be_cleared(pg_db):
+    async def run():
+        from db.accessors import ui_settings as settings
+        initial = await settings.get_or_create()
+        assert initial.voice_de is None and initial.voice_en is None
+        saved = await settings.update(initial.revision, voice_de='voice_123', voice_en='voice_456')
+        with pytest.raises(settings.StaleRevision):
+            await settings.update(initial.revision, voice_de=None)
+        cleared = await settings.update(saved.revision, voice_de=None)
+        assert cleared.voice_de is None and cleared.voice_en == 'voice_456'
+    asyncio.run(run())

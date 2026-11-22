@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -36,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 # Bound revocation checks during a model stream to one per ten deltas.
 REVOCATION_DELTA_INTERVAL = 10
+VOICE_SELECTED_CATALOG_TIMEOUT = 10
+VOICE_CHAT_CATALOG_TIMEOUT = 2
 
 
 def _to_model_messages(history, *, prompt=None, current_user_id=None, locale=None):
@@ -149,11 +152,23 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
     reasoning_effort = None
     if voice_response and live_voice_turn:
         candidate = model if voice_model == 'chat' else voice_model
+        timed_out = False
+        catalog_was_ready = models_catalog.catalog_ready()
+        catalog_started = time.monotonic()
+        if voice_metrics is not None and not catalog_was_ready:
+            voice_metrics.catalog_wait_started = catalog_started
         try:
-            models = await asyncio.wait_for(models_catalog.list_chat_models(candidate), timeout=2)
+            timeout = VOICE_CHAT_CATALOG_TIMEOUT if voice_model == 'chat' else VOICE_SELECTED_CATALOG_TIMEOUT
+            models = await asyncio.wait_for(models_catalog.list_chat_models(candidate), timeout=timeout)
         except TimeoutError:
+            timed_out = True
             models = []
-        if voice_model != 'chat' and models_catalog._has_available_model(candidate, models):
+        finally:
+            if voice_metrics is not None:
+                voice_metrics.catalog_wait_ms = 0 if catalog_was_ready else round((time.monotonic() - catalog_started) * 1000)
+                voice_metrics.catalog_wait_started = None
+        selected = voice_model != 'chat' and models_catalog._has_available_model(candidate, models)
+        if selected:
             model = candidate
         matches = [item for item in models if item.id == model and item.availability == 'available']
         if not matches:
@@ -169,6 +184,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
         if voice_metrics is not None:
             # Private workspace model names must not enter operational logs.
             voice_metrics.resolved_model = resolved_model if resolved_model in models_catalog.PUBLISHED_RATES else None
+            voice_metrics.model_source = ('catalog_timeout' if timed_out else 'unresolved' if resolved_model is None or (voice_model != 'chat' and not selected)
+                                          else 'selected' if selected else 'chat')
     user = await message_access.add_message(conversation_id=conversation.id, role='user', content=text, context_id=snapshot.id)
     all_text = ''
     mails, suggestions, calendars = [], [], []
@@ -259,6 +276,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
             calls = []
             calls_by_index = {}
             round_text = ''
+            model_started = None
             try:
                 turn_tools = tools_for_context(ctx)
                 kwargs = {'model': model, 'messages': list(messages)}
@@ -276,6 +294,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                     return
                 if voice_metrics is not None:
                     voice_metrics.reasoning_effort = kwargs.get('reasoning_effort')
+                model_started = time.monotonic()
+                if voice_metrics is not None: voice_metrics.model_started = model_started
                 stream = await client.chat.stream_async(**kwargs)
                 async with stream:
                     delta_count = 0
@@ -323,6 +343,10 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                 saved = True
                 yield ErrorEvent(code='model_unavailable')
                 return
+            finally:
+                if model_started is not None and voice_metrics is not None:
+                    voice_metrics.model_ms += (time.monotonic() - model_started) * 1000
+                    voice_metrics.model_started = None
             if not calls:
                 if not await chat_context.is_live(snapshot.id):
                     if all_text: await save(True)
@@ -376,6 +400,10 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                     yield ErrorEvent(code='context_revoked')
                     return
                 name = call['function']['name']
+                if live_voice_turn and voice_metrics is not None and not voice_metrics.tool_started.is_set():
+                    from api.audio.filler import category_for_tool
+                    voice_metrics.tool_category = category_for_tool(name)
+                    voice_metrics.tool_started.set()
                 try:
                     args = json.loads(call['function']['arguments'] or '{}')
                     if not isinstance(args, dict): raise ValueError
@@ -391,7 +419,14 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                             if all_text: await save(True)
                             yield ErrorEvent(code='context_revoked')
                             return
-                        outcome = await execute_tool(name, args, ctx)
+                        tool_started = time.monotonic()
+                        if voice_metrics is not None: voice_metrics.tool_started_at = tool_started
+                        try:
+                            outcome = await execute_tool(name, args, ctx)
+                        finally:
+                            if voice_metrics is not None:
+                                voice_metrics.tool_ms += (time.monotonic() - tool_started) * 1000
+                                voice_metrics.tool_started_at = None
                         content = outcome.content
                         for id in outcome.mails:
                             if id not in mails and len(mails) < 10: mails.append(id)

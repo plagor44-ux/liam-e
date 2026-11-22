@@ -10,9 +10,9 @@ from db.accessors import ui_settings as access
 from db.models.ui_settings import UiSettings
 
 
-def row(revision=1, swipe_left='archive', swipe_right='toggle_read', locale='browser', speech_pace='normal', voice_model='chat') -> UiSettings:
+def row(revision=1, swipe_left='archive', swipe_right='toggle_read', locale='browser', speech_pace='normal', voice_model='chat', voice_de=None, voice_en=None) -> UiSettings:
     return UiSettings(id='ui', owner_scope='installation', swipe_left=swipe_left,
-                      swipe_right=swipe_right, locale=locale, speech_pace=speech_pace, voice_model=voice_model, revision=revision, updated_at=datetime.now(timezone.utc))
+                      swipe_right=swipe_right, locale=locale, speech_pace=speech_pace, voice_model=voice_model, voice_de=voice_de, voice_en=voice_en, revision=revision, updated_at=datetime.now(timezone.utc))
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def test_get_returns_the_canonical_first_configuration(client):
     assert body['revision'] == 1
     assert datetime.fromisoformat(body['updated_at']).tzinfo is not None
     assert body['locale'] == 'browser'
-    assert set(body) == {'swipe_left', 'swipe_right', 'locale', 'speech_pace', 'voice_model', 'revision', 'updated_at'}
+    assert set(body) == {'swipe_left', 'swipe_right', 'locale', 'speech_pace', 'voice_model', 'voice_de', 'voice_en', 'revision', 'updated_at'}
 
 
 def test_patch_applies_valid_actions_and_bumps_the_revision(client):
@@ -162,3 +162,17 @@ def test_voice_model_cannot_be_selected_when_catalogue_unverified(client, monkey
     response = client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_model': 'mistral-small-latest'})
     assert response.status_code == 503
     access.update.assert_not_awaited()
+
+
+def test_voice_settings_validate_catalogue_and_share_revision(client, monkeypatch):
+    from api.audio.voices import Voice, VoiceCatalogue
+    from api.routers.api.v1.settings import ui
+    monkeypatch.setattr(ui.voices, 'list_voices', AsyncMock(return_value=VoiceCatalogue(
+        verified=True, voices=[Voice(id='voice_123', name='Test', languages=['en'])])))
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_de': 'missing'}).status_code == 422
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_de': 'voice_123'}).json()['voice_de'] == 'voice_123'
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_en': None}).status_code == 200
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_de': 'voice_481'}).json()['voice_de'] is None
+    access.update.assert_awaited_with(1, voice_de=None)
+    monkeypatch.setattr(access, 'update', AsyncMock(side_effect=access.StaleRevision(1)))
+    assert client.patch('/api/v1/settings/ui', json={'expected_revision': 1, 'voice_de': 'voice_123'}).status_code == 409

@@ -836,3 +836,43 @@ test('the original pending card becomes confirmable when a failed mail grant loo
   fireEvent.click(recovered)
   await waitFor(() => expect(confirm.mock.calls[0]?.[0]?.path).toEqual({ proposal_id: 'original' }))
 })
+
+test('voice turn displays linked mail references when saved text arrives', async () => {
+  const originalSocket = globalThis.WebSocket
+  let socket!: FakeSocket
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1
+    onopen?: () => void; onmessage?: (event: { data: string }) => void; onclose?: () => void; onerror?: () => void
+    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.() }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  try {
+    setup('/chat/c', false, null, true)
+    await screen.findByPlaceholderText('Frag etwas zu deinen Mails …')
+    fireEvent.click(screen.getByRole('button', { name: 'Test voice turn' }))
+    await waitFor(() => expect(socket).toBeDefined())
+    await act(async () => {
+      socket.emit({ event: 'start', conversation_id: 'c', user_message_id: 'u', model: 'm' })
+      socket.emit({ event: 'delta', text: 'Eine wichtige Mail.' })
+      socket.emit({ event: 'mails', mails: [{ id: 'mail1', account_id: 'a', color_index: 0, subject: 'Synthetischer Betreff', sender_name: 'Anna', snippet: 'Synthetischer Inhalt', internal_date: null, deadline: null, is_flagged: false }] })
+      socket.emit({ event: 'voice_text_done', conversation_id: 'c', message_id: 'new' })
+      socket.emit({ event: 'done', conversation_id: 'c', message_id: 'new', stopped: false })
+    })
+    expect(await screen.findByText('Synthetischer Betreff')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Antwort entwerfen' })).toBeTruthy()
+    expect(screen.getAllByText('Eine wichtige Mail.').length).toBeGreaterThan(0)
+  } finally { globalThis.WebSocket = originalSocket }
+})
+
+test('a persisted voice reply displays its authorized mail reference in history', async () => {
+  const { client, router } = setup('/chat/c')
+  spyOn(sdk, 'chatMailReferenceGet').mockResolvedValue({ data: { id: 'voice-mail', account_id: 'a', color_index: 0, sender_name: 'Anna', subject: 'Gespeicherter Mailverweis', snippet: '', internal_date: null, deadline: null, is_flagged: false } } as never)
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [historyRow('voice-reply', 'assistant', { mails: ['voice-mail'] })]) })
+  expect(await screen.findByText('Gespeicherter Mailverweis')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Mail öffnen' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/mail/voice-mail'))
+})

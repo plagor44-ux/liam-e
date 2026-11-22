@@ -14,6 +14,7 @@ const browserDefaults: UiSettingsOut = {
 
 beforeEach(() => {
   spyOn(sdk, 'chatModelsList').mockResolvedValue({ data: [] } as never)
+  spyOn(sdk, 'audioVoicesList').mockResolvedValue({ data: { verified: true, voices: [{ id: 'voice_123', name: 'Example', languages: ['en'] }, { id: 'voice_481', name: 'Heidi', languages: ['de'] }, { id: 'voice_478', name: 'Sheila', languages: ['en'] }] } } as never)
 })
 
 function open(client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })) {
@@ -218,4 +219,34 @@ test('a voice model conflict reloads untouched language without silently overwri
   expect(await screen.findByText('Settings changed. Reload and review your choice.')).toBeTruthy()
   expect(screen.getByRole('button', { name: /App language English/ })).toBeTruthy()
   expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, voice_model: 'mistral-small-latest' })
+})
+
+
+test('voice selection saves with the global revision and warns for another language', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, voice_de: 'voice_123', revision: 2 } } as never)
+  open()
+  const german = await screen.findByRole('button', { name: 'Deutsch' })
+  await waitFor(() => expect(german.textContent).toContain('Heidi (Standard)'))
+  expect(screen.getByRole('button', { name: 'Englisch' }).textContent).toContain('Sheila (Standard)')
+  fireEvent.click(german)
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Example' }))
+  expect(screen.getByText('Diese Stimme ist nicht für diese Sprache ausgelegt.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, voice_de: 'voice_123' }))
+})
+
+
+test('the default appears once in its language group and saves null', async () => {
+  spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: { ...browserDefaults, voice_de: 'voice_123' } } as never)
+  const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, revision: 2 } } as never)
+  open()
+  const german = await screen.findByRole('button', { name: 'Deutsch' })
+  await screen.findByText('Example')
+  fireEvent.click(german)
+  expect(await screen.findByRole('group', { name: 'Deutsch' })).toBeTruthy()
+  expect(screen.getAllByRole('menuitemradio', { name: 'Heidi (Standard)' })).toHaveLength(1)
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Heidi (Standard)' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Auswahl speichern' }))
+  await waitFor(() => expect(save.mock.calls[0]?.[0]?.body).toEqual({ expected_revision: 1, voice_de: null }))
 })

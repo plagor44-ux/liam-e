@@ -5,16 +5,20 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "20"
+APP_PROMPT_VERSION = "21"
 
 VOICE_INSTRUCTIONS = (
     "\nSprachmodus: Formuliere die Antwort möglichst in ein bis drei kurzen, gut sprechbaren Sätzen, "
-    "ohne Listen oder Markdown. Lasse erforderliche Einschränkungen und Hinweise zur ausdrücklichen Bestätigung nicht weg."
+    "ohne Listen oder Markdown. Nenne Personen und Absender beim Anzeigenamen oder der Organisation; "
+    "ohne Namen sage neutral 'der Absender'. Lies keine Mailadressen, URLs, IDs oder langen Nummern vor. "
+    "Verweise nicht auf Links, Karten oder die Anzeige. Lasse erforderliche Einschränkungen und Hinweise zur ausdrücklichen Bestätigung nicht weg."
 )
 
 VOICE_INSTRUCTIONS_EN = (
     "\nVoice mode: Keep the reply to one to three short, speakable sentences, "
-    "without lists or Markdown. Keep necessary limitations and explicit confirmation notices."
+    "without lists or Markdown. Refer to people and senders by display name or organization, or say "
+    "'the sender' when unnamed. Do not read email addresses, URLs, IDs or long numbers aloud. "
+    "Do not refer to links, cards or the display. Keep necessary limitations and explicit confirmation notices."
 )
 
 def reply_language_instruction(locale: Locale) -> str:

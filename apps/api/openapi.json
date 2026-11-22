@@ -7225,6 +7225,28 @@
             "title": "Updated At",
             "type": "string"
           },
+          "voice_de": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice De"
+          },
+          "voice_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice En"
+          },
           "voice_model": {
             "default": "chat",
             "title": "Voice Model",
@@ -7315,6 +7337,32 @@
               }
             ],
             "title": "Swipe Right"
+          },
+          "voice_de": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice De"
+          },
+          "voice_en": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice En"
           },
           "voice_model": {
             "anyOf": [
@@ -7446,6 +7494,53 @@
           "version"
         ],
         "title": "VersionIn",
+        "type": "object"
+      },
+      "Voice": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "languages"
+        ],
+        "title": "Voice",
+        "type": "object"
+      },
+      "VoiceCatalogue": {
+        "properties": {
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/Voice"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "verified",
+          "voices"
+        ],
+        "title": "VoiceCatalogue",
         "type": "object"
       },
       "WriteOutcome": {
@@ -8426,6 +8521,75 @@
           }
         },
         "summary": "Transcribe a recording without submitting a chat turn"
+      }
+    },
+    "/api/v1/audio/voices": {
+      "get": {
+        "operationId": "audio_voices_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceCatalogue"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Inventory"
+      }
+    },
+    "/api/v1/audio/voices/preview": {
+      "post": {
+        "operationId": "audio_voice_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "locale": {
+                    "enum": [
+                      "de",
+                      "en"
+                    ],
+                    "title": "Locale",
+                    "type": "string"
+                  },
+                  "voice": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "title": "Voice",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "locale",
+                  "voice"
+                ],
+                "title": "PreviewRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Preview"
       }
     },
     "/api/v1/calendar/connections/google": {

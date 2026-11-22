@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from api.audio.live_access import live_remaining
 from api.audio.voice_turn import run_voice_turn
 from api.audio.metrics import VoiceMetrics
+from api.audio.voices import effective_voice
 from api.mail.agent import run_turn_events
 from api.mail.context_resolver import resolve_context
 from api.mail.models_catalog import list_chat_models, require_available_model
@@ -56,7 +57,9 @@ async def voice_turn(socket: WebSocket) -> None:
             settings = await ui_settings.get_or_create()
             events = run_turn_events(**body.model_dump(exclude={'voice_stt_elapsed_ms'}), resolved_context=resolved, resolved_locale=locale, voice_metrics=metrics, voice_model=settings.voice_model, live_voice_turn=True)
             pace = settings.speech_pace
-            await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at, metrics=metrics)
+            selected_voice = getattr(settings, 'voice_de' if locale == 'de' else 'voice_en', None)
+            voice = await effective_voice(selected_voice, locale) if selected_voice else None
+            await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, **({'voice': voice} if voice else {}), stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at, metrics=metrics)
     except (ValidationError, ValueError):
         with suppress(Exception): await socket.close(code=1008)
     except WebSocketDisconnect:
@@ -67,5 +70,5 @@ async def voice_turn(socket: WebSocket) -> None:
     finally:
         if not metrics.logged:
             metrics.logged = True
-            _LOG.info('voice_metrics outcome=pre_turn model=None reasoning_effort=None tool_rounds=0 thinking_chunks=0 tts_connect_ms=None tts_reopen=0')
+            _LOG.info('voice_metrics outcome=pre_turn model=None model_source=unresolved catalog_wait_ms=0 reasoning_effort=None model_ms=0 tool_ms=0 tool_rounds=0 thinking_chunks=0 tts_connect_ms=None tts_reopen=0 filler=none filler_ms=None')
         with suppress(Exception): await socket.close()

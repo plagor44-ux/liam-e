@@ -22,6 +22,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
     {
         "audio_transcribe",
         "audio_speech",
+        "audio_voice_preview",
         "audio_live_status",
         "audio_live_speech",
         "audio_device_test_record",
@@ -85,6 +86,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
 # rather than left out of the read-only list silently.
 BROWSER_ONLY_GET_OPERATIONS: frozenset[str] = frozenset(
     {
+        "audio_voices_list",
         "audio_capabilities_get",  # Owner-only application capability.
         "audio_device_test_get",
         "audio_device_test_sample",

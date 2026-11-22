@@ -15,6 +15,8 @@ from api.audio.live_access import live_remaining
 from api.audio.live_provider import LiveAudioError, mistral_live
 from api.audio.pace import paced_text
 from api.audio.metrics import VoiceMetrics
+from api.audio.filler import FILLER_DELAY_SECONDS, phrase
+from api.audio.spoken_text import spoken_text
 from api.mail.chat_events import ChatEvent
 
 _LOG = logging.getLogger(__name__)
@@ -47,7 +49,7 @@ class VoiceProviderFailure(Exception):
     """A failure of a provider operation, rather than local delivery or validation."""
 
 
-async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str, locale: str = "en", pace: str = "normal", stt_elapsed_ms: int | None = None, started_at: float | None = None, metrics: VoiceMetrics | None = None) -> None:
+async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], context_id: str, locale: str = "en", pace: str = "normal", voice: str | None = None, stt_elapsed_ms: int | None = None, started_at: float | None = None, metrics: VoiceMetrics | None = None) -> None:
     """Only deltas produced by this turn can enter the speech provider.
 
     Keep the socket open until the browser acknowledges playback completion, so revocation
@@ -56,13 +58,16 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
     started_at = started_at if started_at is not None else time.monotonic()
     metrics = metrics or VoiceMetrics()
     first_token_ms = first_sentence_ms = first_audio_ms = None
+    filler_kind = 'none'
+    filler_ms = None
     gap_ms = 0.0
     audio_seconds = 0.0
     characters = 0
     last_audio_end = None
-    sentences: asyncio.Queue[str | None] = asyncio.Queue(maxsize=16)
+    sentences: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue(maxsize=16)
     send_lock = asyncio.Lock()
     done = None
+    chat_finished = False
     audio_ended = asyncio.Event()
     acknowledged = asyncio.Event()
 
@@ -75,14 +80,16 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
             raise VoiceRevoked()
 
     async def chat() -> None:
-        nonlocal done, first_token_ms, first_sentence_ms, characters
+        nonlocal done, chat_finished, first_token_ms, first_sentence_ms, characters
         buffer = ''
         first = True
         async for event in events:
             if event.event == 'error':
+                chat_finished = True
                 await send(event.model_dump(mode='json'))
                 raise VoiceRevoked()
             if event.event == 'done':
+                chat_finished = True
                 if event.stopped:
                     await send(event.model_dump(mode='json'))
                     raise VoiceRevoked()
@@ -90,7 +97,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                 await send({'event': 'voice_text_done', 'conversation_id': event.conversation_id, 'message_id': event.message_id})
                 if buffer.strip():
                     if first_sentence_ms is None: first_sentence_ms = (time.monotonic() - started_at) * 1000
-                    await sentences.put(buffer)
+                    await sentences.put((buffer, 'reply'))
                 await sentences.put(None)
                 return
             await send(event.model_dump(mode='json'))
@@ -100,15 +107,29 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                 buffer += event.text
                 while (end := _boundary(buffer, first)) is not None:
                     if first_sentence_ms is None: first_sentence_ms = (time.monotonic() - started_at) * 1000
-                    await sentences.put(buffer[:end])
+                    await sentences.put((buffer[:end], 'reply'))
                     buffer = buffer[end:]
                     first = False
                 if len(buffer) > 16_384:
                     raise RuntimeError('voice_text_limit')
         raise RuntimeError('voice_chat_incomplete')
 
+    async def filler() -> None:
+        delay = max(0, FILLER_DELAY_SECONDS - (time.monotonic() - started_at))
+        try:
+            if not metrics.tool_started.is_set():
+                await asyncio.wait_for(metrics.tool_started.wait(), timeout=delay)
+            kind, category = 'tool', metrics.tool_category
+        except TimeoutError:
+            kind = 'tool' if metrics.tool_started.is_set() else 'timer'
+            category = metrics.tool_category if kind == 'tool' else 'general'
+        # No await between the guard and enqueue: a completed or already queued
+        # reply always takes precedence over a late progress message.
+        if not chat_finished and first_sentence_ms is None:
+            sentences.put_nowait((phrase(locale, category), kind))
+
     async def speech() -> None:
-        nonlocal first_audio_ms, gap_ms, audio_seconds, last_audio_end
+        nonlocal first_audio_ms, gap_ms, audio_seconds, last_audio_end, filler_kind, filler_ms
         total = 0
         sent_audio = False
         failed = False
@@ -123,15 +144,20 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                 connect_started = time.monotonic()
                 try:
                     async with asyncio.timeout(15):
-                        session = await stack.enter_async_context(mistral_live('speech', locale=locale))
+                        session = await stack.enter_async_context(mistral_live('speech', locale=locale, **({'voice': voice} if voice else {})))
                 finally:
                     metrics.tts_connect_ms = round((time.monotonic() - connect_started) * 1000)
-                sentence = await sentences.get()
-                if sentence is not None:
-                    while sentence is not None:
+                item = await sentences.get()
+                if item is not None:
+                    while item is not None:
+                        sentence, kind = item
                         async with asyncio.timeout(60):
                             await check()
-                            text = paced_text(sentence, pace, 8000)
+                            text = spoken_text(sentence) if kind == 'reply' else sentence
+                            if not text.strip():
+                                item = await sentences.get()
+                                continue
+                            text = paced_text(text, pace, 8000)
                             while True:
                                 try:
                                     await provider_call(session.append, text)
@@ -142,12 +168,12 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                                         if audio is None:
                                             break
                                         now = time.monotonic()
-                                        if first_audio_ms is None: first_audio_ms = (now - started_at) * 1000
+                                        if kind == 'reply' and first_audio_ms is None: first_audio_ms = (now - started_at) * 1000
                                         duration = len(audio) / 96000
                                         if first_of_sentence and last_audio_end is not None: gap_ms += max(0, now - last_audio_end) * 1000
                                         first_of_sentence = False
                                         last_audio_end = max(now, last_audio_end or now) + duration
-                                        audio_seconds += duration
+                                        if kind == 'reply': audio_seconds += duration
                                         total += len(audio)
                                         if total > _MAX_AUDIO:
                                             raise RuntimeError('voice_audio_limit')
@@ -155,6 +181,8 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                                             await check()
                                             await send({'event': 'voice_audio', 'audio': base64.b64encode(audio[offset:offset + 24_000]).decode('ascii')})
                                             sent_audio = True
+                                            if kind != 'reply' and filler_kind == 'none':
+                                                filler_kind, filler_ms = kind, round((time.monotonic() - started_at) * 1000)
                                     break
                                 except VoiceProviderFailure as error:
                                     if sent_audio or metrics.tts_reopen:
@@ -163,8 +191,8 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                                     await stack.aclose()
                                     await check()
                                     async with asyncio.timeout(15):
-                                        session = await stack.enter_async_context(mistral_live('speech', locale=locale))
-                        sentence = await sentences.get()
+                                        session = await stack.enter_async_context(mistral_live('speech', locale=locale, **({'voice': voice} if voice else {})))
+                        item = await sentences.get()
         except VoiceRevoked:
             raise
         except Exception as error:
@@ -191,7 +219,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                 raise RuntimeError('voice_invalid_ack')
             acknowledged.set()
 
-    tasks = [asyncio.create_task(chat()), asyncio.create_task(speech()), asyncio.create_task(guard()), asyncio.create_task(receive())]
+    tasks = [asyncio.create_task(chat()), asyncio.create_task(speech()), asyncio.create_task(guard()), asyncio.create_task(receive()), asyncio.create_task(filler())]
     async def finish() -> None:
         await asyncio.gather(*tasks[:2])
         await acknowledged.wait()
@@ -211,12 +239,16 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
         # Emit before asynchronous cleanup: a second cancellation during provider
         # shutdown must not lose this turn's only metrics record.
         metrics.logged = True
-        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s model=%s reasoning_effort=%s tool_rounds=%s thinking_chunks=%s tts_connect_ms=%s tts_reopen=%s',
+        now = time.monotonic()
+        catalog_wait = round((now - metrics.catalog_wait_started) * 1000) if metrics.catalog_wait_started is not None else metrics.catalog_wait_ms
+        model_time = metrics.model_ms + ((now - metrics.model_started) * 1000 if metrics.model_started is not None else 0)
+        tool_time = metrics.tool_ms + ((now - metrics.tool_started_at) * 1000 if metrics.tool_started_at is not None else 0)
+        _LOG.info('voice_metrics locale=%s pace=%s stt_elapsed_ms=%s first_token_ms=%s first_sentence_ms=%s first_audio_ms=%s gap_ms=%s audio_seconds_per_character=%s model=%s model_source=%s catalog_wait_ms=%s reasoning_effort=%s model_ms=%s tool_ms=%s tool_rounds=%s thinking_chunks=%s tts_connect_ms=%s tts_reopen=%s filler=%s filler_ms=%s',
                   locale, pace, stt_elapsed_ms, round(first_token_ms) if first_token_ms is not None else None,
                   round(first_sentence_ms) if first_sentence_ms is not None else None,
                   round(first_audio_ms) if first_audio_ms is not None else None, round(gap_ms),
-                  round(audio_seconds / characters, 4) if characters else None, metrics.resolved_model,
-                  metrics.reasoning_effort, metrics.tool_rounds, metrics.thinking_chunks, metrics.tts_connect_ms, metrics.tts_reopen)
+                  round(audio_seconds / characters, 4) if characters else None, metrics.resolved_model, metrics.model_source, catalog_wait,
+                  metrics.reasoning_effort, round(model_time), round(tool_time), metrics.tool_rounds, metrics.thinking_chunks, metrics.tts_connect_ms, metrics.tts_reopen, filler_kind, filler_ms)
         completion.cancel()
         for task in tasks:
             task.cancel()

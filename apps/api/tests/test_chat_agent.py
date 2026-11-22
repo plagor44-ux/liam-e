@@ -1094,10 +1094,12 @@ async def test_voice_reasoning_only_uses_verified_resolved_model(store, monkeypa
     model = models_catalog.ChatModelOut(id='mistral-medium-latest', label='test', description='', is_default=True,
                                         resolved_id=resolved)
     monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
-    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_metrics=VoiceMetrics(), live_voice_turn=True)
+    metrics = VoiceMetrics()
+    events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_metrics=metrics, live_voice_turn=True)
     assert fake.requests[0].get('reasoning_effort') == expected
     if expected is not None:
         assert fake.requests[0]['model'] == resolved
+    assert metrics.model_source == ('unresolved' if resolved is None else 'chat')
     assert any(event.event == 'done' for event in events)
 
 async def test_text_chat_does_not_add_reasoning_effort(store, monkeypatch):
@@ -1153,3 +1155,85 @@ async def test_voice_model_uses_available_selection_or_falls_back(store, monkeyp
     assert next(event.model for event in events if event.event == 'start') == used
     answer = next(row for row in store.rows if row.role == 'assistant')
     assert json.loads(answer.extras_json)['model'] == used
+
+async def test_voice_tool_signal_and_mail_references_share_authorized_chat_path(store, monkeypatch):
+    from api.audio.metrics import VoiceMetrics
+    message = MailMessage(account_id=store.account.id, provider_uid='synthetic', subject='Synthetic reference')
+    store.mail.messages[message.id] = message
+    metrics = VoiceMetrics()
+    events, _ = await run(store, monkeypatch, [[chunk('show_mails', {'message_ids': [message.id]})], ['Answer.']],
+                          voice_response=True, live_voice_turn=True, voice_metrics=metrics)
+    assert metrics.tool_started.is_set()
+    assert metrics.tool_category == 'mail'
+    assert [mail.id for mail in next(event for event in events if event.event == 'mails').mails] == [message.id]
+    answer = next(row for row in store.rows if row.role == 'assistant' and row.content == 'Answer.')
+    assert json.loads(answer.extras_json)['mails'] == [message.id]
+
+
+def test_voice_prompt_discourages_reading_addresses_and_screen_references():
+    from api.mail.agent_prompt import VOICE_INSTRUCTIONS, VOICE_INSTRUCTIONS_EN
+    assert all(item in VOICE_INSTRUCTIONS for item in ('Mailadressen', 'URLs', 'IDs', 'Links', 'Anzeigenamen'))
+    assert all(item in VOICE_INSTRUCTIONS_EN for item in ('email addresses', 'URLs', 'IDs', 'links', 'display name'))
+
+async def test_slow_selected_voice_model_is_used_with_reasoning_and_timing(store, monkeypatch):
+    import asyncio
+    from api.audio.metrics import VoiceMetrics
+    from api.mail import models_catalog
+    model = models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False, resolved_id='mistral-small-2603')
+    async def slow_catalog(_):
+        await asyncio.sleep(.04)
+        return [model]
+    monkeypatch.setattr(models_catalog, 'list_chat_models', slow_catalog)
+    monkeypatch.setattr(models_catalog, 'catalog_ready', lambda: False)
+    monkeypatch.setattr(agent, 'VOICE_SELECTED_CATALOG_TIMEOUT', .2)
+    execute = agent.execute_tool
+    async def slow_tool(*args):
+        await asyncio.sleep(.02)
+        return await execute(*args)
+    monkeypatch.setattr(agent, 'execute_tool', slow_tool)
+    metrics = VoiceMetrics()
+    events, fake = await run(store, monkeypatch, [[chunk('list_accounts', {})], ['Answer.']],
+                             voice_response=True, live_voice_turn=True, voice_model='mistral-small-latest', voice_metrics=metrics)
+    assert all(request['model'] == 'mistral-small-2603' and request['reasoning_effort'] == 'none' for request in fake.requests)
+    assert metrics.model_source == 'selected' and metrics.model_ms > 0 and metrics.tool_ms >= 15
+    assert metrics.catalog_wait_ms >= 30
+    assert any(event.event == 'done' for event in events)
+
+
+async def test_ready_voice_catalog_has_zero_wait(store, monkeypatch):
+    from api.audio.metrics import VoiceMetrics
+    model = agent.models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False, resolved_id='mistral-small-2603')
+    monkeypatch.setattr(agent.models_catalog, 'catalog_ready', lambda: True)
+    monkeypatch.setattr(agent.models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
+    metrics = VoiceMetrics()
+    await run(store, monkeypatch, [['Answer.']], voice_response=True, live_voice_turn=True,
+              voice_model='mistral-small-latest', voice_metrics=metrics)
+    assert metrics.catalog_wait_ms == 0 and metrics.model_source == 'selected'
+
+async def test_voice_catalog_timeout_reports_source_without_exposing_model(store, monkeypatch):
+    import asyncio
+    from api.audio.metrics import VoiceMetrics
+    async def slow_catalog(_): await asyncio.sleep(.1); return []
+    monkeypatch.setattr(agent.models_catalog, 'list_chat_models', slow_catalog)
+    monkeypatch.setattr(agent.models_catalog, 'catalog_ready', lambda: False)
+    monkeypatch.setattr(agent, 'VOICE_SELECTED_CATALOG_TIMEOUT', .01)
+    metrics = VoiceMetrics()
+    events, fake = await run(store, monkeypatch, [['Answer.']], voice_response=True, live_voice_turn=True,
+                             voice_model='private-workspace-model', voice_metrics=metrics)
+    assert fake.requests[0]['model'] == 'mistral-medium-latest'
+    assert 'reasoning_effort' not in fake.requests[0]
+    assert metrics.model_source == 'catalog_timeout' and metrics.resolved_model is None and metrics.catalog_wait_ms >= 5
+    assert any(event.event == 'done' for event in events)
+
+async def test_ambiguous_voice_alias_is_used_without_model_specific_reasoning(store, monkeypatch):
+    from api.audio.metrics import VoiceMetrics
+    model = agent.models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False,
+                                               resolved_id=None, availability='available')
+    monkeypatch.setattr(agent.models_catalog, 'list_chat_models', AsyncMock(return_value=[model]))
+    metrics = VoiceMetrics()
+    events, fake = await run(store, monkeypatch, [['Answer.']], voice_response=True, live_voice_turn=True,
+                             voice_model='mistral-small-latest', voice_metrics=metrics)
+    assert fake.requests[0]['model'] == 'mistral-small-latest'
+    assert 'reasoning_effort' not in fake.requests[0]
+    assert metrics.model_source == 'unresolved' and metrics.resolved_model is None
+    assert any(event.event == 'done' for event in events)

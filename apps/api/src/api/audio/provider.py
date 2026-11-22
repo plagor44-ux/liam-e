@@ -70,8 +70,8 @@ class MistralAudio:
             raise audio_error("audio_empty")
         return text.strip(), reported_model
 
-    async def synthesize(self, text: str, *, model: str, limits: SpeechLimitsOut, locale: str = "en", pace: str = "normal") -> bytes:
-        voice = "voice_481" if locale == "de" else "voice_478"
+    async def synthesize(self, text: str, *, model: str, limits: SpeechLimitsOut, locale: str = "en", pace: str = "normal", voice: str | None = None) -> bytes:
+        voice = voice or ("voice_481" if locale == "de" else "voice_478")
         try:
             text = paced_text(text, pace, limits.max_input_characters)
         except ValueError:

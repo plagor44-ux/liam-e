@@ -12,6 +12,7 @@ from conftest import build_app
 
 
 def test_live_transcription_requires_owner_and_opt_in(monkeypatch, ui_locale_in_browser_mode):
+    from unittest.mock import Mock
     from api.audio.access import get_audio_owner_verifier
     from env.audio import env
     from api.routers.api.v1.audio.live import transcription
@@ -34,6 +35,9 @@ def test_live_transcription_requires_owner_and_opt_in(monkeypatch, ui_locale_in_
     async def allow(_): return True
     app.dependency_overrides[get_audio_owner_verifier] = lambda: allow
     monkeypatch.setattr(transcription, 'mistral_live', fake_live)
+    warm = Mock()
+    monkeypatch.setattr(transcription, 'prewarm_catalog', warm)
+    monkeypatch.setattr(transcription, 'prewarm_voices', lambda: None)
     monkeypatch.setattr(env, 'audio_studio_owner', json.dumps({'user_id': '00000000-0000-0000-0000-000000000001', 'organization_id': '00000000-0000-0000-0000-000000000002', 'workspace_id': '00000000-0000-0000-0000-000000000003', 'origin': 'https://test.example'}))
     monkeypatch.setattr(env, 'audio_live_test_origin', 'https://test.example')
     monkeypatch.setattr(env, 'audio_live_test_until', (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
@@ -47,11 +51,13 @@ def test_live_transcription_requires_owner_and_opt_in(monkeypatch, ui_locale_in_
         monkeypatch.setattr(env, 'audio_live_test_until', (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect('/api/v1/audio/live/transcription', headers={'origin': 'https://other.example'}): pass
+        warm.assert_not_called()
         with client.websocket_connect('/api/v1/audio/live/transcription?locale=en', headers={'origin': 'https://test.example'}) as ws:
             ws.send_bytes(b'\x00\x01')
             assert ws.receive_json() == {'type': 'turn.start', 'time_s': 1.0}
             ws.close()
         assert selected == ['de']
+        warm.assert_called_once_with()
 
 
 @pytest.mark.anyio
@@ -107,7 +113,8 @@ async def test_reconnect_timeout_and_expired_window_fail_closed(monkeypatch):
     assert expired.closed == 1008 and not expired.accepted and not slot.locked()
 
 
-def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, capsys):
+@pytest.mark.parametrize(('locale', 'chosen'), [('de', 'voice_123'), ('en', 'voice_456')])
+def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, capsys, locale, chosen):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from api.audio.access import get_audio_owner_verifier
@@ -118,6 +125,7 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
 
     spoken = []
     agent_options = []
+    voice_options = []
     class Provider:
         async def append(self, text): spoken.append(text)
         async def finish(self): self.first = True
@@ -127,7 +135,9 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
                 return bytes(4)
             return None
     @asynccontextmanager
-    async def fake_live(kind, **kwargs): yield Provider()
+    async def fake_live(kind, **kwargs):
+        voice_options.append(kwargs)
+        yield Provider()
     async def fake_events(**kwargs):
         agent_options.append(kwargs)
         yield StartEvent(conversation_id='c', user_message_id='u', model='test')
@@ -136,7 +146,9 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
     monkeypatch.setattr(turn.chat_conversation, 'get_conversation', AsyncMock(return_value=object()))
     monkeypatch.setattr(turn, 'resolve_context', AsyncMock(return_value=(object(), SimpleNamespace(id='ctx'), None)))
     monkeypatch.setattr(turn, 'run_turn_events', fake_events)
-    monkeypatch.setattr(turn.ui_settings, 'get_or_create', AsyncMock(return_value=SimpleNamespace(locale='browser', browser_locale=None, speech_pace='normal', voice_model='mistral-small-latest')))
+    monkeypatch.setattr(turn.ui_settings, 'get_or_create', AsyncMock(return_value=SimpleNamespace(locale='browser', browser_locale=None, speech_pace='normal', voice_model='mistral-small-latest', voice_de='voice_123', voice_en='voice_456')))
+    monkeypatch.setattr(turn, 'resolve_locale', AsyncMock(return_value=locale))
+    monkeypatch.setattr(turn, 'effective_voice', AsyncMock(side_effect=lambda value, lang: value))
     monkeypatch.setattr(voice_bridge, 'mistral_live', fake_live)
     monkeypatch.setattr(voice_bridge.chat_context, 'is_live', AsyncMock(return_value=True))
     monkeypatch.setattr(env, 'audio_studio_owner', json.dumps({'user_id': '00000000-0000-0000-0000-000000000001', 'organization_id': '00000000-0000-0000-0000-000000000002', 'workspace_id': '00000000-0000-0000-0000-000000000003', 'origin': 'https://test.example'}))
@@ -163,6 +175,7 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
             assert spoken == ['Hallo.']
             ws.send_json({'event': 'playback_finished'})
             assert ws.receive_json()['message_id'] == 'new'
+    assert voice_options[0]['voice'] == chosen and voice_options[0]['locale'] == locale
     assert agent_options[0]['voice_model'] == 'mistral-small-latest'
     assert agent_options[0]['live_voice_turn'] is True
     assert capsys.readouterr().err.count('voice_metrics ') == 1

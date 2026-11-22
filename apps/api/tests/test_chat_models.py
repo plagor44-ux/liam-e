@@ -185,3 +185,33 @@ async def test_simultaneous_reads_share_one_workspace_snapshot(monkeypatch):
     first, second = await asyncio.gather(catalog.list_chat_models(), catalog.list_chat_models())
     listing.assert_awaited_once()
     assert first == second
+
+async def test_slow_catalog_refresh_survives_voice_timeout_and_fills_cache(monkeypatch):
+    import asyncio
+    from api.mail import models_catalog as catalog
+    calls = []
+    card = NS(id='mistral-small-2603', aliases=['mistral-small-latest'], capabilities=NS(completion_chat=True, function_calling=True), deprecation=None)
+    async def slow_list():
+        calls.append(1)
+        await asyncio.sleep(.08)
+        return NS(data=[card])
+    monkeypatch.setattr(catalog, 'mistral_client', lambda: NS(models=NS(list_async=slow_list)))
+    catalog.reset_cache()
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(catalog.list_chat_models('mistral-small-latest'), timeout=.01)
+    await asyncio.sleep(.1)
+    models = await catalog.list_chat_models('mistral-small-latest')
+    assert len(calls) == 1
+    assert catalog.catalog_ready()
+    assert any(model.id == 'mistral-small-latest' and model.resolved_id == 'mistral-small-2603' for model in models)
+    catalog.reset_cache()
+
+async def test_background_catalog_failure_returns_unverified_without_logging_details(monkeypatch, caplog):
+    from api.mail import models_catalog as catalog
+    async def broken(): raise RuntimeError('private workspace content')
+    catalog.reset_cache()
+    monkeypatch.setattr(catalog, '_workspace_cards', broken)
+    models = await catalog.list_chat_models('mistral-small-latest')
+    assert all(model.availability == 'unverified' for model in models)
+    assert 'RuntimeError' in caplog.text and 'private workspace content' not in caplog.text
+    catalog.reset_cache()

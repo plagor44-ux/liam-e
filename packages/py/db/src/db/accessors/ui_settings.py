@@ -24,6 +24,9 @@ DEFAULT_SWIPE_LEFT = "archive"
 DEFAULT_SWIPE_RIGHT = "toggle_read"
 
 
+_UNSET = object()
+
+
 class StaleRevision(Exception):
     """The caller's expected revision no longer matches the stored one."""
 
@@ -85,7 +88,7 @@ async def _locked(session) -> UiSettings:
 
 
 async def update(
-    expected_revision: int, *, swipe_left: str | None = None, swipe_right: str | None = None, locale: str | None = None, speech_pace: str | None = None, voice_model: str | None = None
+    expected_revision: int, *, swipe_left: str | None = None, swipe_right: str | None = None, locale: str | None = None, speech_pace: str | None = None, voice_model: str | None = None, voice_de: str | None | object = _UNSET, voice_en: str | None | object = _UNSET
 ) -> UiSettings:
     """Apply changes atomically while the caller still holds the current revision.
 
@@ -94,7 +97,7 @@ async def update(
     concurrent writers on the same revision, the row lock serializes them and all but the first
     fail with ``StaleRevision`` — no update is lost silently.
     """
-    changes: dict[str, str] = {}
+    changes: dict[str, str | None] = {}
     if swipe_left is not None:
         changes["swipe_left"] = _validated(swipe_left)
     if swipe_right is not None:
@@ -111,6 +114,11 @@ async def update(
         if not voice_model.strip() or len(voice_model) > 200:
             raise ValueError("invalid voice model")
         changes["voice_model"] = voice_model
+    for key, value in (("voice_de", voice_de), ("voice_en", voice_en)):
+        if value is not _UNSET:
+            if value is not None and (not isinstance(value, str) or not value.strip() or len(value) > 100):
+                raise ValueError("invalid voice")
+            changes[key] = value
     if not changes:
         raise ValueError("an update needs at least one UI setting")
     async with get_session_maker()() as session:

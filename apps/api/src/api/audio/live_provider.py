@@ -81,11 +81,11 @@ MAX_SPEECH_BASE64 = 768_000  # six seconds of 24 kHz float32 PCM
 
 
 class LiveSpeech:
-    def __init__(self, socket: Any, locale: str = "en"):
+    def __init__(self, socket: Any, locale: str = "en", voice: str | None = None):
         if locale not in {"de", "en"}:
             raise LiveAudioError()
         self.socket = socket
-        self.voice = "voice_481" if locale == "de" else "voice_478"
+        self.voice = voice or ("voice_481" if locale == "de" else "voice_478")
 
     async def start(self) -> None:
         if (await _event(self.socket)).get("type") != "session.created":
@@ -125,7 +125,7 @@ class LiveSpeech:
 
 
 @asynccontextmanager
-async def mistral_live(kind: str, *, locale: str = "en") -> AsyncIterator[LiveTranscription | LiveSpeech]:
+async def mistral_live(kind: str, *, locale: str = "en", voice: str | None = None) -> AsyncIterator[LiveTranscription | LiveSpeech]:
     if kind == "transcription":
         path, model, cls = "transcriptions", "voxtral-mini-transcribe-realtime-3", LiveTranscription
     elif kind == "speech":
@@ -137,6 +137,6 @@ async def mistral_live(kind: str, *, locale: str = "en") -> AsyncIterator[LiveTr
         additional_headers={"Authorization": f"Bearer {mistral_app_token()}"},
         proxy=None, max_size=MAX_SPEECH_EVENT if kind == "speech" else 128_000, open_timeout=10, close_timeout=3,
     ) as socket:
-        session = cls(socket, locale)
+        session = cls(socket, locale, voice) if kind == "speech" else cls(socket, locale)
         await session.start()
         yield session
