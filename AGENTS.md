@@ -52,8 +52,8 @@ Chat and insight requests send the browser language. The saved override always t
 in browser mode requests use their browser hint, and background jobs use the last confirmed
 browser hint or English if none exists. Chat replies and new drafts default to that language; an explicit language request takes precedence.
 Replies and forwards default to the original mail language. Automatically detected input language alone
-does not override the app language. Every model round ends with a transient instruction in the
-effective language that repeats these priorities; it is not saved to chat history. Speech recognition and
+does not override the app language. The current user message includes a transient, clearly delimited instruction in the effective
+language for each model round. It is never stored in chat history and does not change message roles. Speech recognition and
 voice follow the effective app language. Insights store their
 language and are regenerated when it differs, while seed accounts never call the model. Changes to the
 mail body continue to invalidate its insight. Direct preference requests support both languages

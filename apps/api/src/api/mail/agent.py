@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 REVOCATION_DELTA_INTERVAL = 10
 
 
-def _to_model_messages(history, *, prompt=None):
+def _to_model_messages(history, *, prompt=None, current_user_id=None, locale=None):
     """Repair incomplete tool exchanges before sending history to the model."""
     result = [{'role': 'system', 'content': prompt or system_prompt(today=datetime.now(BERLIN).date(), account_scope=None)}]
     kept = set()
@@ -63,7 +63,10 @@ def _to_model_messages(history, *, prompt=None):
             elif row.content:
                 result.append({'role':'assistant', 'content':row.content})
         elif row.role in ('user', 'assistant', 'draft', 'proposal'):
-            result.append({'role':'user' if row.role == 'user' else 'assistant', 'content':row.content})
+            content = row.content
+            if row.role == 'user' and row.id == current_user_id and locale is not None:
+                content += '\n\n[App language instruction]\n' + reply_language_instruction(locale)
+            result.append({'role':'user' if row.role == 'user' else 'assistant', 'content':content})
     return result
 
 
@@ -199,7 +202,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
         ctx.calendar_choice = previous_choice(history, user.id, contexts)
         if voice_response:
             history = [row for row in history if not (row.role == 'assistant' and row.stopped)]
-        messages = _to_model_messages(history, prompt=system_prompt(today=ctx.today, account_scope=account.email_address if account else None, locale=effective_locale))
+        messages = _to_model_messages(history, prompt=system_prompt(today=ctx.today, account_scope=account.email_address if account else None, locale=effective_locale), current_user_id=user.id, locale=effective_locale)
         if voice_response:
             messages[0]['content'] += VOICE_INSTRUCTIONS_EN if effective_locale == 'en' else VOICE_INSTRUCTIONS
         if preference_ids:
@@ -233,7 +236,7 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
             round_text = ''
             try:
                 turn_tools = tools_for_context(ctx)
-                kwargs = {'model': model, 'messages': [*messages, {'role': 'system', 'content': reply_language_instruction(effective_locale)}]}
+                kwargs = {'model': model, 'messages': list(messages)}
                 if turn_tools:
                     kwargs['tools'] = turn_tools
                 last = round_index == max(1, mail_env.mail_chat_max_tool_rounds) - 1
