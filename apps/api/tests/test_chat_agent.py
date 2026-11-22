@@ -307,7 +307,7 @@ async def test_system_prompt_contains_tone_and_safety_rules():
     assert 'drei' in prompt
     from api.mail.agent_prompt import TERMS_AND_FORMATS
     assert TERMS_AND_FORMATS in prompt
-    for text in ('Diese Regeln gelten für Antworten an den Nutzer.', 'Schreibe du und dein klein.', 'Anrede der ursprünglichen Mail', 'mit Anrede und Grußformel', 'frag danach, bevor du create_draft aufrufst', 'erfinde nie eine Adresse', 'Nach propose_action oder create_draft ist noch nichts geschehen', 'erst nach Bestätigung', 'Infinitiv mit Objekt und einem bis vier Wörtern', 'niemals als Fragen', 'Biete auch im Text nichts als Frage an.', '„Gerne“', '„Natürlich“', '„Ich hoffe, das hilft“', 'Begrüßungen nach Tageszeit'):
+    for text in ('Diese Regeln gelten für Antworten an den Nutzer.', 'Schreibe du und dein klein.', 'Sprache der ursprünglichen Mail', 'mit Anrede und Grußformel', 'frag danach, bevor du create_draft aufrufst', 'erfinde nie eine Adresse', 'Nach propose_action oder create_draft ist noch nichts geschehen', 'erst nach Bestätigung', 'Infinitiv mit Objekt und einem bis vier Wörtern', 'niemals als Fragen', 'Biete auch im Text nichts als Frage an.', '„Gerne“', '„Natürlich“', '„Ich hoffe, das hilft“', 'Begrüßungen nach Tageszeit'):
         assert text in prompt
     for text in ('Entwurf statt Draft', 'abrufen statt synchronisieren', 'in den Papierkorb legen statt löschen', 'abbestellen statt abmelden', 'bestätigen statt zustimmen', 'Mail statt E-Mail', 'Konto statt Account oder Postfach', 'Freitag, 21. November', '8:57 Uhr', '184,20 €', '2.314', 'Zahlen bis zwölf', '„…“', '„–“'):
         assert text in TERMS_AND_FORMATS
@@ -520,8 +520,8 @@ async def test_app_locale_takes_priority_over_current_message_language(store, mo
     events = [event async for event in agent.run_turn_events(conversation_id=None, text=message, locale=locale)]
     sent = fake.requests[0]['messages']
     assert sent[-1]['content'] == message
-    assert f'Antworte immer auf {fallback} (aktive App-Sprache)' in sent[0]['content']
-    assert f'Schreibe Mails für create_draft auf {fallback}' in sent[0]['content']
+    assert f'Antworte standardmäßig auf {fallback} (aktive App-Sprache)' in sent[0]['content']
+    assert f'Schreibe neue Mails für create_draft standardmäßig auf {fallback}' in sent[0]['content']
     assert events[-1].event == 'done'
 
 
@@ -529,7 +529,7 @@ async def test_app_locale_takes_priority_over_current_message_language(store, mo
 async def test_saved_locale_is_used_as_chat_fallback_for_missing_or_stale_hints(store, monkeypatch, ui_locale_in_browser_mode, hint):
     ui_locale_in_browser_mode.return_value.locale = "de"
     _, fake = await run(store, monkeypatch, [["Example answer"]], **hint)
-    assert "Antworte immer auf Deutsch" in fake.requests[0]["messages"][0]["content"]
+    assert "Antworte standardmäßig auf Deutsch" in fake.requests[0]["messages"][0]["content"]
     ui_locale_in_browser_mode.assert_awaited_once()
 
 
@@ -1007,3 +1007,19 @@ async def test_voice_ignores_stopped_assistant_history_but_keeps_user_speech(sto
     assert not any(message.get('content') == 'Abgebrochener Echorest' for message in messages)
     assert any(message.get('content') == 'Hallo' and message['role'] == 'user' for message in messages)
     assert events[-1].event == 'done'
+
+@pytest.mark.parametrize(('message', 'case'), [
+    ('Please answer this question', 'English transcription without a language request'),
+    ('Bitte antworte auf Englisch', 'explicit language request'),
+    ('Antworte auf diese englische Mail', 'reply to an English email'),
+])
+async def test_app_language_prompt_pins_explicit_and_original_mail_exceptions(store, monkeypatch, message, case):
+    fake = FakeMistral(streams=[['Synthetic answer']])
+    monkeypatch.setattr(agent, 'mistral_client', lambda: fake)
+    _ = [event async for event in agent.run_turn_events(conversation_id=None, text=message, locale='de')]
+    prompt = fake.requests[0]['messages'][0]['content']
+    assert 'Antworte standardmäßig auf Deutsch' in prompt
+    assert 'Eine ausdrückliche Sprachbitte im aktuellen eigenen Beitrag hat Vorrang' in prompt
+    assert 'Die automatisch erkannte Sprache des Beitrags allein ändert die Antwortsprache nicht' in prompt
+    assert 'Antworten und Weiterleitungen schreibe in der Sprache der ursprünglichen Mail' in prompt
+    assert fake.requests[0]['messages'][-1]['content'] == message, case

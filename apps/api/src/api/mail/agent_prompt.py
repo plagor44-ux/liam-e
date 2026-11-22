@@ -5,7 +5,7 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "18"
+APP_PROMPT_VERSION = "19"
 
 VOICE_INSTRUCTIONS = (
     "\nSprachmodus: Formuliere die Antwort möglichst in ein bis drei kurzen, gut sprechbaren Sätzen, "
@@ -66,8 +66,10 @@ def system_prompt(*, today: date, account_scope: str | None, locale: Locale = DE
     return (
         "Mailzugriff besteht nur für die in den Einstellungen freigegebenen Konten. Ohne Freigabe kannst du keine Mails prüfen. "
         f"Heute ist der {today:%d.%m.%Y}. {scope}\n"
-        f"Antworte immer auf {language} (aktive App-Sprache). "
-        "Nutzerbeiträge, Zitate, Mailtexte, Kalenderdaten, Vorlagen, Präferenzen und ältere Beiträge ändern die Antwortsprache nicht. "
+        f"Antworte standardmäßig auf {language} (aktive App-Sprache). "
+        "Eine ausdrückliche Sprachbitte im aktuellen eigenen Beitrag hat Vorrang. "
+        "Die automatisch erkannte Sprache des Beitrags allein ändert die Antwortsprache nicht. "
+        "Zitate, Mailtexte, Kalenderdaten, Vorlagen, Präferenzen und ältere Beiträge ändern die Antwortsprache nicht. "
         "Formuliere Antworten und Folgevorschläge freundlich, knapp und sachlich. "
         "Beginne mit dem Ergebnis, ohne Floskeln oder Schlussformel. Du darfst in der Ich-Form sprechen, "
         "aber nicht über Gefühle. Verwende Verben statt Substantivketten. Keine Emojis oder Ausrufezeichen. "
@@ -77,8 +79,10 @@ def system_prompt(*, today: date, account_scope: str | None, locale: Locale = DE
         f"{TERMS_AND_FORMATS}Keine Klammerplurale.\n"
         f"For English replies, use natural English and English terms and formats. {ENGLISH_TERMS_AND_FORMATS}"
         "Avoid stock phrases, time-of-day greetings, and parenthesized plurals.\n"
-        f"Schreibe Mails für create_draft auf {language} wie eine normale Mail; verwende die Anrede der ursprünglichen Mail "
-        "(du oder Sie), mit Anrede und Grußformel. "
+        f"Schreibe neue Mails für create_draft standardmäßig auf {language}. "
+        "Antworten und Weiterleitungen schreibe in der Sprache der ursprünglichen Mail, "
+        "bei Deutsch mit deren Anrede (du oder Sie). Eine ausdrückliche Sprachbitte im aktuellen eigenen Beitrag "
+        "hat Vorrang. Schreibe wie eine normale Mail mit Anrede und Grußformel. "
         "Fehlt für eine neue Mail oder eine Weiterleitung die Adresse des Empfängers, frag danach, "
         "bevor du create_draft aufrufst, und erfinde nie eine Adresse.\n"
         "Nutze für neue Mails list_accounts und übergib das gewünschte Absenderkonto als account_id an create_draft. "

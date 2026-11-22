@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import respx
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import Response
 
@@ -239,3 +240,34 @@ def test_speech_rejects_a_response_larger_than_the_attested_limit(speech_client,
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "audio_unavailable"
+
+@pytest.mark.anyio
+async def test_rest_speech_rejects_tag_over_attested_limit(monkeypatch):
+    from api.audio import provider
+    from api.audio.capabilities import SpeechLimitsOut
+    request = AsyncMock()
+    monkeypatch.setattr(provider, '_audio_request', request)
+    limits = SpeechLimitsOut(max_input_characters=500, max_response_bytes=1000, timeout_seconds=20)
+    with pytest.raises(HTTPException) as error:
+        await provider.MistralAudio().synthesize('x' * 500, model=MODEL, limits=limits, locale='de', pace='slow')
+    assert error.value.detail["code"] == "audio_text_too_long"
+    request.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_live_speech_rejects_tag_over_provider_limit(monkeypatch, ui_locale_in_browser_mode):
+    from api.routers.api.v1.audio.live import speech
+    ui_locale_in_browser_mode.return_value.speech_pace = 'slow'
+    monkeypatch.setattr(speech, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=speech.SpeechReference(**REFERENCE)))
+    monkeypatch.setattr(speech, '_visible_reply', AsyncMock(return_value='x' * 8000))
+    with pytest.raises(HTTPException) as error:
+        await speech.synthesize(None)
+    assert error.value.detail["code"] == "audio_text_too_long"
+
+@pytest.mark.parametrize(('pace', 'tag'), [('slow', '[pace=slow]'), ('normal', ''), ('fast', '[pace=fast]')])
+def test_pace_tag_counts_towards_limit_at_exact_boundary(pace, tag):
+    from api.audio.pace import paced_text
+    assert len(paced_text('x' * (500 - len(tag)), pace, 500)) == 500
+    with pytest.raises(ValueError, match='audio_text_too_long'):
+        paced_text('x' * (501 - len(tag)), pace, 500)

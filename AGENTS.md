@@ -50,8 +50,9 @@ reloads the setting from the server.
 
 Chat and insight requests send the browser language. The saved override always takes precedence;
 in browser mode requests use their browser hint, and background jobs use the last confirmed
-browser hint or English if none exists. Chat replies, drafts, speech recognition and speech voice
-follow that effective language regardless of the current message language. Insights store their
+browser hint or English if none exists. Chat replies and new drafts default to that language; an explicit language request takes precedence.
+Replies and forwards default to the original mail language. Automatically detected input language alone
+does not override the app language. Speech recognition and voice follow the effective app language. Insights store their
 language and are regenerated when it differs, while seed accounts never call the model. Changes to the
 mail body continue to invalidate its insight. Direct preference requests support both languages
 (for example “Remember this”). Automatic suggestions retain the existing German phrase and
@@ -61,7 +62,7 @@ evidence checks.
 
 - `agent.py` — streamed chat turn, tool loop and stored history.
 - `agent_tools.py` — read-only agent tools and proposal creation. Task tools delegate to `api/tasks/chat.py`; typed task commands and their local execution live in `api/tasks/proposals.py`.
-- `agent_prompt.py` — System instructions for the agent, including the effective app language as the response and draft language.
+- `agent_prompt.py` — System instructions for the agent, including app-language defaults and explicit-request and original-mail exceptions.
 - `chat_events.py` — typed streaming events; `chat_schemas.py` — chat output models.
 - `actions.py` — index changes and one-time undo; `action_backends.py` — provider actions.
 - `proposals.py` — store, confirm, cancel and execute proposals after confirmation.
@@ -774,7 +775,7 @@ returns `preferences_unavailable` before the model call; only the deliberate act
 changing scope and deleting revoke affected contexts in the same transaction: disabling revokes
 all turns with at least one used revision, the other actions turns with a revision of the changed
 preference. Turns without a used preference remain valid, including open proposals. Precedence is
-in the fixed app rules (`agent_prompt.py`, `APP_PROMPT_VERSION` 18). Existing live checks before
+in the fixed app rules (`agent_prompt.py`, `APP_PROMPT_VERSION` 19). Existing live checks before
 model/tool calls and after ten deltas remain authoritative; already sent requests cannot be recalled.
 
 The shared transactional preference lock serializes quotas, changes, resolution and account

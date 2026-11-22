@@ -310,3 +310,26 @@ async def test_voice_metrics_are_content_free(monkeypatch, caplog):
     assert 'gap_ms=' in caplog.text and 'audio_seconds_per_character=' in caplog.text
     assert 'Synthetic private sentence' not in caplog.text and 'private-conversation' not in caplog.text
     assert 'private-message' not in caplog.text and 'private-context' not in caplog.text
+
+async def test_streamed_sentence_rejects_tag_over_provider_limit(monkeypatch):
+    appended = []
+    class Provider:
+        async def append(self, text): appended.append(text)
+    @asynccontextmanager
+    async def provider(kind, **kwargs): yield Provider()
+    monkeypatch.setattr(voice_turn, 'mistral_live', provider)
+    monkeypatch.setattr(voice_turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(voice_turn.chat_context, 'is_live', AsyncMock(return_value=True))
+    async def events():
+        yield DeltaEvent(text='x' * 8000)
+        yield DoneEvent(conversation_id='c', message_id='m', stopped=False)
+    socket = Socket()
+    task = asyncio.create_task(voice_turn.run_voice_turn(socket, events(), 'context', pace='slow'))
+    output = []
+    while True:
+        event = await asyncio.wait_for(socket.output.get(), 1); output.append(event)
+        if event['event'] == 'voice_audio_end': break
+    assert appended == []
+    assert any(event['event'] == 'voice_audio_error' for event in output)
+    await socket.input.put({'event': 'playback_finished'})
+    await asyncio.wait_for(task, 1)

@@ -10,6 +10,7 @@ import httpx
 
 from api.audio.capabilities import MODEL_PATTERN, SpeechLimitsOut
 from api.audio.errors import audio_error
+from api.audio.pace import paced_text
 from utils.mistral import MistralNotConfiguredError, mistral_app_token
 
 _TRANSCRIPTION_TIMEOUT = 20
@@ -71,7 +72,10 @@ class MistralAudio:
 
     async def synthesize(self, text: str, *, model: str, limits: SpeechLimitsOut, locale: str = "en", pace: str = "normal") -> bytes:
         voice = "voice_481" if locale == "de" else "voice_478"
-        text = {"slow": "[pace=slow]", "fast": "[pace=fast]", "normal": ""}[pace] + text
+        try:
+            text = paced_text(text, pace, limits.max_input_characters)
+        except ValueError:
+            raise audio_error("audio_text_too_long") from None
         encoded_limit = 4 * ((limits.max_response_bytes + 2) // 3)
         result = await _audio_request(
             "/v1/audio/speech", timeout=limits.timeout_seconds, max_response_bytes=encoded_limit + 8192,

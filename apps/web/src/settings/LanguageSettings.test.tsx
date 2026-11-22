@@ -71,6 +71,7 @@ test('speech speed saves the selected value with the confirmed revision', async 
   spyOn(sdk, 'settingsUiGet').mockResolvedValue({ data: browserDefaults } as never)
   const save = spyOn(sdk, 'settingsUiUpdate').mockResolvedValue({ data: { ...browserDefaults, speech_pace: 'fast', revision: 2 } } as never)
   open()
+  expect(await screen.findByText(/Experimentell: Wähle das Tempo/)).toBeTruthy()
   fireEvent.click(await screen.findByRole('button', { name: /Sprechtempo Normal/ }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Schnell' }))
   fireEvent.click(screen.getByRole('button', { name: 'Tempo speichern' }))

@@ -13,6 +13,7 @@ from websockets.exceptions import InvalidStatus
 
 from api.audio.live_access import live_remaining
 from api.audio.live_provider import LiveAudioError, mistral_live
+from api.audio.pace import paced_text
 from api.mail.chat_events import ChatEvent
 
 _LOG = logging.getLogger(__name__)
@@ -95,8 +96,7 @@ async def run_voice_turn(socket: WebSocket, events: AsyncIterator[ChatEvent], co
                     while sentence is not None:
                         async with asyncio.timeout(60):
                             await check()
-                            tag = {"slow": "[pace=slow]", "fast": "[pace=fast]", "normal": ""}[pace]
-                            await session.append(tag + sentence)
+                            await session.append(paced_text(sentence, pace, 8000))
                             await session.finish()
                             first_of_sentence = True
                             while True:
