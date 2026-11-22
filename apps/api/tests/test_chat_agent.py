@@ -1129,15 +1129,16 @@ async def test_voice_metrics_count_tool_rounds(store, monkeypatch):
     assert any(event.event == 'done' for event in events)
     assert metrics.tool_rounds == 1
 
-@pytest.mark.parametrize(('choice', 'available', 'used'), [
-    ('chat', True, 'mistral-medium-latest'),
-    ('mistral-small-latest', True, 'mistral-small-2603'),
-    ('mistral-small-latest', False, 'mistral-medium-latest'),
+@pytest.mark.parametrize(('choice', 'availability', 'used'), [
+    ('chat', 'available', 'mistral-medium-latest'),
+    ('mistral-small-latest', 'available', 'mistral-small-2603'),
+    ('mistral-small-latest', 'unlisted', 'mistral-medium-latest'),
+    ('mistral-small-latest', 'unverified', 'mistral-medium-latest'),
 ])
-async def test_voice_model_uses_available_selection_or_falls_back(store, monkeypatch, choice, available, used):
+async def test_voice_model_uses_available_selection_or_falls_back(store, monkeypatch, choice, availability, used):
     from api.mail import models_catalog
     small = models_catalog.ChatModelOut(id='mistral-small-latest', label='Small', description='', is_default=False,
-                                        resolved_id='mistral-small-2603', availability='available' if available else 'unlisted')
+                                        resolved_id='mistral-small-2603', availability=availability)
     monkeypatch.setattr(models_catalog, 'list_chat_models', AsyncMock(return_value=[small]))
     events, fake = await run(store, monkeypatch, [['Answer']], voice_response=True, voice_model=choice)
     assert fake.requests[0]['model'] == used

@@ -117,6 +117,7 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
     from env.audio import env
 
     spoken = []
+    agent_options = []
     class Provider:
         async def append(self, text): spoken.append(text)
         async def finish(self): self.first = True
@@ -128,12 +129,14 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
     @asynccontextmanager
     async def fake_live(kind, **kwargs): yield Provider()
     async def fake_events(**kwargs):
+        agent_options.append(kwargs)
         yield StartEvent(conversation_id='c', user_message_id='u', model='test')
         yield DeltaEvent(text='Hallo.')
         yield DoneEvent(conversation_id='c', message_id='new', stopped=False)
     monkeypatch.setattr(turn.chat_conversation, 'get_conversation', AsyncMock(return_value=object()))
     monkeypatch.setattr(turn, 'resolve_context', AsyncMock(return_value=(object(), SimpleNamespace(id='ctx'), None)))
     monkeypatch.setattr(turn, 'run_turn_events', fake_events)
+    monkeypatch.setattr(turn.ui_settings, 'get_or_create', AsyncMock(return_value=SimpleNamespace(locale='browser', browser_locale=None, speech_pace='normal', voice_model='mistral-small-latest')))
     monkeypatch.setattr(voice_bridge, 'mistral_live', fake_live)
     monkeypatch.setattr(voice_bridge.chat_context, 'is_live', AsyncMock(return_value=True))
     monkeypatch.setattr(env, 'audio_studio_owner', json.dumps({'user_id': '00000000-0000-0000-0000-000000000001', 'organization_id': '00000000-0000-0000-0000-000000000002', 'workspace_id': '00000000-0000-0000-0000-000000000003', 'origin': 'https://test.example'}))
@@ -160,6 +163,7 @@ def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch, 
             assert spoken == ['Hallo.']
             ws.send_json({'event': 'playback_finished'})
             assert ws.receive_json()['message_id'] == 'new'
+    assert agent_options[0]['voice_model'] == 'mistral-small-latest'
     assert capsys.readouterr().err.count('voice_metrics ') == 1
 
 
