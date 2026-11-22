@@ -50,6 +50,7 @@ test('generated speech client returns chunks without buffering and respects canc
 
 test('two synthetic turns play audio, interruption and ending release resources', async () => {
   let ws: FakeSocket, stopped = 0, played = 0, closed = 0
+  const decoded: Float32Array[] = []
   const requests: string[] = []
   class FakeSocket {
     static OPEN = 1
@@ -64,12 +65,12 @@ test('two synthetic turns play audio, interruption and ending release resources'
     async resume() {} async close() { closed++ }
     createMediaStreamSource() { return { connect() {} } }
     createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
-    createBuffer(_channels: number, length: number) { return { duration: 0, getChannelData: () => new Float32Array(length) } }
+    createBuffer(_channels: number, length: number, rate: number) { expect(rate).toBe(24000); const samples = new Float32Array(length); decoded.push(samples); return { duration: 0, getChannelData: () => samples } }
     createBufferSource() { return { connect() {}, start() { played++ }, stop() {}, onended: null, buffer: null } }
   }
   Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => { stopped++ } }] }) } })
-  const speech = spyOn(sdk, 'audioLiveSpeech').mockImplementation((async () => ({ data: new Response(new Uint8Array([0, 1, 0, 1])).body })) as never)
+  const speech = spyOn(sdk, 'audioLiveSpeech').mockImplementation((async () => ({ data: new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0, 0])); c.enqueue(new Uint8Array([0, 63])); c.close() } }) })) as never)
   render(<LiveVoice conversationId="c1" contextKey="c1" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async text => { requests.push(text); return { conversationId: 'c1', messageId: `m${requests.length}` } }} />)
   fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
   await waitFor(() => expect(screen.getByText('Zuhören')).toBeTruthy())
@@ -78,6 +79,7 @@ test('two synthetic turns play audio, interruption and ending release resources'
   await waitFor(() => expect(played).toBe(1))
   await turn('Welche Farbe hat die Testente?')
   await waitFor(() => expect(played).toBe(2))
+  expect(decoded.map(samples => [...samples])).toEqual([[0.5], [0.5]])
   expect(requests).toEqual(['Merk dir: Die Testente ist gelb.', 'Welche Farbe hat die Testente?'])
   expect(speech.mock.calls[0]?.[0]).toMatchObject({ body: { conversation_id: 'c1', message_id: 'm1' }, parseAs: 'stream', throwOnError: true })
   expect(speech.mock.calls[0]?.[0]?.signal).toBeInstanceOf(AbortSignal)

@@ -234,7 +234,7 @@ test('voice survives automatic one-turn skill consumption but stops on an explic
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => { stopped++ } }] }) } })
   const { client } = setup({ path: '/chat/c1' })
   spyOn(sdk, 'audioLiveStatus').mockResolvedValue({ data: { available: true } } as never)
-  spyOn(sdk, 'audioLiveSpeech').mockImplementation((async () => ({ data: new Response(new Uint8Array([0, 1])).body })) as never)
+  spyOn(sdk, 'audioLiveSpeech').mockImplementation((async () => ({ data: new Response(new Uint8Array([0, 0, 0, 63])).body })) as never)
   const field = await screen.findByPlaceholderText(de.chat.placeholder)
   fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
   await screen.findByRole('listbox')

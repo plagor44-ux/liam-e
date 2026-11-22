@@ -9,7 +9,7 @@ import { createLiveVoice } from './live-voice'
 type Reply = { conversationId: string; messageId: string }
 type Props = { conversationId: string; disabled: boolean; contextKey: string; send: (text: string) => Promise<Reply | undefined>; stopChat: () => void; registerStop: (stop: (() => void) | null) => void; onStart?: () => void }
 
-// PCM is signed little-endian mono at 24 kHz on both Mistral endpoints.
+// Transcription input is signed 16-bit little-endian mono at 24 kHz.
 function pcm(input: Float32Array, inputRate: number): ArrayBuffer {
   const count = Math.floor(input.length * 24000 / inputRate)
   const output = new ArrayBuffer(count * 2), view = new DataView(output)
@@ -26,7 +26,7 @@ async function playReply(context: AudioContext, reply: Reply, signal: AbortSigna
   if (!stream) throw new Error('audio_unavailable')
   if (signal.aborted) { await stream.cancel(); return }
   const reader = stream.getReader(), sources = new Set<AudioBufferSourceNode>()
-  let next = context.currentTime, remaining: number | undefined, gotAudio = false
+  let next = context.currentTime, remaining = new Uint8Array(0), gotAudio = false
   const abort = () => { void reader.cancel(); sources.forEach(source => { try { source.stop() } catch { /* already stopped */ } }) }
   signal.addEventListener('abort', abort, { once: true })
   try {
@@ -34,18 +34,19 @@ async function playReply(context: AudioContext, reply: Reply, signal: AbortSigna
       const { value, done } = await reader.read()
       if (done || signal.aborted) break
       let bytes = value
-      if (remaining !== undefined) { bytes = new Uint8Array(value.length + 1); bytes[0] = remaining; bytes.set(value, 1) }
-      remaining = bytes.length % 2 ? bytes[bytes.length - 1] : undefined
-      const length = Math.floor(bytes.length / 2)
+      if (remaining.length) { bytes = new Uint8Array(value.length + remaining.length); bytes.set(remaining); bytes.set(value, remaining.length) }
+      const length = Math.floor(bytes.length / 4)
+      remaining = bytes.slice(length * 4)
       if (!length) continue
       gotAudio = true
       const buffer = context.createBuffer(1, length, 24000), samples = buffer.getChannelData(0), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-      for (let i = 0; i < length; i++) samples[i] = view.getInt16(i * 2, true) / 32768
+      // Mistral PCM speech is float32 little-endian, unlike transcription input.
+      for (let i = 0; i < length; i++) { const sample = view.getFloat32(i * 4, true); if (!Number.isFinite(sample)) throw new Error('audio_unavailable'); samples[i] = Math.max(-1, Math.min(1, sample)) }
       const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination); sources.add(source)
       source.onended = () => sources.delete(source)
       next = Math.max(next, context.currentTime); source.start(next); next += buffer.duration
     }
-    if (!signal.aborted && (!gotAudio || remaining !== undefined)) throw new Error('audio_unavailable')
+    if (!signal.aborted && (!gotAudio || remaining.length)) throw new Error('audio_unavailable')
     if (!signal.aborted && next > context.currentTime) await new Promise<void>(resolve => {
       const timer = setTimeout(resolve, (next - context.currentTime) * 1000)
       signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })

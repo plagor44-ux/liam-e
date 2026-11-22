@@ -34,13 +34,13 @@ async def test_transcription_configures_pcm_and_forwards_bounded_audio():
 
 
 async def test_speech_streams_validated_audio_and_does_not_echo_provider_error():
-    socket = Socket([{"type": "session.created"}, {"type": "session.updated", "session": {"response_format": "pcm", "voice": "voice_481"}}, {"type": "speech.audio.delta", "audio_data": "AAE="}, {"type": "error", "error": {"message": "private content"}}])
+    socket = Socket([{"type": "session.created"}, {"type": "session.updated", "session": {"response_format": "pcm", "voice": "voice_481"}}, {"type": "speech.audio.delta", "audio_data": "AAA="}, {"type": "speech.audio.delta", "audio_data": "AD8="}, {"type": "error", "error": {"message": "private content"}}])
     session = LiveSpeech(socket)
     await session.start()
     await session.append("Hallo")
     await session.finish()
-    assert socket.sent[-2:] == [{"type": "input_text.append", "text": "Hallo"}, {"type": "input_text.flush"}]
-    assert await session.receive() == b"\x00\x01"
+    assert socket.sent == [{"type": "session.update", "session": {"voice": "voice_481", "response_format": "pcm", "streaming_mode": "responsive"}}, {"type": "input_text.append", "text": "Hallo"}, {"type": "input_text.flush"}]
+    assert await session.receive() + await session.receive() == b"\x00\x00\x00\x3f"
     with pytest.raises(LiveAudioError, match="audio_unavailable") as error:
         await session.receive()
     assert "private content" not in str(error.value)

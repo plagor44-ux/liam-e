@@ -108,7 +108,8 @@ class LiveSpeech:
             audio = base64.b64decode(encoded, validate=True)
         except ValueError:
             raise LiveAudioError() from None
-        if not audio or len(audio) % 2:
+        # PCM bytes may be split at any byte boundary between provider events.
+        if not audio:
             raise LiveAudioError()
         return audio
 
