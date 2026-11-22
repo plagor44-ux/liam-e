@@ -1,6 +1,6 @@
 /** Voice turn coordination, independent of media and network transport. */
 type Event = { type: 'turn.start' | 'turn.end' | 'turn.eager_end' | 'turn.resume' } | { type: 'transcription.text.delta'; text: string }
-type State = 'idle' | 'listening' | 'answering' | 'speaking' | 'starting' | 'error'
+type State = 'idle' | 'listening' | 'answering' | 'speaking' | 'resuming' | 'error'
 type Options = {
   conversationId?: string
   schedule: (fn: () => void) => () => void
@@ -26,10 +26,10 @@ export function createLiveVoice(options: Options) {
   }
   const resume = (generation: number) => {
     cancelTail?.()
+    options.onState('resuming')
     cancelTail = options.scheduleTail(() => {
       cancelTail = undefined
       if (!enabled || epoch !== generation) return
-      options.onState('starting')
       void options.resumeInput().then(() => {
         if (!enabled || epoch !== generation) return
         listening = true
