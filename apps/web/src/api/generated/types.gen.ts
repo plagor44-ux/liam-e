@@ -822,6 +822,12 @@ export type ChatStreamRequest = {
      */
     text: string;
     /**
+     * Voice Response
+     *
+     * Request a concise spoken response for this turn
+     */
+    voice_response?: boolean;
+    /**
      * Without Preferences
      */
     without_preferences?: boolean;

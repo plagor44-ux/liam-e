@@ -128,6 +128,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           case 'proposal': proposal = event.message; break
           case 'suggestions': suggestions = event.items; break
           case 'done':
+            // Voice playback waits for the saved reply, not for the text animation.
+            if (request.voice_response) writer.flushNow()
             await writer.finish()
             if (active.current !== turn) return
             active.current = null

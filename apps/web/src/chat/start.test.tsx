@@ -14,7 +14,7 @@ const originalFetch = globalThis.fetch, originalMatchMedia = window.matchMedia
 let request: Record<string, unknown>
 const oneModel: ChatModelOut[] = [{ id: 'm', label: 'Standardmodell', group: 'general', description: '', is_default: true }]
 function setup(accounts = true, path = '/', unread = 3, lastSync: string | null = null, displayName = 'Privat', models: ChatModelOut[] = oneModel, locale: 'de' | 'en' = 'de') {
-  window.matchMedia = (() => ({ matches: true, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  window.matchMedia = ((query: string) => ({ matches: query !== '(max-width: 639px)', addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   globalThis.fetch = ((_url: unknown, init: RequestInit) => { request = JSON.parse(String(init.body)) as Record<string, unknown>; return Promise.resolve(new Response(new ReadableStream({ start() {} }))) }) as typeof fetch
   spyOn(sdk, 'calendarSourcesList').mockResolvedValue({ data: [] } as never)
   spyOn(sdk, 'calendarSettingsGet').mockResolvedValue({ data: { version: 1, default_source_id: null } } as never)

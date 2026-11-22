@@ -501,6 +501,8 @@ export const en = {
     accountUnavailable: name => name + ' can’t be reached right now. Your other accounts are still available.',
   },
   controls: {
+    composerPlaceholder: 'Your question',
+    composerOptions: 'More options',
     cancel: 'Cancel', send: 'Send', sendTip: 'Send (Enter)', stop: 'Stop', allAccounts: 'All accounts',
     archive: 'Archive', markRead: 'Mark as read', markUnread: 'Mark as unread',
     trash: 'Move to trash', moreMail: subject => 'More actions for ' + subjectText(subject),

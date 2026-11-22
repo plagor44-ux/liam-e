@@ -616,11 +616,10 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   checkbox. The initial selection is empty and Save applies it across devices. The composer’s
   task chip determines which tasks the assistant may read
   (default „Keine Aufgaben“). Its menu shows single selection with explanatory lines; in a
-  conversation with history the other entries say „Braucht eine neue Unterhaltung.“ The bar wraps
-  when controls do not fit, and the send button stays at the end. On mobile, audio status text can
-  take a full-width row and wrap without pushing controls outside the composer. Selections belong
-  as chips in this bar, not a chip group above the composer: on small phones such a group pushes
-  the composer off screen.
+  conversation with history the other entries say „Braucht eine neue Unterhaltung.“ On desktop the
+  bar wraps when needed and send stays at the end. On phones the text field, audio controls and
+  send share a compact row; a labeled plus opens the favorite and task controls above it. Audio
+  status text may use a separate row. The phone safe area remains clear of controls.
 - **Mail context:** „Im Chat fragen“ opens the home page with the mail as context. Above the composer
   its mail card appears with the icon button „Bezug entfernen“ (`x`). The composer starts in the
   referenced account with focus in the question field when the account has chat access. An

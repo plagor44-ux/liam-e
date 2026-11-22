@@ -981,3 +981,16 @@ async def test_calendar_edit_does_not_set_a_target_for_the_next_create(store, mo
     assert [c.source_id for c in await turn('Set the title of the meeting in the Work calendar to Budget review.')] == ['work']
     assert 'calendar_clarification' not in json.loads(store.rows[-1].extras_json)
     assert [c.source_id for c in await turn('Schedule lunch for Friday at noon.')] == ['personal']
+
+
+async def test_voice_response_prompt_preserves_scope_rules_and_current_user_text(store, monkeypatch):
+    events, fake = await run(store, monkeypatch, [['Neue Antwort.']], voice_response=True)
+    messages = fake.requests[0]['messages']
+    assert 'ein bis drei kurzen' in messages[0]['content']
+    assert 'Bestätigung' in messages[0]['content']
+    assert any(message['role'] == 'user' and message['content'] == 'Hallo' for message in messages)
+    answer = next(row for row in store.rows if row.role == 'assistant')
+    assert answer.content == 'Neue Antwort.' and not answer.stopped
+    assert events[-1].message_id == answer.id
+    _, text_fake = await run(store, monkeypatch, [['Textantwort.']])
+    assert 'Sprachmodus: Formuliere' not in text_fake.requests[0]['messages'][0]['content']

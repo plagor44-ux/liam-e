@@ -146,3 +146,19 @@ test('a fresh start transfers unsent text immediately when the catalogue is unav
   expect(screen.getByTestId('start').dataset.draft).toBe('Noch offen')
   expect(sources).not.toHaveBeenCalled()
 })
+
+test('voice returns the current saved reply without waiting for text animation', async () => {
+  window.matchMedia = (() => ({ matches: false })) as unknown as typeof window.matchMedia
+  globalThis.fetch = ((_url: unknown, init: RequestInit) => { signal = init.signal!; return Promise.resolve(new Response(new ReadableStream({ start(c) { controller = c } }))) }) as typeof fetch
+  function Consumer() {
+    const { state, send } = useChatSession()
+    return <><button onClick={() => void send({ conversation_id: 'c', text: 'Zweite Frage', voice_response: true })}>voice</button><div data-testid="phase">{state.phase}</div><div data-testid="text">{state.text}</div><div data-testid="message">{state.messageId}</div></>
+  }
+  render(<QueryClientProvider client={clientWithGrants()}><ChatSessionProvider><Consumer /></ChatSessionProvider></QueryClientProvider>)
+  fireEvent.click(screen.getByText('voice'))
+  const reply = 'Antwort '.repeat(100)
+  await act(async () => { frame({ event: 'start', conversation_id: 'c' }); frame({ event: 'delta', text: reply }); frame({ event: 'done', conversation_id: 'c', message_id: 'newest', stopped: false }) })
+  await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('done'), { timeout: 300 })
+  expect(screen.getByTestId('text').textContent).toBe(reply)
+  expect(screen.getByTestId('message').textContent).toBe('newest')
+})

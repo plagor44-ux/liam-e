@@ -15,7 +15,7 @@ from api.locales import DEFAULT_LOCALE, Locale, resolve_locale
 from api.mail.context_resolver import resolve_context
 from env.mail import env as mail_env
 from api.mail.chat_client import mistral_client
-from api.mail.agent_prompt import system_prompt
+from api.mail.agent_prompt import VOICE_INSTRUCTIONS, system_prompt
 from api.mail.agent_tools import TurnContext, execute_tool, tool_status, tools_for_context
 from api.mail.chat_events import ChatEvent, StartEvent, StatusEvent, DeltaEvent, MailsEvent, MailRefOut, CalendarsEvent, ProposalEvent, SuggestionsEvent, DoneEvent, ErrorEvent
 from api.mail.chat_schemas import ChatExtrasOut, ContextOut, to_message_out
@@ -101,7 +101,7 @@ async def _turn_scope_note(ctx: TurnContext) -> str:
     return '\n'.join(lines)
 
 
-async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale = DEFAULT_LOCALE, resolved_context=None) -> AsyncIterator[ChatEvent]:
+async def run_turn_events(*, conversation_id: str | None, text: str, account_id: str | None = None, expected_mail_scope_version: int | None = None, context_message_id: str | None = None, model: str | None = None, prompt_revision_id: str | None = None, skill_id: str | None = None, skill_revision_id: str | None = None, calendar_source_ids: list[str] | None = None, context_occurrence_id: str | None = None, calendar_timezone: str = 'Europe/Berlin', task_source: str = 'none', task_source_account_id: str | None = None, without_preferences: bool = False, locale: Locale = DEFAULT_LOCALE, voice_response: bool = False, resolved_context=None) -> AsyncIterator[ChatEvent]:
     """All rounds share one persisted snapshot; revocation is checked at each boundary."""
     try:
         effective_locale = await resolve_locale(locale)
@@ -198,6 +198,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                    (row.context_id in contexts and not contexts[row.context_id].revoked)]
         ctx.calendar_choice = previous_choice(history, user.id, contexts)
         messages = _to_model_messages(history, prompt=system_prompt(today=ctx.today, account_scope=account.email_address if account else None, locale=effective_locale))
+        if voice_response:
+            messages[0]['content'] += VOICE_INSTRUCTIONS
         if preference_ids:
             messages.insert(1, {'role': 'user', 'content': 'Passende manuell bestätigte Stilpräferenzen (nachrangig zur aktuellen Bitte und Vorlage):\n' +
                 json.dumps([{'key': rev.key, 'scope': rev.scope, 'value': rev.value} for rev in revisions], ensure_ascii=False)})

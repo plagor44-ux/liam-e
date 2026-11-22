@@ -35,6 +35,7 @@ class ChatStreamRequest(BaseModel):
     skill_id: str | None = Field(default=None, max_length=100)
     skill_revision_id: str | None = Field(default=None, max_length=100)
     without_preferences: bool = False
+    voice_response: bool = Field(default=False, description="Request a concise spoken response for this turn")
     locale: Locale = Field(default=DEFAULT_LOCALE, description="Browser language when the saved setting follows the browser")
     context_message_id: str | None = None
     context_occurrence_id: str | None = None
@@ -88,6 +89,6 @@ async def chat_stream(body: ChatStreamRequest, request: Request) -> StreamingRes
         raise refuse(404, 'conversation_not_found', 'Diese Unterhaltung gibt es nicht mehr. Starte eine neue Unterhaltung.')
     if body.conversation_id is None and body.model is not None:
         require_available_model(body.model, await list_chat_models())
-    resolved = await resolve_context(**body.model_dump(exclude={'locale'}))
+    resolved = await resolve_context(**body.model_dump(exclude={'locale', 'voice_response'}))
     events = run_turn_events(**body.model_dump(), resolved_context=resolved)
     return event_stream_response(sse_frames(events, request.is_disconnected))

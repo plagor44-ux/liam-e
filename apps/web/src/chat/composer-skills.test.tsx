@@ -130,7 +130,7 @@ function setup({
     updated_at: '2026-11-21T08:00:00Z',
   }]
 
-  window.matchMedia = (() => ({ matches: true, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  window.matchMedia = ((query: string) => ({ matches: query !== '(max-width: 639px)', addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   globalThis.fetch = ((_url: unknown, init?: RequestInit) => {
     sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
     return Promise.resolve(new Response(new ReadableStream({ start(c) { streamController = c } })))

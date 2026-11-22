@@ -30,9 +30,20 @@
 .le-drawer .le-shell-sidebar { flex: 1 0 auto; }
 @keyframes le-drawer-in { from { opacity: 0; transform: translateX(-100%); } to { opacity: 1; transform: translateX(0); } }
 .le-composer-spacer { flex: 1; }
+.le-composer-options, .le-composer-options-items { display: flex; align-items: center; gap: var(--space-1); }
+.le-composer-options-toggle { display: none; }
 .le-audio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 @media (max-width: 639px) {
-  .le-composer-bar { gap: var(--space-1); }
+  .le-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+  .le-composer-selection { grid-column: 1 / -1; }
+  .le-composer textarea { min-width: 0; padding: var(--space-3); }
+  .le-composer-bar { flex-wrap: nowrap; gap: var(--space-1); padding: var(--space-1); }
+  .le-composer-spacer { display: none; }
+  .le-composer-options-toggle { display: grid; place-items: center; width: var(--control-height-lg); height: var(--control-height-lg); border: 0; border-radius: 50%; background: transparent; color: var(--ink); }
+  .le-composer-options-items { display: none; position: absolute; z-index: 20; bottom: 100%; left: 0; max-width: 100%; flex-wrap: wrap; padding: var(--space-2); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-overlay); }
+  .le-composer-options-items.is-open { display: flex; }
+  .le-composer:has(.le-audio-status:not(:empty)) { display: block; }
+  .le-composer:has(.le-audio-status:not(:empty)) .le-composer-bar { flex-wrap: wrap; }
   .le-composer-spacer { min-width: 0; }
   .le-composer-bar > .le-audio-controls, .le-composer-bar > :last-child { flex: none; }
   .le-composer-bar > .le-audio-controls:has(.le-audio-status:not(:empty)) { flex: 1 1 100%; min-width: 0; }

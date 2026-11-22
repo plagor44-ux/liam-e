@@ -1525,6 +1525,12 @@
             "title": "Text",
             "type": "string"
           },
+          "voice_response": {
+            "default": false,
+            "description": "Request a concise spoken response for this turn",
+            "title": "Voice Response",
+            "type": "boolean"
+          },
           "without_preferences": {
             "default": false,
             "title": "Without Preferences",

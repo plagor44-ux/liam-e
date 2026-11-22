@@ -5,7 +5,12 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "16"
+APP_PROMPT_VERSION = "17"
+
+VOICE_INSTRUCTIONS = (
+    "\nSprachmodus: Formuliere die Antwort möglichst in ein bis drei kurzen, gut sprechbaren Sätzen, "
+    "ohne Listen oder Markdown. Lasse erforderliche Einschränkungen und Hinweise zur ausdrücklichen Bestätigung nicht weg."
+)
 
 SKILL_INSTRUCTIONS = (
     "\nAktiver Skill: Ist ein Skill für diesen Turn aktiv, folge seinen dokumentierten Arbeitsschritten "

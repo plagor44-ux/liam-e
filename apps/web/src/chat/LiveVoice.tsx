@@ -22,12 +22,13 @@ function pcm(input: Float32Array, inputRate: number): ArrayBuffer {
   return output
 }
 
-async function playReply(context: AudioContext, reply: Reply, signal: AbortSignal) {
+export async function playReply(context: AudioContext, reply: Reply, signal: AbortSignal) {
   // The generated schema describes binary output as Blob, but parseAs: stream returns response.body.
   const stream = await unwrap(audioLiveSpeech({ body: { conversation_id: reply.conversationId, message_id: reply.messageId }, parseAs: 'stream', signal, throwOnError: true })) as unknown as ReadableStream<Uint8Array> | null
   if (!stream) throw new Error('audio_unavailable')
   if (signal.aborted) { await stream.cancel(); return }
   const reader = stream.getReader(), sources = new Set<AudioBufferSourceNode>()
+  const endings: Promise<void>[] = []
   let next = context.currentTime, remaining = new Uint8Array(0), gotAudio = false
   const abort = () => { void reader.cancel(); sources.forEach(source => { try { source.stop() } catch { /* already stopped */ } }) }
   signal.addEventListener('abort', abort, { once: true })
@@ -45,15 +46,20 @@ async function playReply(context: AudioContext, reply: Reply, signal: AbortSigna
       // Mistral PCM speech is float32 little-endian, unlike transcription input.
       for (let i = 0; i < length; i++) { const sample = view.getFloat32(i * 4, true); if (!Number.isFinite(sample)) throw new Error('audio_unavailable'); samples[i] = Math.max(-1, Math.min(1, sample)) }
       const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination); sources.add(source)
-      source.onended = () => sources.delete(source)
+      endings.push(new Promise<void>(resolve => { source.onended = () => { sources.delete(source); resolve() } }))
       next = Math.max(next, context.currentTime); source.start(next); next += buffer.duration
     }
     if (!signal.aborted && (!gotAudio || remaining.length)) throw new Error('audio_unavailable')
-    if (!signal.aborted && next > context.currentTime) await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, (next - context.currentTime) * 1000)
-      signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
-    })
-  } finally { signal.removeEventListener('abort', abort); reader.releaseLock() }
+    if (!signal.aborted) {
+      await new Promise<void>(resolve => {
+        const finish = () => { signal.removeEventListener('abort', finish); resolve() }
+        signal.addEventListener('abort', finish, { once: true })
+        if (signal.aborted) finish()
+        else void Promise.all(endings).then(finish)
+      })
+    }
+  } catch (error) { abort(); throw error }
+  finally { signal.removeEventListener('abort', abort); reader.releaseLock() }
 }
 
 export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat, registerStop, onStart }: Props) {
@@ -130,7 +136,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
   if (!available) return null
   const status = state === 'starting' ? texts.audio.liveStarting : state === 'resuming' ? texts.audio.liveResuming : state === 'listening' ? texts.audio.liveListening : state === 'answering' ? texts.audio.liveAnswering : state === 'speaking' ? texts.audio.liveSpeaking : state === 'error' ? texts.audio.liveError : ''
   const finish = () => { stop() }
-  return <div className="le-audio-controls" ref={control}>{!shown && <><span className="le-audio-status" role="status">{status}</span><IconButton size="lg" icon="mic" label={texts.audio.liveStart} disabled={disabled} onClick={() => void start()} /></>}
+  return <div className="le-audio-controls" ref={control}>{!shown && <><span className="le-audio-status" role="status">{status}</span><IconButton size="lg" icon="audio-lines" label={texts.audio.liveStart} disabled={disabled} onClick={() => void start()} /></>}
     {shown && createPortal(<div className="le-voice-overlay"><div ref={trap} tabIndex={-1} className="le-voice-panel" role="dialog" aria-modal="true" aria-label={texts.audio.liveTitle}>
       <h2 className="heading">{texts.audio.liveTitle}</h2><div className={`le-voice-indicator le-voice-indicator--${state}`} aria-hidden="true"><span /><span /><span /><span /><span /></div>
       <p className="le-voice-state" role="status" aria-live="polite">{status}</p><p className="le-voice-hint">{texts.audio.liveHint}</p>

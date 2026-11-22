@@ -491,6 +491,8 @@ export const de = {
     accountUnavailable: (name: string) => `${name} ist gerade nicht erreichbar. Die übrigen Konten arbeiten weiter.`,
   },
   controls: {
+    composerPlaceholder: 'Deine Frage',
+    composerOptions: 'Weitere Optionen',
     cancel: 'Abbrechen', send: 'Senden', sendTip: 'Senden (Enter)', stop: 'Anhalten', allAccounts: 'Alle Konten',
     archive: 'Archivieren', markRead: 'Als gelesen markieren', markUnread: 'Als ungelesen markieren',
     trash: 'In den Papierkorb', moreMail: (subject: string) => `Weitere Aktionen zu ${subjectText(subject)}`,
