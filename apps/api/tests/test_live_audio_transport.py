@@ -247,3 +247,26 @@ def test_voice_turn_creates_conversation_when_started_from_empty_chat(monkeypatc
         with client.websocket_connect('/api/v1/audio/live/turn') as ws:
             ws.send_json({'text': 'Mit unbekanntem Modell', 'voice_response': True, 'model': 'gone'})
             assert ws.receive_json() == {'event': 'refusal', 'code': 'model_unknown'}
+
+
+def test_voice_client_disconnect_is_not_logged_as_provider_failure(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from api.audio.access import get_audio_owner_verifier
+    from api.routers.api.v1.audio.live import turn
+
+    monkeypatch.setattr(turn, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(turn.chat_conversation, 'get_conversation', AsyncMock(return_value=object()))
+    monkeypatch.setattr(turn, 'resolve_context', AsyncMock(return_value=(object(), SimpleNamespace(id='ctx'), None)))
+    monkeypatch.setattr(turn, 'run_voice_turn', AsyncMock(side_effect=WebSocketDisconnect(code=1000)))
+    logger = Mock()
+    monkeypatch.setattr(turn, '_LOG', logger)
+    app = build_app()
+    async def allow(_): return True
+    app.dependency_overrides[get_audio_owner_verifier] = lambda: allow
+    with TestClient(app) as client:
+        with client.websocket_connect('/api/v1/audio/live/turn') as ws:
+            ws.send_json({'conversation_id': 'c', 'text': 'synthetic', 'voice_response': True})
+            with pytest.raises(WebSocketDisconnect): ws.receive_json()
+    logger.warning.assert_not_called()
+    assert any(call.args[0] == 'live voice turn ended code=client_disconnect' for call in logger.info.call_args_list)

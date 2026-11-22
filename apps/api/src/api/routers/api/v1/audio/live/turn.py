@@ -5,7 +5,7 @@ import time
 from contextlib import suppress
 
 from db.accessors import chat_conversation
-from fastapi import APIRouter, HTTPException, WebSocket
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from api.audio.live_access import live_remaining
@@ -59,6 +59,8 @@ async def voice_turn(socket: WebSocket) -> None:
             await run_voice_turn(socket, events, resolved[1].id, locale=locale, pace=pace, stt_elapsed_ms=body.voice_stt_elapsed_ms, started_at=received_at, metrics=metrics)
     except (ValidationError, ValueError):
         with suppress(Exception): await socket.close(code=1008)
+    except WebSocketDisconnect:
+        _LOG.info('live voice turn ended code=client_disconnect')
     except Exception as error:
         _LOG.warning('live voice turn failed class=%s', type(error).__name__)
         with suppress(Exception): await socket.close(code=1011)
