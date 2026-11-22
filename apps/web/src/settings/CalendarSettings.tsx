@@ -11,6 +11,10 @@ import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 import './settings.css'
 
 export function CalendarSettings() {
+  return <SettingsSaveScope><CalendarSettingsForm /></SettingsSaveScope>
+}
+
+function CalendarSettingsForm() {
   const { texts } = useI18n()
   const t = texts.calendarSettings
   const client = useQueryClient()
@@ -72,7 +76,7 @@ export function CalendarSettings() {
   useSettingsSlice('calendar-default', { dirty, canSave, busy: status === 'saving', save, discard })
 
   const retry = { label: texts.settingsUi.reload, onClick: () => { void reload() } }
-  return <SettingsSaveScope><section className="le-swipe" aria-labelledby="le-default-calendar">
+  return <section className="le-swipe" aria-labelledby="le-default-calendar">
     <h2 className="heading" id="le-default-calendar">{t.title}</h2>
     <p className="le-swipe-intro">{t.description}</p>
     {settings.isError || sources.isError ? <Notice tone="danger" action={retry}>{texts.settingsUi.error}</Notice>
@@ -101,5 +105,5 @@ export function CalendarSettings() {
         {status === 'error' && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
         {status === 'saved' && <Notice tone="success">{texts.settingsUi.saved}</Notice>}
       </div>}
-  </section></SettingsSaveScope>
+  </section>
 }

@@ -16,6 +16,10 @@ function sameAccounts(a: string[], b: string[]) {
 }
 
 export function ChatAccountSettings() {
+  return <SettingsSaveScope><ChatAccountSettingsForm /></SettingsSaveScope>
+}
+
+function ChatAccountSettingsForm() {
   const { texts } = useI18n()
   const client = useQueryClient()
   const settings = useQuery(chatSettingsQuery())
@@ -90,7 +94,7 @@ export function ChatAccountSettings() {
 
   useSettingsSlice('chat-accounts', { dirty, canSave, busy: status === 'saving', save, discard })
 
-  return <SettingsSaveScope><section className="le-swipe" aria-labelledby="le-chat-accounts-title">
+  return <section className="le-swipe" aria-labelledby="le-chat-accounts-title">
     <h2 id="le-chat-accounts-title" className="heading">{texts.chatAccounts.title}</h2>
     <p className="le-swipe-intro">{texts.chatAccounts.description}</p>
     {settings.isError || accounts.isError
@@ -110,5 +114,5 @@ export function ChatAccountSettings() {
         {status === 'error' && <Notice tone="danger">{texts.settingsUi.saveError}</Notice>}
         {status === 'conflict' && <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { void reload() } }}>{texts.chatAccounts.conflict}</Notice>}
       </div>}
-  </section></SettingsSaveScope>
+  </section>
 }
