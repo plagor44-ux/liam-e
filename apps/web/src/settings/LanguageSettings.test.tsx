@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
@@ -11,6 +11,10 @@ import { LanguageSettings } from './LanguageSettings'
 const browserDefaults: UiSettingsOut = {
   locale: 'browser', speech_pace: 'normal', swipe_left: 'archive', swipe_right: 'toggle_read', revision: 1, updated_at: '2026-01-01T00:00:00Z',
 }
+
+beforeEach(() => {
+  spyOn(sdk, 'chatModelsList').mockResolvedValue({ data: [] } as never)
+})
 
 function open(client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })) {
   const view = render(<QueryClientProvider client={client}>
