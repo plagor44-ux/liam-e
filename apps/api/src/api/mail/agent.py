@@ -197,6 +197,8 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                    (row.role not in ('tool', 'proposal', 'draft') and not row.tool_payload_json) or
                    (row.context_id in contexts and not contexts[row.context_id].revoked)]
         ctx.calendar_choice = previous_choice(history, user.id, contexts)
+        if voice_response:
+            history = [row for row in history if not (row.role == 'assistant' and row.stopped)]
         messages = _to_model_messages(history, prompt=system_prompt(today=ctx.today, account_scope=account.email_address if account else None, locale=effective_locale))
         if voice_response:
             messages[0]['content'] += VOICE_INSTRUCTIONS

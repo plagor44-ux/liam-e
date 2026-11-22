@@ -214,13 +214,13 @@ afterEach(() => {
 })
 
 test('voice survives automatic one-turn skill consumption but stops on an explicit skill change', async () => {
-  let socket!: { onmessage?: (event: { data: string }) => void }, stopped = 0, played = 0
+  let socket!: { onmessage?: (event: { data: string }) => void }, voiceSocket!: FakeSocket, stopped = 0, played = 0
   class FakeSocket {
     static OPEN = 1
     readyState = 1; bufferedAmount = 0; binaryType = ''
     onopen?: () => void; onclose?: () => void; onmessage?: (event: { data: string }) => void
-    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
-    send() {} close() { this.onclose?.() }
+    constructor(url: string) { if (String(url).endsWith('/transcription')) socket = this; else voiceSocket = this; queueMicrotask(() => this.onopen?.()) }
+    send(data: string | ArrayBuffer) { if (typeof data === 'string') { const value = JSON.parse(data); if (value.text) sentBodies.push(value) } } close() { this.readyState = 3; this.onclose?.() }
   }
   class FakeContext {
     sampleRate = 24000; currentTime = 0; destination = {}
@@ -228,13 +228,12 @@ test('voice survives automatic one-turn skill consumption but stops on an explic
     createMediaStreamSource() { return { connect() {} } }
     createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
     createBuffer(_channels: number, length: number) { return { duration: 0, getChannelData: () => new Float32Array(length) } }
-    createBufferSource() { return { connect() {}, start() { played++ }, stop() {}, onended: null, buffer: null } }
+    createBufferSource() { return { connect() {}, start() { played++; queueMicrotask(() => this.onended?.()) }, stop() {}, onended: null as (() => void) | null, buffer: null } }
   }
   Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => { stopped++ } }] }) } })
   const { client } = setup({ path: '/chat/c1' })
   spyOn(sdk, 'audioLiveStatus').mockResolvedValue({ data: { available: true } } as never)
-  spyOn(sdk, 'audioLiveSpeech').mockImplementation((async () => ({ data: new Response(new Uint8Array([0, 0, 0, 63])).body })) as never)
   const field = await screen.findByPlaceholderText(de.chat.placeholder)
   fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
   await screen.findByRole('listbox')
@@ -247,10 +246,10 @@ test('voice survives automatic one-turn skill consumption but stops on an explic
     await new Promise(resolve => setTimeout(resolve, 510))
   })
   expect(sentBodies[0]?.skill_id).toBe(dailySkill.id)
-  await act(async () => { emitFrame({ event: 'start', conversation_id: 'c1', user_message_id: 'u1', model: 'm1' }) })
+  await act(async () => { voiceSocket.onmessage?.({ data: JSON.stringify({ event: 'start', conversation_id: 'c1', user_message_id: 'u1', model: 'm1' }) }) })
   await waitFor(() => expect(screen.queryByText(de.skills.activeSkill(dailySkill.name))).toBeNull())
   expect(stopped).toBe(0)
-  await act(async () => { emitFrame({ event: 'done', conversation_id: 'c1', message_id: 'a1' }) })
+  await act(async () => { for (const event of [{ event: 'voice_audio', audio: 'AAAAPw==' }, { event: 'voice_audio_end' }, { event: 'done', conversation_id: 'c1', message_id: 'a1', stopped: false }]) voiceSocket.onmessage?.({ data: JSON.stringify(event) }) })
   await waitFor(() => expect(played).toBe(1))
   expect(screen.getByLabelText('Sprachmodus beenden')).toBeTruthy()
   fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })

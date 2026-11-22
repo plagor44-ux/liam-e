@@ -47,3 +47,41 @@ export async function* streamChatTurn(body: ChatStreamRequest, signal: AbortSign
     throw new ChatStreamError('aborted')
   }
 }
+
+export type VoiceTextDone = { event: 'voice_text_done'; conversation_id: string; message_id: string }
+export type VoiceAudio = { push: (data: string) => void; end: () => Promise<void>; fail: (terminal?: boolean) => void; isTerminal?: () => boolean }
+
+/** A voice socket carries only server-produced chat deltas and audio for the same turn. */
+export async function* streamVoiceChatTurn(body: ChatStreamRequest, signal: AbortSignal, audio: VoiceAudio): AsyncIterable<ChatEvent | VoiceTextDone> {
+  const url = new URL(`${apiBaseUrl()}/api/v1/audio/live/turn`, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const socket = new WebSocket(url)
+  const pending: (ChatEvent | VoiceTextDone)[] = []
+  let wake: (() => void) | undefined, closed = false, terminal = false
+  const notify = () => { wake?.(); wake = undefined }
+  const abort = () => { closed = true; socket.close(); notify() }
+  signal.addEventListener('abort', abort, { once: true })
+  socket.onopen = () => { if (!signal.aborted) socket.send(JSON.stringify(body)) }
+  socket.onmessage = message => {
+    try {
+      const event = JSON.parse(message.data)
+      if (event.event === 'voice_audio') audio.push(event.audio)
+      else if (event.event === 'voice_audio_error') audio.fail(event.terminal === true)
+      else if (event.event === 'voice_audio_end') {
+        void audio.end().catch(() => {}).then(() => { if (!signal.aborted && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ event: 'playback_finished' })) })
+      } else { pending.push(event as ChatEvent | VoiceTextDone); notify() }
+    } catch { audio.fail(); socket.close(); closed = true; notify() }
+  }
+  socket.onclose = () => { closed = true; notify() }
+  socket.onerror = () => { closed = true; notify() }
+  try {
+    if (signal.aborted) abort()
+    while (!closed || pending.length) {
+      if (!pending.length) { await new Promise<void>(resolve => { wake = resolve }); continue }
+      const event = pending.shift()!
+      yield event
+      if (event.event === 'done' || event.event === 'error') { terminal = true; return }
+    }
+    if (!terminal) throw new ChatStreamError('aborted')
+  } finally { signal.removeEventListener('abort', abort); socket.close() }
+}

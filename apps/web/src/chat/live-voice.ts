@@ -1,3 +1,5 @@
+import type { VoiceAudio } from './transport'
+
 /** Voice turn coordination, independent of media and network transport. */
 type Event = { type: 'turn.start' | 'turn.end' | 'turn.eager_end' | 'turn.resume' } | { type: 'transcription.text.delta'; text: string }
 type State = 'idle' | 'listening' | 'answering' | 'speaking' | 'resuming' | 'error'
@@ -7,7 +9,8 @@ type Options = {
   scheduleTail: (fn: () => void) => () => void
   suspendInput: () => void
   resumeInput: () => Promise<void>
-  send: (text: string, conversationId: string | undefined) => Promise<{ conversationId: string; messageId: string }>
+  send: (text: string, conversationId: string | undefined, audio?: VoiceAudio) => Promise<{ conversationId: string; messageId: string }>
+  startLiveAudio?: (signal: AbortSignal) => VoiceAudio
   speak: (reply: { conversationId: string; messageId: string }, signal: AbortSignal) => Promise<void>
   stopChat: () => void
   onState: (state: State) => void
@@ -46,13 +49,18 @@ export function createLiveVoice(options: Options) {
     const generation = ++epoch
     working = true
     options.onState('answering')
-    void options.send(text, conversationId).then(async result => {
+    if (options.startLiveAudio) playback = new AbortController()
+    const liveAudio = playback && options.startLiveAudio?.(playback.signal)
+    void options.send(text, conversationId, liveAudio).then(async result => {
       if (!enabled || epoch !== generation) return
       working = false
       conversationId = result.conversationId
-      playback = new AbortController()
-      options.onState('speaking')
-      await options.speak(result, playback.signal)
+      if (liveAudio?.isTerminal?.()) { playback = undefined; options.onState('error'); return }
+      if (!liveAudio) {
+        playback = new AbortController()
+        options.onState('speaking')
+        try { await options.speak(result, playback.signal) } catch { /* The saved reply remains available as text. */ }
+      }
       if (enabled && epoch === generation) { playback = undefined; resume(generation) }
     }).catch(() => {
       if (enabled && epoch === generation) { working = false; options.onState('error') }
@@ -68,6 +76,11 @@ export function createLiveVoice(options: Options) {
     interrupt() {
       if (!enabled || listening || (!working && !playback)) return
       interrupt(); resume(epoch)
+    },
+    reconnect() {
+      if (!enabled || !listening) return
+      listening = false; cancelTimer?.(); cancelTimer = undefined; transcript = ''; inTurn = false
+      resume(++epoch)
     },
     acceptsAudio() { return enabled && listening },
     event(event: Event) {

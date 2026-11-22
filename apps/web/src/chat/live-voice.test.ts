@@ -77,3 +77,39 @@ test.each(['Merk dir, dass', ''])('a new start during the grace period continues
   expect(turns).toEqual([prefix ? 'Merk dir, dass die Testente gelb ist' : 'die Testente gelb ist'])
   expect(pauses).toBe(1); voice.stop()
 })
+
+test('a transient speech failure resumes listening after the tail', async () => {
+  let flush!: () => void, tail!: () => void, resumes = 0
+  const states: string[] = []
+  const voice = createLiveVoice({ schedule: fn => { flush = fn; return () => {} }, scheduleTail: fn => { tail = fn; return () => {} }, suspendInput: () => {}, resumeInput: async () => { resumes++ }, send: async () => ({ conversationId: 'c', messageId: 'm' }), speak: async () => { throw new Error('temporary') }, stopChat: () => {}, onState: s => states.push(s) })
+  voice.start(); voice.event({ type: 'turn.start' }); voice.event({ type: 'transcription.text.delta', text: 'Hallo' }); voice.event({ type: 'turn.end' }); flush()
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  expect(states.at(-1)).toBe('resuming')
+  tail(); await Promise.resolve(); await Promise.resolve()
+  expect(resumes).toBe(1); expect(voice.acceptsAudio()).toBe(true)
+  voice.stop()
+})
+
+test('provider authorization failure ends the voice mode after the saved reply', async () => {
+  let flush!: () => void
+  const states: string[] = []
+  const audio = { push() {}, end: async () => {}, fail() {}, isTerminal: () => true }
+  const voice = createLiveVoice({ schedule: fn => { flush = fn; return () => {} }, scheduleTail: () => () => {}, suspendInput: () => {}, resumeInput: async () => {}, startLiveAudio: () => audio, send: async () => ({ conversationId: 'c', messageId: 'saved' }), speak: async () => {}, stopChat: () => {}, onState: s => states.push(s) })
+  voice.start(); voice.event({ type: 'turn.start' }); voice.event({ type: 'transcription.text.delta', text: 'Hallo' }); voice.event({ type: 'turn.end' }); flush()
+  await Promise.resolve(); await Promise.resolve()
+  expect(states.at(-1)).toBe('error')
+  voice.stop()
+})
+
+test('a recoverable streaming speech failure returns to listening after saving text', async () => {
+  let flush!: () => void, tail!: () => void
+  const states: string[] = []
+  const audio = { push() {}, end: async () => {}, fail() {}, isTerminal: () => false }
+  const voice = createLiveVoice({ schedule: fn => { flush = fn; return () => {} }, scheduleTail: fn => { tail = fn; return () => {} }, suspendInput: () => {}, resumeInput: async () => {}, startLiveAudio: () => audio, send: async () => ({ conversationId: 'c', messageId: 'saved' }), speak: async () => {}, stopChat: () => {}, onState: s => states.push(s) })
+  voice.start(); voice.event({ type: 'turn.start' }); voice.event({ type: 'transcription.text.delta', text: 'Hallo' }); voice.event({ type: 'turn.end' }); flush()
+  await Promise.resolve(); await Promise.resolve()
+  expect(states.at(-1)).toBe('resuming')
+  tail(); await Promise.resolve(); await Promise.resolve()
+  expect(voice.acceptsAudio()).toBe(true)
+  voice.stop()
+})

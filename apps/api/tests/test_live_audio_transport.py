@@ -101,3 +101,58 @@ async def test_reconnect_timeout_and_expired_window_fail_closed(monkeypatch):
     expired = Socket()
     await transcription.transcribe(expired)
     assert expired.closed == 1008 and not expired.accepted and not slot.locked()
+
+
+def test_voice_turn_requires_owner_origin_and_speaks_server_deltas(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from api.audio.access import get_audio_owner_verifier
+    from api.audio import voice_turn as voice_bridge
+    from api.mail.chat_events import StartEvent, DeltaEvent, DoneEvent
+    from api.routers.api.v1.audio.live import turn
+    from env.audio import env
+
+    spoken = []
+    class Provider:
+        async def append(self, text): spoken.append(text)
+        async def finish(self): self.first = True
+        async def receive(self):
+            if self.first:
+                self.first = False
+                return bytes(4)
+            return None
+    @asynccontextmanager
+    async def fake_live(kind): yield Provider()
+    async def fake_events(**kwargs):
+        yield StartEvent(conversation_id='c', user_message_id='u', model='test')
+        yield DeltaEvent(text='Hallo.')
+        yield DoneEvent(conversation_id='c', message_id='new', stopped=False)
+    monkeypatch.setattr(turn.chat_conversation, 'get_conversation', AsyncMock(return_value=object()))
+    monkeypatch.setattr(turn, 'resolve_context', AsyncMock(return_value=(object(), SimpleNamespace(id='ctx'), None)))
+    monkeypatch.setattr(turn, 'run_turn_events', fake_events)
+    monkeypatch.setattr(voice_bridge, 'mistral_live', fake_live)
+    monkeypatch.setattr(voice_bridge.chat_context, 'is_live', AsyncMock(return_value=True))
+    monkeypatch.setattr(env, 'audio_studio_owner', json.dumps({'user_id': '00000000-0000-0000-0000-000000000001', 'organization_id': '00000000-0000-0000-0000-000000000002', 'workspace_id': '00000000-0000-0000-0000-000000000003', 'origin': 'https://test.example'}))
+    monkeypatch.setattr(env, 'audio_live_test_enabled', True)
+    monkeypatch.setattr(env, 'audio_live_test_origin', 'https://test.example')
+    monkeypatch.setattr(env, 'audio_live_test_until', (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+    app = build_app()
+    async def allow(_): return True
+    async def deny(_): return False
+    app.dependency_overrides[get_audio_owner_verifier] = lambda: deny
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect('/api/v1/audio/live/turn', headers={'origin': 'https://test.example'}): pass
+        app.dependency_overrides[get_audio_owner_verifier] = lambda: allow
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect('/api/v1/audio/live/turn', headers={'origin': 'https://other.example'}): pass
+        with client.websocket_connect('/api/v1/audio/live/turn', headers={'origin': 'https://test.example'}) as ws:
+            ws.send_json({'conversation_id': 'c', 'text': 'Synthetische Frage', 'voice_response': True})
+            events = []
+            while True:
+                event = ws.receive_json(); events.append(event)
+                if event['event'] == 'voice_audio_end': break
+            assert [e['event'] for e in events] == ['start', 'delta', 'voice_text_done', 'voice_audio', 'voice_audio_end']
+            assert spoken == ['Hallo.']
+            ws.send_json({'event': 'playback_finished'})
+            assert ws.receive_json()['message_id'] == 'new'

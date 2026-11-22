@@ -265,10 +265,10 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
         <TaskScopeSelector conversationId={conversationId} contextMail={contextMail} disabled={busy || audioDraftLocked} />
       </>}
       audioControls={<>{conversationId && <LiveVoice conversationId={conversationId} contextKey={liveVoiceContext} disabled={busy || !ready || !tasks.ready || audioDraftLocked} registerStop={registerVoiceStop} onStart={onRecordingStart}
-        stopChat={stop} send={text => send({ text, voice_response: true, account_id: scope, conversation_id: conversationId,
+        stopChat={stop} send={(text, voiceAudio) => send({ text, voice_response: true, account_id: scope, conversation_id: conversationId,
           context_message_id: contextMessageId, context_occurrence_id: contextOccurrenceId,
           task_source: tasks.scope.source, task_source_account_id: tasks.scope.account_id,
-          ...(activeSkillEntry ? { skill_id: activeSkillEntry.skill.id, skill_revision_id: activeSkillEntry.skill.revision_id } : {}) }, { preserveDraft: true })} />}
+          ...(activeSkillEntry ? { skill_id: activeSkillEntry.skill.id, skill_revision_id: activeSkillEntry.skill.revision_id } : {}) }, { preserveDraft: true, voiceAudio })} />}
         {stt && format && <AudioRecorder key={voiceContext} format={format}
         limits={stt.app_limits} disabled={busy || !ready || !tasks.ready}
         onLock={lockDraft} onTranscript={appendTranscript} />}</>}

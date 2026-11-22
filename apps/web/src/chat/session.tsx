@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ChatMessageOut, ChatStreamRequest, ConversationOut, MailRefOut, StatusEvent, CalendarRefOut } from '../api/generated/types.gen'
-import { ChatStreamError, SKILL_REFUSALS, streamChatTurn, type ChatRefusal } from './transport'
+import { ChatStreamError, SKILL_REFUSALS, streamChatTurn, streamVoiceChatTurn, type ChatRefusal, type VoiceAudio } from './transport'
 import { useI18n } from '../i18n/I18n'
 import { createTypewriter } from './typewriter'
 import { chatSettingsQuery, conversationsQuery, historyQuery, skillsQuery, summaryQuery } from '../api/queries'
@@ -13,7 +13,7 @@ type State = { phase: 'idle' | 'working' | 'streaming' | 'done' | 'stopped' | 'e
 export type TaskScope = { source: 'none' | 'all' | 'unlinked' | 'account' | 'account_and_unlinked'; account_id?: string }
 export type SkillPersistence = 'turn' | 'until_stopped'
 export type SelectedSkillEntry = { skill: ActiveSkillSelection; persistence: SkillPersistence }
-type Session = { taskScopes: Record<string, TaskScope>; setTaskScope: (id: string, scope: TaskScope) => void; composerTexts: Record<string, string>; setComposerText: (id: string, text: string | ((previous: string) => string)) => void; selectedSkills: Record<string, SelectedSkillEntry | null>; setSelectedSkill: (id: string, skill: ActiveSkillSelection | null, persistence?: SkillPersistence) => void; setSkillPersistence: (id: string, persistence: SkillPersistence) => void; audioDraftLocked: boolean; setAudioDraftLocked: (locked: boolean) => void; state: State; send: (request: ChatStreamRequest, options?: { preserveDraft?: boolean }) => Promise<{ conversationId: string; messageId: string } | undefined>; stop: () => void; retry: () => Promise<void>; retryWithoutPreferences: () => Promise<void> }
+type Session = { taskScopes: Record<string, TaskScope>; setTaskScope: (id: string, scope: TaskScope) => void; composerTexts: Record<string, string>; setComposerText: (id: string, text: string | ((previous: string) => string)) => void; selectedSkills: Record<string, SelectedSkillEntry | null>; setSelectedSkill: (id: string, skill: ActiveSkillSelection | null, persistence?: SkillPersistence) => void; setSkillPersistence: (id: string, persistence: SkillPersistence) => void; audioDraftLocked: boolean; setAudioDraftLocked: (locked: boolean) => void; state: State; send: (request: ChatStreamRequest, options?: { preserveDraft?: boolean; voiceAudio?: VoiceAudio }) => Promise<{ conversationId: string; messageId: string } | undefined>; stop: () => void; retry: () => Promise<void>; retryWithoutPreferences: () => Promise<void> }
 const initial = (): State => ({ phase: 'idle', text: '', mails: [], proposal: null, suggestions: [] })
 const Context = createContext<Session | null>(null)
 
@@ -54,7 +54,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     })
   }, [])
   const [audioDraftLocked, setAudioDraftLocked] = useState(false)
-  const active = useRef<{ controller: AbortController; writer: ReturnType<typeof createTypewriter>; conversationId?: string } | null>(null)
+  const active = useRef<{ controller: AbortController; writer: ReturnType<typeof createTypewriter>; conversationId?: string; complete: boolean } | null>(null)
   const last = useRef<ChatStreamRequest | null>(null)
   const conversation = useRef<string | undefined>(undefined)
   const invalidate = useCallback((id?: string) => {
@@ -66,11 +66,11 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     if (!turn) return
     active.current = null
     turn.controller.abort(); turn.writer.flushNow(); turn.writer.cancel()
-    setState(s => ({ ...s, phase: 'stopped', status: undefined, mails: [], proposal: null, suggestions: [] }))
+    if (!turn.complete) setState(s => ({ ...s, phase: 'stopped', status: undefined, mails: [], proposal: null, suggestions: [] }))
     invalidate(turn.conversationId)
   }, [invalidate])
   useEffect(() => () => { const turn = active.current; active.current = null; turn?.controller.abort(); turn?.writer.cancel() }, [])
-  const send = useCallback(async (request: ChatStreamRequest, options?: { preserveDraft?: boolean }) => {
+  const send = useCallback(async (request: ChatStreamRequest, options?: { preserveDraft?: boolean; voiceAudio?: VoiceAudio }) => {
     if (active.current) return
     const composerKey = composerDraftKey(request.conversation_id, request.context_message_id)
     const liveTasks = request.conversation_id && conversation.current === request.conversation_id ? last.current : undefined
@@ -81,7 +81,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setState({ ...initial(), phase: 'working', request, conversationId: request.conversation_id ?? undefined })
     const controller = new AbortController()
     const writer = createTypewriter({ reducedMotion: typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches, onText: text => setState(s => ({ ...s, text, phase: 'streaming', status: undefined })) })
-    const turn = { controller, writer, conversationId: conversation.current }
+    const turn = { controller, writer, conversationId: conversation.current, complete: false }
     active.current = turn
     let calendars: CalendarRefOut[] = []
     let mails: MailRefOut[] = [], proposal: ChatMessageOut | null = null, suggestions: string[] = []
@@ -102,7 +102,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       if (active.current !== turn) return
       if (version == null) throw new ChatStreamError('settings_unavailable')
       request = { ...request, expected_mail_scope_version: version }
-      for await (const event of streamChatTurn(request, controller.signal)) {
+      for await (const event of options?.voiceAudio ? streamVoiceChatTurn(request, controller.signal, options.voiceAudio) : streamChatTurn(request, controller.signal)) {
         if (active.current !== turn) return
         switch (event.event) {
           case 'start':
@@ -127,6 +127,12 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           case 'calendars': calendars = event.calendars; break
           case 'proposal': proposal = event.message; break
           case 'suggestions': suggestions = event.items; break
+          case 'voice_text_done':
+            writer.flushNow()
+            turn.complete = true
+            setState(s => ({ ...s, phase: 'done', status: undefined, mails, calendars, proposal, suggestions, conversationId: event.conversation_id, messageId: event.message_id }))
+            invalidate(event.conversation_id)
+            break
           case 'done':
             // Voice playback waits for the saved reply, not for the text animation.
             if (request.voice_response) writer.flushNow()

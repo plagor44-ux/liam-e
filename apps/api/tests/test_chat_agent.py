@@ -994,3 +994,17 @@ async def test_voice_response_prompt_preserves_scope_rules_and_current_user_text
     assert events[-1].message_id == answer.id
     _, text_fake = await run(store, monkeypatch, [['Textantwort.']])
     assert 'Sprachmodus: Formuliere' not in text_fake.requests[0]['messages'][0]['content']
+
+
+async def test_voice_ignores_stopped_assistant_history_but_keeps_user_speech(store, monkeypatch):
+    conversation = await store.create()
+    snapshot = store.snapshot('test-context', account_scope_json=json.dumps({'account_ids': [store.account.id], 'selection': None}))
+    store.rows.extend([
+        ChatMessage(conversation_id=conversation.id, role='assistant', content='Abgebrochener Echorest', stopped=True, context_id=snapshot.id),
+        ChatMessage(conversation_id=conversation.id, role='user', content='Hallo', context_id=snapshot.id),
+    ])
+    events, fake = await run(store, monkeypatch, [['Hallo zurück.']], voice_response=True, resolved_context=(conversation, snapshot, None))
+    messages = fake.requests[0]['messages']
+    assert not any(message.get('content') == 'Abgebrochener Echorest' for message in messages)
+    assert any(message.get('content') == 'Hallo' and message['role'] == 'user' for message in messages)
+    assert events[-1].event == 'done'

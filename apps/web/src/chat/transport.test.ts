@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { ChatStreamRequest } from '../api/generated/types.gen'
-import { ChatStreamError, streamChatTurn } from './transport'
+import { ChatStreamError, streamChatTurn, streamVoiceChatTurn } from './transport'
 
 const BODY: ChatStreamRequest = { text: 'Hallo' }
 
-const originalFetch = globalThis.fetch
+const originalFetch = globalThis.fetch, originalSocket = globalThis.WebSocket
 
 /** A 404 whose body read fails with `error`, as a body still arriving when the caller aborts does. */
 const refusingResponse = (error: Error): Response => {
@@ -34,6 +34,7 @@ const rejectionOf = async (signal: AbortSignal): Promise<unknown> => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  globalThis.WebSocket = originalSocket
 })
 
 describe('streamChatTurn refusals', () => {
@@ -67,4 +68,35 @@ describe('streamChatTurn refusals', () => {
     respondWith(new Response(JSON.stringify({ detail: { code: 'something_else' } }), { status: 422 }))
     expect(((await rejectionOf(new AbortController().signal)) as ChatStreamError).code).toBe('internal')
   })
+})
+
+
+test('voice transport plays server audio before done and acknowledges only after playback', async () => {
+  let socket!: FakeSocket, finish!: () => void
+  const sent: unknown[] = [], chunks: string[] = []
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1
+    onopen?: () => void; onmessage?: (event: { data: string }) => void; onclose?: () => void; onerror?: () => void
+    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
+    send(data: string) { sent.push(JSON.parse(data)) }
+    close() { this.readyState = 3; this.onclose?.() }
+    emit(event: object) { this.onmessage?.({ data: JSON.stringify(event) }) }
+  }
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  const signal = new AbortController().signal
+  const result = Array.fromAsync(streamVoiceChatTurn({ text: 'Hallo', conversation_id: 'c', voice_response: true }, signal, {
+    push: chunk => chunks.push(chunk), end: () => new Promise(resolve => { finish = resolve }), fail: () => {},
+  }))
+  await Promise.resolve()
+  socket.emit({ event: 'start', conversation_id: 'c', user_message_id: 'u', model: 'm' })
+  socket.emit({ event: 'delta', text: 'Hallo.' })
+  socket.emit({ event: 'voice_audio', audio: 'AAAAAA==' })
+  socket.emit({ event: 'voice_audio_end' })
+  expect(chunks).toEqual(['AAAAAA=='])
+  expect(sent).toEqual([{ text: 'Hallo', conversation_id: 'c', voice_response: true }])
+  finish(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  expect(sent[1]).toEqual({ event: 'playback_finished' })
+  socket.emit({ event: 'done', conversation_id: 'c', message_id: 'new', stopped: false })
+  expect((await result).map(event => event.event)).toEqual(['start', 'delta', 'done'])
 })

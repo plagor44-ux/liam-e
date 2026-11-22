@@ -162,3 +162,33 @@ test('voice returns the current saved reply without waiting for text animation',
   expect(screen.getByTestId('text').textContent).toBe(reply)
   expect(screen.getByTestId('message').textContent).toBe('newest')
 })
+
+test('interrupting playback after text completion preserves the saved reply state', async () => {
+  const originalSocket = globalThis.WebSocket
+  let socket!: FakeSocket
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1
+    onopen?: () => void; onmessage?: (event: { data: string }) => void; onclose?: () => void; onerror?: () => void
+    constructor() { socket = this; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.() }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+  try {
+    window.matchMedia = (() => ({ matches: true })) as unknown as typeof window.matchMedia
+    function Consumer() {
+      const { state, send, stop } = useChatSession()
+      return <><button onClick={() => void send({ text: 'Hallo', conversation_id: 'c', voice_response: true }, { voiceAudio: { push() {}, end: async () => {}, fail() {} } })}>voice</button><button onClick={stop}>interrupt</button><div data-testid="voice-phase">{state.phase}</div><div data-testid="voice-reply">{state.text}</div><div data-testid="voice-id">{state.messageId}</div></>
+    }
+    render(<QueryClientProvider client={clientWithGrants()}><ChatSessionProvider><Consumer /></ChatSessionProvider></QueryClientProvider>)
+    fireEvent.click(screen.getByText('voice'))
+    await waitFor(() => expect(socket).toBeDefined())
+    await act(async () => { socket.emit({ event: 'start', conversation_id: 'c', user_message_id: 'u', model: 'm' }); socket.emit({ event: 'delta', text: 'Gespeicherte Antwort.' }); socket.emit({ event: 'voice_text_done', conversation_id: 'c', message_id: 'new' }) })
+    await waitFor(() => expect(screen.getByTestId('voice-phase').textContent).toBe('done'))
+    fireEvent.click(screen.getByText('interrupt'))
+    expect(screen.getByTestId('voice-phase').textContent).toBe('done')
+    expect(screen.getByTestId('voice-reply').textContent).toBe('Gespeicherte Antwort.')
+    expect(screen.getByTestId('voice-id').textContent).toBe('new')
+  } finally { globalThis.WebSocket = originalSocket }
+})

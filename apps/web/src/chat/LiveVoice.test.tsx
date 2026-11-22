@@ -112,8 +112,7 @@ test('two synthetic turns play audio, interruption and ending release resources'
   }
   Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => { stopped++ } }] }) } })
-  const speech = spyOn(sdk, 'audioLiveSpeech').mockImplementation((async () => ({ data: new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0, 0])); c.enqueue(new Uint8Array([0, 63])); c.close() } }) })) as never)
-  render(<LiveVoice conversationId="c1" contextKey="c1" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async text => { requests.push(text); return { conversationId: 'c1', messageId: `m${requests.length}` } }} />)
+  render(<LiveVoice conversationId="c1" contextKey="c1" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async (text, audio) => { requests.push(text); audio!.push('AAA='); audio!.push('AD8='); await audio!.end(); return { conversationId: 'c1', messageId: `m${requests.length}` } }} />)
   fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
   await waitFor(() => expect(screen.getByText('Zuhören')).toBeTruthy())
   expect(screen.getByRole('dialog', { name: 'Sprachmodus' })).toBeTruthy()
@@ -126,9 +125,6 @@ test('two synthetic turns play audio, interruption and ending release resources'
   await waitFor(() => expect(played).toBe(2))
   expect(decoded.map(samples => [...samples])).toEqual([[0.5], [0.5]])
   expect(requests).toEqual(['Merk dir: Die Testente ist gelb.', 'Welche Farbe hat die Testente?'])
-  expect(speech.mock.calls[0]?.[0]).toMatchObject({ body: { conversation_id: 'c1', message_id: 'm1' }, parseAs: 'stream', throwOnError: true })
-  expect(speech.mock.calls[0]?.[0]?.signal).toBeInstanceOf(AbortSignal)
-  expect(speech.mock.calls[1]?.[0]).toMatchObject({ body: { conversation_id: 'c1', message_id: 'm2' } })
   fireEvent.click(screen.getByLabelText('Sprachmodus beenden'))
   expect(stopped).toBe(1); expect(closed).toBeGreaterThanOrEqual(2)
 })
@@ -194,4 +190,86 @@ test('malformed final PCM stops audio that was already scheduled', async () => {
   spyOn(sdk, 'audioLiveSpeech').mockResolvedValue({ data: new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0, 0, 0, 63, 1])); c.close() } }) } as never)
   await expect(playReply(context as unknown as AudioContext, { conversationId: 'c', messageId: 'm' }, new AbortController().signal)).rejects.toThrow('audio_unavailable')
   expect(stopped).toBe(1)
+})
+
+test('a transient STT reconnect failure is retried without ending voice mode', async () => {
+  const sockets: FakeSocket[] = []
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''
+    onopen?: () => void; onerror?: () => void; onclose?: (event?: { code: number }) => void; onmessage?: (e: { data: string }) => void
+    constructor() { sockets.push(this); const n = sockets.length; queueMicrotask(() => { if (n === 2) { this.onerror?.(); this.onclose?.({ code: 1013 }) } else this.onopen?.() }) }
+    send() {} close() { this.readyState = 3; this.onclose?.({ code: 1000 }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+  render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async () => undefined} />)
+  fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
+  await screen.findByText('Zuhören')
+  await act(async () => { sockets[0]!.onclose?.({ code: 1011 }) })
+  await waitFor(() => expect(sockets.length).toBe(3), { timeout: 2500 })
+  await screen.findByText('Zuhören')
+  expect(screen.queryByText('Sprachmodus nicht verfügbar')).toBeNull()
+  fireEvent.click(screen.getByLabelText('Sprachmodus beenden'))
+})
+
+test('interrupting streamed speech stops both the current chat and queued audio', async () => {
+  let ws!: FakeSocket, stops = 0, audioStops = 0
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''
+    onopen?: () => void; onclose?: (event?: { code: number }) => void; onmessage?: (event: { data: string }) => void
+    constructor() { ws = this; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.({ code: 1000 }) }
+    emit(event: object) { this.onmessage?.({ data: JSON.stringify(event) }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; currentTime = 0; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
+    createBuffer() { return { duration: 5, getChannelData: () => new Float32Array(1) } }
+    createBufferSource() { return { connect() {}, start() {}, stop() { audioStops++ }, onended: null, buffer: null } }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+  render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => { stops++ }} send={(_text, audio) => { audio!.push('AAAAPw=='); return new Promise(() => {}) }} />)
+  fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
+  await screen.findByText('Zuhören')
+  await act(async () => { ws.emit({ type: 'turn.start' }); ws.emit({ type: 'transcription.text.delta', text: 'Hallo' }); ws.emit({ type: 'turn.end' }); await new Promise(resolve => setTimeout(resolve, 510)) })
+  await screen.findByText('Antwortet')
+  fireEvent.click(screen.getByRole('button', { name: 'Antwort unterbrechen' }))
+  expect(stops).toBe(1); expect(audioStops).toBe(1)
+  fireEvent.click(screen.getByLabelText('Sprachmodus beenden'))
+})
+
+test('an explicit STT policy close ends voice mode without retrying', async () => {
+  let socket!: FakeSocket, count = 0
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''
+    onopen?: () => void; onclose?: (event?: { code: number }) => void
+    constructor() { socket = this; count++; queueMicrotask(() => this.onopen?.()) }
+    send() {} close() { this.readyState = 3; this.onclose?.({ code: 1000 }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null } }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+  render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => {}} send={async () => undefined} />)
+  fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
+  await screen.findByText('Zuhören')
+  await act(async () => { socket.onclose?.({ code: 1008 }) })
+  expect(await screen.findByText('Sprachmodus nicht verfügbar')).toBeTruthy()
+  expect(count).toBe(1)
 })
