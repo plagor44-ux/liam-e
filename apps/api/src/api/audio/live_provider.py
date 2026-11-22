@@ -14,10 +14,10 @@ class LiveAudioError(Exception):
         super().__init__("audio_unavailable")
 
 
-async def _event(socket: Any) -> dict:
+async def _event(socket: Any, max_size: int = 128_000) -> dict:
     try:
         raw = await socket.recv()
-        if not isinstance(raw, str) or len(raw) > 128_000:
+        if not isinstance(raw, str) or len(raw) > max_size:
             raise LiveAudioError()
         event = json.loads(raw)
         if not isinstance(event, dict) or event.get("type") == "error":
@@ -73,6 +73,10 @@ class LiveTranscription:
         raise LiveAudioError()
 
 
+MAX_SPEECH_EVENT = 800_000
+MAX_SPEECH_BASE64 = 768_000  # six seconds of 24 kHz float32 PCM
+
+
 class LiveSpeech:
     def __init__(self, socket: Any):
         self.socket = socket
@@ -98,11 +102,11 @@ class LiveSpeech:
         await _send(self.socket, {"type": "input_text.flush"})
 
     async def receive(self) -> bytes | None:
-        event = await _event(self.socket)
+        event = await _event(self.socket, MAX_SPEECH_EVENT)
         if event.get("type") == "speech.audio.done":
             return None
         encoded = event.get("audio_data")
-        if event.get("type") != "speech.audio.delta" or not isinstance(encoded, str) or len(encoded) > 96_000:
+        if event.get("type") != "speech.audio.delta" or not isinstance(encoded, str) or len(encoded) > MAX_SPEECH_BASE64:
             raise LiveAudioError()
         try:
             audio = base64.b64decode(encoded, validate=True)
@@ -125,7 +129,7 @@ async def mistral_live(kind: str) -> AsyncIterator[LiveTranscription | LiveSpeec
     async with connect(
         f"wss://api.mistral.ai/v1/audio/{path}/realtime?model={model}",
         additional_headers={"Authorization": f"Bearer {mistral_app_token()}"},
-        proxy=None, max_size=128_000, open_timeout=10, close_timeout=3,
+        proxy=None, max_size=MAX_SPEECH_EVENT if kind == "speech" else 128_000, open_timeout=10, close_timeout=3,
     ) as socket:
         session = cls(socket)
         await session.start()

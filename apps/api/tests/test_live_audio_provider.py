@@ -44,3 +44,46 @@ async def test_speech_streams_validated_audio_and_does_not_echo_provider_error()
     with pytest.raises(LiveAudioError, match="audio_unavailable") as error:
         await session.receive()
     assert "private content" not in str(error.value)
+
+
+async def test_speech_accepts_one_second_float32_provider_chunks():
+    import base64
+    pcm = bytes(24_000 * 4)
+    encoded = base64.b64encode(pcm).decode('ascii')
+    socket = Socket([{'type': 'speech.audio.delta', 'audio_data': encoded}] * 2 + [{'type': 'speech.audio.done'}])
+    session = LiveSpeech(socket)
+    assert await session.receive() == pcm
+    assert await session.receive() == pcm
+    assert await session.receive() is None
+
+
+async def test_speech_rejects_a_chunk_over_the_bounded_float32_limit():
+    import base64
+    pcm = bytes(576_001)
+    session = LiveSpeech(Socket([{'type': 'speech.audio.delta', 'audio_data': base64.b64encode(pcm).decode('ascii')}]))
+    with pytest.raises(LiveAudioError):
+        await session.receive()
+
+
+async def test_speech_failure_logs_only_safe_classification(monkeypatch, caplog):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+    from api.routers.api.v1.audio.live import speech
+
+    class Provider:
+        async def append(self, text): pass
+        async def finish(self): pass
+        async def receive(self): raise ValueError('private provider contents')
+    @asynccontextmanager
+    async def fake_live(kind):
+        yield Provider()
+    monkeypatch.setattr(speech, 'live_remaining', lambda _: 60)
+    monkeypatch.setattr(speech, '_speech_reference', AsyncMock(return_value=object()))
+    monkeypatch.setattr(speech, '_visible_reply', AsyncMock(return_value='Synthetic response'))
+    monkeypatch.setattr(speech, 'mistral_live', fake_live)
+    response = await speech.synthesize(object())
+    with pytest.raises(RuntimeError, match='audio_unavailable'):
+        _ = [chunk async for chunk in response.body_iterator]
+    assert 'code=stream_failure class=ValueError' in caplog.text
+    assert 'private provider contents' not in caplog.text
+    assert 'Synthetic response' not in caplog.text

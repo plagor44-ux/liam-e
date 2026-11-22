@@ -1,5 +1,6 @@
 """Stream speech for a saved, authorized assistant response."""
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Request
@@ -8,9 +9,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.audio.errors import NO_STORE, audio_error
 from api.audio.live_access import live_remaining
-from api.audio.live_provider import mistral_live
+from api.audio.live_provider import LiveAudioError, mistral_live
 from api.routers.api.v1.audio.speech import SpeechReference, _speech_reference, _visible_reply
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 MAX_SPEECH_BYTES = 24_000_000  # float32 PCM: same duration budget as 12 MB of 16-bit PCM
 
@@ -50,8 +52,10 @@ async def synthesize(request: Request) -> StreamingResponse:
                     if total > MAX_SPEECH_BYTES:
                         raise RuntimeError('audio_unavailable')
                     yield chunk
-        except Exception:
-            # Abort the response without exposing provider error text.
+        except Exception as error:
+            # Fixed classification only; never log provider payloads, transcripts or exception text.
+            code = 'provider_protocol' if isinstance(error, LiveAudioError) else 'timeout' if isinstance(error, TimeoutError) else 'stream_failure'
+            logger.warning('live speech failed code=%s class=%s', code, type(error).__name__)
             raise RuntimeError('audio_unavailable') from None
 
     return StreamingResponse(frames(), media_type='application/octet-stream', headers=NO_STORE)
