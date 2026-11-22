@@ -315,7 +315,7 @@ export const de = {
   audio: {
     liveStart: 'Sprachmodus starten', liveStop: 'Sprachmodus beenden', liveStarting: 'Mikrofon wird gestartet',
     liveTitle: 'Sprachmodus', liveListening: 'Zuhören', liveAnswering: 'Denkt nach', liveSpeaking: 'Antwortet',
-    liveHint: 'Du kannst jederzeit sprechen und die Antwort unterbrechen.', liveError: 'Sprachmodus nicht verfügbar',
+    liveHint: 'Warte, bis liam-e zuhört, bevor du sprichst.', liveInterrupt: 'Antwort unterbrechen', liveError: 'Sprachmodus nicht verfügbar',
     speech: 'Antwort vorlesen', speechStop: 'Vorlesen beenden', speechPlay: 'Wiedergabe starten',
     speechLoading: 'Audio wird erzeugt …', speechPlaying: 'Die Antwort wird vorgelesen.',
     speechReady: 'Audio ist bereit. Starte die Wiedergabe.', speechFinished: 'Vorlesen beendet.',

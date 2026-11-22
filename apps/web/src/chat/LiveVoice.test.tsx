@@ -48,6 +48,45 @@ test('generated speech client returns chunks without buffering and respects canc
   expect(canceled).toBe(true)
 })
 
+test('suspends microphone transport and ignores late events until explicit interruption and reconnect', async () => {
+  const sockets: FakeSocket[] = [], sent: string[] = []
+  let stoppedChat = 0, frames = 0
+  let processor!: { onaudioprocess: ((event: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null; connect: () => void; disconnect: () => void }
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; binaryType = ''
+    onopen?: () => void; onerror?: () => void; onclose?: () => void; onmessage?: (e: { data: string }) => void
+    constructor() { sockets.push(this); queueMicrotask(() => this.onopen?.()) }
+    send() { frames++ } close() { this.readyState = 3; this.onclose?.() }
+    emit(value: object) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  class FakeContext {
+    sampleRate = 24000; destination = {}
+    async resume() {} async close() {}
+    createMediaStreamSource() { return { connect() {} } }
+    createScriptProcessor() { processor = { connect() {}, disconnect() {}, onaudioprocess: null }; return processor }
+  }
+  Object.assign(globalThis, { AudioContext: FakeContext, WebSocket: FakeSocket, isSecureContext: true })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+  render(<LiveVoice conversationId="c" contextKey="c" disabled={false} registerStop={() => {}} stopChat={() => { stoppedChat++ }} send={text => { sent.push(text); return new Promise(() => {}) }} />)
+  fireEvent.click(await screen.findByLabelText('Sprachmodus starten'))
+  await screen.findByText('Zuhören')
+  const process = () => processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } })
+  process(); expect(frames).toBe(1)
+  const first = sockets[0]!
+  await act(async () => { first.emit({ type: 'turn.start' }); first.emit({ type: 'transcription.text.delta', text: 'Hallo' }); first.emit({ type: 'turn.end' }); await new Promise(resolve => setTimeout(resolve, 510)) })
+  expect(sent).toEqual(['Hallo']); expect(first.readyState).toBe(3)
+  process(); first.emit({ type: 'turn.start' }); first.emit({ type: 'transcription.text.delta', text: 'Echo' }); first.emit({ type: 'turn.end' })
+  expect(frames).toBe(1); expect(stoppedChat).toBe(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Antwort unterbrechen' }))
+  expect(stoppedChat).toBe(1); process(); expect(frames).toBe(1)
+  await waitFor(() => expect(sockets.length).toBe(2), { timeout: 1500 })
+  await screen.findByText('Zuhören'); process(); expect(frames).toBe(2)
+  first.emit({ type: 'turn.start' }); first.emit({ type: 'transcription.text.delta', text: 'late' }); first.emit({ type: 'turn.end' })
+  expect(sent).toEqual(['Hallo'])
+  fireEvent.click(screen.getByLabelText('Sprachmodus beenden'))
+})
+
 test('two synthetic turns play audio, interruption and ending release resources', async () => {
   let ws: FakeSocket, stopped = 0, played = 0, closed = 0
   const decoded: Float32Array[] = []
@@ -79,6 +118,7 @@ test('two synthetic turns play audio, interruption and ending release resources'
   const turn = async (text: string) => { await act(async () => { ws.emit({ type: 'turn.start' }); ws.emit({ type: 'transcription.text.delta', text }); ws.emit({ type: 'turn.end' }); await new Promise(resolve => setTimeout(resolve, 510)) }) }
   await turn('Merk dir: Die Testente ist gelb.')
   await waitFor(() => expect(played).toBe(1))
+  await waitFor(() => expect(screen.getByText('Zuhören')).toBeTruthy())
   await turn('Welche Farbe hat die Testente?')
   await waitFor(() => expect(played).toBe(2))
   expect(decoded.map(samples => [...samples])).toEqual([[0.5], [0.5]])

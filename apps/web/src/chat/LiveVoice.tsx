@@ -60,7 +60,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
   const { texts } = useI18n()
   const [available, setAvailable] = useState(false)
   const [state, setState] = useState<'idle' | 'starting' | 'listening' | 'answering' | 'speaking' | 'error'>('idle')
-  const active = useRef<{ stop: () => void } | null>(null)
+  const active = useRef<{ stop: () => void; interrupt: () => void } | null>(null)
   const control = useRef<HTMLDivElement>(null)
   const restoreFocus = useRef(false)
   const current = useRef({ send, stopChat }); current.current = { send, stopChat }
@@ -84,8 +84,27 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     onStart?.()
     setState('starting')
     let stream: MediaStream | undefined, socket: WebSocket | undefined, context: AudioContext | undefined, processor: ScriptProcessorNode | undefined
-    const session = { stop: () => { voice.stop(); processor?.disconnect(); socket?.close(); stream?.getTracks().forEach(track => track.stop()); void context?.close() } }
+    let socketClosed: Promise<void> = Promise.resolve()
+    const session = { stop: () => { voice.stop(); processor?.disconnect(); socket?.close(); stream?.getTracks().forEach(track => track.stop()); void context?.close() }, interrupt: () => voice.interrupt() }
+    const openSocket = async () => {
+      await socketClosed
+      if (active.current !== session) return
+      const url = new URL(`${apiBaseUrl()}/api/v1/audio/live/transcription`, window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+      const candidate = new WebSocket(url); socket = candidate; candidate.binaryType = 'arraybuffer'
+      let closed!: () => void
+      let opened = false
+      socketClosed = new Promise(resolve => { closed = resolve })
+      await new Promise<void>((resolve, reject) => {
+        candidate.onopen = () => { opened = true; resolve() }
+        candidate.onerror = () => reject(new Error('audio_unavailable'))
+        candidate.onclose = () => { closed(); if (!opened) reject(new Error('audio_unavailable')); if (socket === candidate && active.current === session) { stop(); setState('error') } }
+      })
+      if (active.current !== session || socket !== candidate) { candidate.close(); return }
+      candidate.onmessage = message => { if (socket !== candidate) return; try { voice.event(JSON.parse(message.data)) } catch { stop(); setState('error') } }
+    }
     const voice = createLiveVoice({ conversationId, schedule: fn => { const timer = setTimeout(fn, 480); return () => clearTimeout(timer) },
+      scheduleTail: fn => { const timer = setTimeout(fn, 400); return () => clearTimeout(timer) },
+      suspendInput: () => { const previous = socket; socket = undefined; previous?.close() }, resumeInput: openSocket,
       send: async text => { const result = await current.current.send(text); if (!result) throw new Error('chat_failed'); return result },
       speak: (reply, signal) => playReply(context!, reply, signal), stopChat: () => current.current.stopChat(),
       onState: next => { if (next === 'error') { stop(); setState('error') } else setState(next) } })
@@ -95,15 +114,11 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
       if (active.current !== session) return
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
       if (active.current !== session || document.hidden) { stream.getTracks().forEach(track => track.stop()); return }
-      const url = new URL(`${apiBaseUrl()}/api/v1/audio/live/transcription`, window.location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(url); socket.binaryType = 'arraybuffer'
-      await new Promise<void>((resolve, reject) => { socket!.onopen = () => resolve(); socket!.onerror = () => reject(new Error('audio_unavailable')); socket!.onclose = () => reject(new Error('audio_unavailable')) })
+      await openSocket()
       if (active.current !== session) return
-      socket.onmessage = message => { try { voice.event(JSON.parse(message.data)) } catch { stop(); setState('error') } }
-      socket.onclose = () => { if (active.current === session) { stop(); setState('error') } }
       const source = context.createMediaStreamSource(stream); processor = context.createScriptProcessor(4096, 1, 1)
       processor.onaudioprocess = event => {
-        if (socket?.readyState !== WebSocket.OPEN) return
+        if (!voice.acceptsAudio() || socket?.readyState !== WebSocket.OPEN) return
         if (socket.bufferedAmount >= 96000) { stop(); setState('error'); return }
         socket.send(pcm(event.inputBuffer.getChannelData(0), context!.sampleRate))
       }
@@ -118,6 +133,7 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     {shown && createPortal(<div className="le-voice-overlay"><div ref={trap} tabIndex={-1} className="le-voice-panel" role="dialog" aria-modal="true" aria-label={texts.audio.liveTitle}>
       <h2 className="heading">{texts.audio.liveTitle}</h2><div className={`le-voice-indicator le-voice-indicator--${state}`} aria-hidden="true"><span /><span /><span /><span /><span /></div>
       <p className="le-voice-state" role="status" aria-live="polite">{status}</p><p className="le-voice-hint">{texts.audio.liveHint}</p>
+      {(state === 'answering' || state === 'speaking') && <button type="button" className="le-btn le-btn--secondary" onClick={() => active.current?.interrupt()}>{texts.audio.liveInterrupt}</button>}
       <button type="button" className="le-btn le-btn--primary" aria-label={texts.audio.liveStop} onClick={finish}>{texts.audio.liveStop}</button>
     </div></div>, document.body)}</div>
 }

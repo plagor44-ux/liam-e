@@ -325,7 +325,7 @@ export const en = {
   audio: {
     liveStart: 'Start voice mode', liveStop: 'End voice mode', liveStarting: 'Starting microphone',
     liveTitle: 'Voice mode', liveListening: 'Listening', liveAnswering: 'Thinking', liveSpeaking: 'Speaking',
-    liveHint: 'You can speak at any time to interrupt the reply.', liveError: 'Voice mode unavailable',
+    liveHint: 'Wait until liam-e is listening before speaking.', liveInterrupt: 'Interrupt reply', liveError: 'Voice mode unavailable',
     speech: 'Read reply aloud', speechStop: 'Stop reading', speechPlay: 'Start playback',
     speechLoading: 'Generating audio …', speechPlaying: 'Reading the reply aloud.',
     speechReady: 'Audio is ready. Start playback.', speechFinished: 'Playback finished.',
