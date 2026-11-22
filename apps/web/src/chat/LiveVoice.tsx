@@ -59,9 +59,10 @@ async function playReply(context: AudioContext, reply: Reply, signal: AbortSigna
 export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat, registerStop, onStart }: Props) {
   const { texts } = useI18n()
   const [available, setAvailable] = useState(false)
-  const [state, setState] = useState<'idle' | 'starting' | 'listening' | 'answering' | 'speaking' | 'error'>('idle')
+  const [state, setState] = useState<'idle' | 'starting' | 'listening' | 'answering' | 'speaking' | 'resuming' | 'error'>('idle')
   const active = useRef<{ stop: () => void; interrupt: () => void } | null>(null)
   const control = useRef<HTMLDivElement>(null)
+  const endButton = useRef<HTMLButtonElement>(null)
   const restoreFocus = useRef(false)
   const current = useRef({ send, stopChat }); current.current = { send, stopChat }
   const stop = useCallback(() => { const session = active.current; active.current = null; session?.stop(); setState('idle') }, [])
@@ -127,13 +128,13 @@ export function LiveVoice({ conversationId, disabled, contextKey, send, stopChat
     } catch { if (active.current === session) { stop(); setState('error') } }
   }
   if (!available) return null
-  const status = state === 'starting' ? texts.audio.liveStarting : state === 'listening' ? texts.audio.liveListening : state === 'answering' ? texts.audio.liveAnswering : state === 'speaking' ? texts.audio.liveSpeaking : state === 'error' ? texts.audio.liveError : ''
+  const status = state === 'starting' ? texts.audio.liveStarting : state === 'resuming' ? texts.audio.liveResuming : state === 'listening' ? texts.audio.liveListening : state === 'answering' ? texts.audio.liveAnswering : state === 'speaking' ? texts.audio.liveSpeaking : state === 'error' ? texts.audio.liveError : ''
   const finish = () => { stop() }
   return <div className="le-audio-controls" ref={control}>{!shown && <><span className="le-audio-status" role="status">{status}</span><IconButton size="lg" icon="mic" label={texts.audio.liveStart} disabled={disabled} onClick={() => void start()} /></>}
     {shown && createPortal(<div className="le-voice-overlay"><div ref={trap} tabIndex={-1} className="le-voice-panel" role="dialog" aria-modal="true" aria-label={texts.audio.liveTitle}>
       <h2 className="heading">{texts.audio.liveTitle}</h2><div className={`le-voice-indicator le-voice-indicator--${state}`} aria-hidden="true"><span /><span /><span /><span /><span /></div>
       <p className="le-voice-state" role="status" aria-live="polite">{status}</p><p className="le-voice-hint">{texts.audio.liveHint}</p>
-      {(state === 'answering' || state === 'speaking') && <button type="button" className="le-btn le-btn--secondary" onClick={() => active.current?.interrupt()}>{texts.audio.liveInterrupt}</button>}
-      <button type="button" className="le-btn le-btn--primary" aria-label={texts.audio.liveStop} onClick={finish}>{texts.audio.liveStop}</button>
+      {(state === 'answering' || state === 'speaking') && <button type="button" className="le-btn le-btn--secondary" onClick={() => { active.current?.interrupt(); endButton.current?.focus() }}>{texts.audio.liveInterrupt}</button>}
+      <button ref={endButton} type="button" className="le-btn le-btn--primary" aria-label={texts.audio.liveStop} onClick={finish}>{texts.audio.liveStop}</button>
     </div></div>, document.body)}</div>
 }
