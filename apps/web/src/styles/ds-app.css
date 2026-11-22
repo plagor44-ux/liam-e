@@ -32,7 +32,7 @@
 .le-composer-spacer { flex: 1; }
 .le-audio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 @media (max-width: 639px) {
-  .le-composer-bar { flex-wrap: nowrap; gap: var(--space-1); }
+  .le-composer-bar { gap: var(--space-1); }
   .le-composer-spacer { min-width: 0; }
   .le-composer-bar > .le-audio-controls, .le-composer-bar > :last-child { flex: none; }
   .le-composer-bar:has(.le-audio-status:not(:empty)) { flex-wrap: wrap; }
