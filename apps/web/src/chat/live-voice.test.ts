@@ -62,3 +62,18 @@ test('eager ends and duplicate ends do not submit partial or duplicate turns', (
   voice.start(); voice.event({ type: 'turn.start' }); voice.event({ type: 'transcription.text.delta', text: 'Noch nicht fertig' }); voice.event({ type: 'turn.eager_end' }); voice.event({ type: 'turn.resume' }); expect(scheduled).toBe(0)
   voice.event({ type: 'turn.end' }); voice.event({ type: 'turn.end' }); expect(scheduled).toBe(1); voice.stop()
 })
+
+test.each(['Merk dir, dass', ''])('a new start during the grace period continues the utterance (%s)', async prefix => {
+  let flush!: () => void, canceled = 0, pauses = 0
+  const turns: string[] = []
+  const voice = createLiveVoice({ schedule: fn => { flush = fn; return () => { canceled++ } }, scheduleTail: () => () => {}, suspendInput: () => { pauses++ }, resumeInput: async () => {},
+    send: async text => { turns.push(text); return { conversationId: 'c', messageId: 'm' } }, speak: async () => {}, stopChat: () => {}, onState: () => {} })
+  voice.start(); voice.event({ type: 'turn.start' })
+  if (prefix) voice.event({ type: 'transcription.text.delta', text: prefix })
+  voice.event({ type: 'turn.end' })
+  if (prefix) voice.event({ type: 'transcription.text.delta', text: ' ' })
+  voice.event({ type: 'turn.start' }); expect(canceled).toBe(1); expect(pauses).toBe(0)
+  voice.event({ type: 'transcription.text.delta', text: 'die Testente gelb ist' }); voice.event({ type: 'turn.end' }); flush()
+  expect(turns).toEqual([prefix ? 'Merk dir, dass die Testente gelb ist' : 'die Testente gelb ist'])
+  expect(pauses).toBe(1); voice.stop()
+})

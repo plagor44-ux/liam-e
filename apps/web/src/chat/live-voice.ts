@@ -73,7 +73,7 @@ export function createLiveVoice(options: Options) {
     event(event: Event) {
       if (!enabled || !listening) return
       if (event.type === 'turn.start') {
-        if (cancelTimer) { cancelTimer(); cancelTimer = undefined; submit(); return }
+        if (cancelTimer) { cancelTimer(); cancelTimer = undefined; inTurn = true; return }
         transcript = ''; inTurn = true; options.onState('listening')
       } else if (event.type === 'transcription.text.delta') {
         if (inTurn && transcript.length + event.text.length > 8000) throw new Error('audio_unavailable')

@@ -17,10 +17,12 @@ async def transcribe(websocket: WebSocket) -> None:
     if not remaining:
         await websocket.close(code=1008)
         return
-    if _slot.locked():
+    try:
+        # A prior browser socket can close before its upstream provider session has released the slot.
+        await asyncio.wait_for(_slot.acquire(), timeout=min(4, remaining))
+    except TimeoutError:
         await websocket.close(code=1013)
         return
-    await _slot.acquire()
     async def upload(session):
         while True:
             frame = await websocket.receive_bytes()
@@ -31,6 +33,10 @@ async def transcribe(websocket: WebSocket) -> None:
             await websocket.send_json(await session.receive())
 
     try:
+        remaining = live_remaining(websocket)
+        if not remaining:
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         async with asyncio.timeout(min(600, remaining)), mistral_live('transcription') as session:
             tasks = [asyncio.create_task(upload(session)), asyncio.create_task(download(session))]
