@@ -345,7 +345,7 @@ async def delete_duplicate(account_id: str, folder: str, provider_uid: str, *, k
         ).with_for_update())
         if keep is None or duplicate is None:
             return False
-        await _merge_copy(session, keep, duplicate, verified=True)
+        await _merge_copy(session, keep, duplicate, verified=True, redirect=False)
         return True
 
 
@@ -461,7 +461,7 @@ async def reconcile_label_folders(session: AsyncSession, account_id: str, inbox:
     return blocked, restored_ids
 
 
-async def _merge_copy(session, keep: MailMessage, duplicate: MailMessage, *, verified: bool) -> None:
+async def _merge_copy(session, keep: MailMessage, duplicate: MailMessage, *, verified: bool, redirect: bool = True) -> None:
     if verified and not keep.unverified_connector and not duplicate.unverified_connector:
         filing = await session.get(MailFiling, duplicate.id)
         if filing is not None:
@@ -472,9 +472,10 @@ async def _merge_copy(session, keep: MailMessage, duplicate: MailMessage, *, ver
         for label_id in labels:
             stmt = insert(MailLabelAssignment).values(message_id=keep.id, label_id=label_id)
             await session.execute(stmt.on_conflict_do_nothing())
-        keep.connector_alias_ids = sorted(set(keep.connector_alias_ids + duplicate.connector_alias_ids + [duplicate.id]))
-        await session.execute(update(MailAction).where(MailAction.account_id == keep.account_id,
-            MailAction.message_id == duplicate.id).values(message_id=keep.id))
+        if redirect:
+            keep.connector_alias_ids = sorted(set(keep.connector_alias_ids + duplicate.connector_alias_ids + [duplicate.id]))
+            await session.execute(update(MailAction).where(MailAction.account_id == keep.account_id,
+                MailAction.message_id == duplicate.id).values(message_id=keep.id))
     else:
         await mail_reference_snapshot.preserve(session, duplicate)
     await session.execute(delete(MailFiling).where(MailFiling.message_id == duplicate.id))

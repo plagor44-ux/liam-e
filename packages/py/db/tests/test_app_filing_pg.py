@@ -298,5 +298,6 @@ def test_verified_action_duplicate_keeps_app_filing(pg_db):
         await mail_filing.assign([duplicate.id], add_labels=[label.id])
         assert await mail_message.delete_duplicate('account-a', 'ARCHIVE', 'target', keep_id=keep.id, rfc_message_id='<same@example.test>')
         assert (await mail_filing.for_message(keep.id)).label_ids == [label.id]
+        assert await mail_message.get_message(duplicate.id) is None
 
     asyncio.run(run())
