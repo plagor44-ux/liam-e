@@ -1,6 +1,6 @@
 // i18n-exempt: API keys and CSS classes.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { mailFolderCreate, mailFolderDelete, mailFolderUpdate, mailRulesList, mailRuleCreate, mailRuleCreateFromMessage, mailRuleUpdate, mailRuleDelete, mailRulesPreview, mailRuleApply, mailRuleRunsList } from '../api/generated/sdk.gen'
 import type { MailFolder, MailRule, RuleIn } from '../api/generated/types.gen'
 import { errorCode, unwrap } from '../api/unwrap'
@@ -82,6 +82,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   const [sourceActive, setSourceActive] = useState(Boolean(sourceMessageId))
   const [sourceMissing, setSourceMissing] = useState(false)
   const [sourceEnabled, setSourceEnabled] = useState({ sender_address: true, sender_domain: false, subject_contains: false })
+  const targetHintId = useId()
   const sourceLoaded = useRef<string | undefined>(undefined)
   const formRef = useRef<HTMLFormElement>(null)
   useEffect(() => { if (sourceMessageId) formRef.current?.scrollIntoView?.({ block: 'start' }) }, [sourceMessageId])
@@ -179,10 +180,10 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
         return <Button key={key} type="button" variant={checked ? 'primary' : 'secondary'} role="switch" aria-checked={checked} onClick={() => update(key === 'mark_read' ? { mark_read: !checked, mark_unread: false } : key === 'mark_unread' ? { mark_unread: !checked, mark_read: false } : { [key]: !checked })}>{label} · {checked ? t.on : t.off}</Button>
       })}</div>
       <TextField type="number" label={t.priority} value={draft.position ?? 0} onChange={event => update({ position: Number(event.target.value) })} />
-      <div className="le-prompt-actions"><Button type="submit" variant="primary" disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_id) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
+      <div className="le-prompt-actions"><Button type="submit" variant="primary" aria-describedby={!draft.folder_id && !draft.label_id ? targetHintId : undefined} disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_id) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
       {(editing || sourceActive) && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
-      {!draft.folder_id && !draft.label_id && <p className="le-hint">{t.ruleTargetRequired}</p>}
+      {!draft.folder_id && !draft.label_id && <p id={targetHintId} className="le-hint">{t.ruleTargetRequired}</p>}
       {matched !== undefined && <p role="status">{t.matches(matched)}</p>}
     </form>
     {queued !== undefined && <p role="status">{t.queued(queued)}</p>}
