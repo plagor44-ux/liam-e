@@ -167,12 +167,21 @@ async def seed(now: datetime | None = None) -> SeedResult:
                 provider_uid=f"seed-{key}", thread_id=f"seed-{key}", sender=formataddr((sender, f"newsletter@{slug}.example")),
                 sender_address=f"newsletter@{slug}.example", subject=f"{sender}: Ausgabe {number}",
                 snippet=snippet, body_text=snippet,
-                body_html=('<h1>Synthetischer Newsletter</h1><table><tr><th>Rubrik</th><th>Inhalt</th></tr>'
-                           '<tr><td>Neuigkeiten</td><td>Nur Testdaten</td></tr></table>'
-                           '<p><a href="https://example.test/news">Beispiel öffnen</a></p>'
-                           '<img src="https://example.test/tracking-pixel" width="1" height="1" alt="">'
-                           + '<p>Ein längerer synthetischer Abschnitt für den Lesebereich.</p>' * 30) if index == 0 else None,
-                html_status='available' if index == 0 else 'absent', html_version=1, recipients_json=json.dumps([by_key[account].email_address]),
+                body_html=(
+                    ('<h1>Synthetischer Newsletter</h1><p>Eine einfache Nachricht ohne eigene Farben.</p>'
+                     '<p><a href="https://example.test/news">Beispiel öffnen</a></p>'
+                     + '<p>Ein längerer synthetischer Abschnitt für den Lesebereich.</p>' * 30)
+                    if index == 0 else
+                    '<div style="background-color:#ffffff;color:#111111;padding:20px"><h1>Synthetisches Angebot</h1>'
+                    '<p>Eine gestaltete Nachricht mit hellem Hintergrund.</p><table><tr><td>Nur Testdaten</td></tr></table>'
+                    '<img src="https://example.test/tracking-pixel" width="1" height="1" alt=""></div>'
+                    if index == 1 else
+                    '<meta name="color-scheme" content="light dark"><style>@media (prefers-color-scheme: dark) '
+                    '{ .panel { background-color:#173a34; color:#ffffff } }</style>'
+                    '<div class="panel" style="background-color:#ffffff;color:#111111;padding:20px">'
+                    '<h1>Synthetische dunkle Variante</h1><p>Vom Absender gestaltete Farben.</p></div>'
+                    if index == 2 else None),
+                html_status='available' if index < 3 else 'absent', html_version=1, recipients_json=json.dumps([by_key[account].email_address]),
                 list_unsubscribe=f"<mailto:abmelden@{slug}.example>", is_read=read,
                 internal_date=(local_now - timedelta(days=5 + 115 * index / 59)).astimezone(UTC)))
             index += 1

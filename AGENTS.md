@@ -977,7 +977,9 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   the existing provider readers, with retry backoff and identity/revision checks. Archived rows
   remain pending until restored to INBOX. Text search, insights, chat and speech use `body_text`.
   The web view sanitizes HTML and uses a scriptless opaque-origin sandbox; remote images are off
-  until explicitly enabled for that view, and CID images are placeholders.
+  until explicitly enabled for that view, and CID images are placeholders. Dark appearance adapts
+  inline colours and accepts only literal colour declarations in simple dark-media selectors;
+  the original light view is available per message without persisting the choice.
   `settings_ui_browser_locale_confirm` is browser-only; it stores the latest browser hint for jobs.
   `settings_ui_get` creates the default assignment in `ui_settings` once on the very first read; it never changes an existing assignment.
   The calendar write routes (`calendar_event_create`, `calendar_event_update`, `calendar_event_delete`, `calendar_write_check`), `chat_proposal_check`, `calendar_occurrence_live` and `calendar_write_get` are deliberately not in this list: they write to Google, resolve a write or read private live event data.

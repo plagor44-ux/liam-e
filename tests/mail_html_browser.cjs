@@ -11,7 +11,7 @@ async function main() {
   const scratch = mkdtempSync(join(tmpdir(), 'liam-mail-html-'))
   const entry = join(scratch, 'entry.ts')
   const bundle = join(scratch, 'bundle.js')
-  writeFileSync(entry, `import { buildMailDocument } from ${JSON.stringify(join(root, 'apps/web/src/mail/mail-html.ts'))}; window.buildMailDocument = buildMailDocument`)
+  writeFileSync(entry, `import { prepareMailDocument } from ${JSON.stringify(join(root, 'apps/web/src/mail/mail-html.ts'))}; window.prepareMailDocument = prepareMailDocument`)
   execFileSync('bun', ['build', entry, '--target', 'browser', '--outfile', bundle], { stdio: 'ignore' })
   let imageRequests = 0, cssRequests = 0
   const server = http.createServer((req, res) => {
@@ -28,15 +28,15 @@ async function main() {
     const origin = `http://127.0.0.1:${server.address().port}`
     await page.goto(origin)
     await page.addScriptTag({ path: bundle })
-    const html = `<p>Sample</p><img src="${origin}/pixel"><img src="cid:part"><a href="${origin}/link">Open</a><style>@import url(${origin}/css)</style><script>parent.compromised=true</script>`
-    for (const images of [false, true]) {
+    const html = `<p class="sample">Sample</p><img src="${origin}/pixel"><img src="cid:part"><a href="${origin}/link">Open</a><style>@import url(${origin}/css); @media (prefers-color-scheme: dark) { .sample { color:#fff; background:url(${origin}/css) } }</style><script>parent.compromised=true</script>`
+    for (const dark of [false, true]) for (const images of [false, true]) {
       imageRequests = 0; cssRequests = 0
-      await page.evaluate(({ html, images }) => {
+      await page.evaluate(({ html, images, dark }) => {
         const frame = document.createElement('iframe')
         frame.sandbox = 'allow-popups allow-popups-to-escape-sandbox'
-        frame.srcdoc = window.buildMailDocument(html, images, 'Unavailable')
+        frame.srcdoc = window.prepareMailDocument(html, images, 'Unavailable', dark).document
         document.querySelector('main').replaceChildren(frame)
-      }, { html, images })
+      }, { html, images, dark })
       await page.waitForTimeout(400)
       if (cssRequests !== 0) throw Error('CSS attempted a network request')
       if (imageRequests !== Number(images)) throw Error(`unexpected image requests for consent=${images}`)

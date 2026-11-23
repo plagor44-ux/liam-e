@@ -575,6 +575,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   in chat and sent only after confirmation (§9.2). Beside it is „Im Chat fragen“, opening chat with
   this mail as context.
 - Mail body appears as text (§9.3), attachments as chips with name and size.
+- HTML mail follows the chosen appearance. In dark mode, readers can temporarily show its light
+  original; image loading remains a separate per-view choice.
 
 ### 9.5 States
 
