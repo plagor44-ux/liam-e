@@ -128,8 +128,9 @@ test('add-label shortcut never removes a label already assigned', async () => {
   const { rerender } = render(<QueryClientProvider client={client}><FilingMenu ids={['a']} messages={[message]} /></QueryClientProvider>)
   await waitFor(() => expect((screen.getByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement).disabled).toBe(false))
   rerender(<QueryClientProvider client={client}><FilingMenu ids={['a']} messages={[message]} request={{ kind: 'label', serial: 1 }} /></QueryClientProvider>)
-  const item = await screen.findByRole('menuitemcheckbox', { name: 'Label: Work' })
+  const item = await screen.findByRole('menuitemcheckbox', { name: /Label: Work/ })
   expect(item.getAttribute('aria-disabled')).toBe('true')
+  expect(item.textContent).toContain('Bereits gesetzt')
   fireEvent.click(item)
   expect(assign).not.toHaveBeenCalled()
   folders.mockRestore(); assign.mockRestore()
@@ -148,5 +149,27 @@ test('filing menu header exposes registry shortcut hints without changing destin
   const header = document.querySelector('.le-filing-shortcuts')!
   expect(header.textContent).toContain(`Ordner zuordnen ${shortcutHint('folder', 'de')}`)
   expect(header.textContent).toContain(`Label zuordnen ${shortcutHint('label', 'de')}`)
+  folders.mockRestore()
+})
+
+
+test('label shortcut focuses and roves only through available labels', async () => {
+  const folders = spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [
+    { id: 'a', name: 'Alpha', kind: 'label' }, { id: 'b', name: 'Beta', kind: 'label' }, { id: 'z', name: 'Zeta', kind: 'label' },
+  ] } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const message = { id: 'mail', app_label_ids: ['a'] } as MessageListItemOut
+  const { rerender } = render(<QueryClientProvider client={client}><FilingMenu ids={['mail']} messages={[message]} /></QueryClientProvider>)
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement).disabled).toBe(false))
+  rerender(<QueryClientProvider client={client}><FilingMenu ids={['mail']} messages={[message]} request={{ kind: 'label', serial: 1 }} /></QueryClientProvider>)
+  const disabled = await screen.findByRole('menuitemcheckbox', { name: /Label: Alpha/ })
+  const beta = screen.getByRole('menuitemcheckbox', { name: 'Label: Beta' })
+  const zeta = screen.getByRole('menuitemcheckbox', { name: 'Label: Zeta' })
+  expect(disabled.textContent).toContain('Bereits gesetzt')
+  await waitFor(() => expect(document.activeElement).toBe(beta))
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' })
+  expect(document.activeElement).toBe(zeta)
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' })
+  expect(document.activeElement).toBe(beta)
   folders.mockRestore()
 })

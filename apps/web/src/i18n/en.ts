@@ -35,7 +35,7 @@ export const en = {
     missingDestination: 'The folder or label in this proposal no longer exists. You can cancel the proposal.', missingAccount: 'The account in this rule no longer exists. You can cancel the proposal.',
     filters: 'Folders and labels', inbox: 'Inbox', file: 'File', clearFolder: 'Remove from folder',
     addLabel: name => `Add label ${name}`, removeLabel: name => `Remove label ${name}`,
-    someLabel: name => `${name} (partly assigned)`, enabled: 'Active', disabled: 'Paused', on: 'On', off: 'Off', conditions: 'Conditions', targets: 'Actions',
+    alreadyApplied: 'Already applied', someLabel: name => `${name} (partly assigned)`, enabled: 'Active', disabled: 'Paused', on: 'On', off: 'Off', conditions: 'Conditions', targets: 'Actions',
     done: 'Filing saved.', selectMail: 'Select an email first.',
     quickActions: 'Quick filing', quickEmpty: 'No quick actions yet. File an email to see suggestions here.', quickError: 'The quick action could not be completed. Reload the choices.',
     createFolderForMail: 'Create a folder and file this email', createLabelForMail: 'Create a label and apply it', createRuleForMail: 'Create a rule from this email',

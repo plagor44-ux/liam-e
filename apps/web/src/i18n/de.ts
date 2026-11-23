@@ -28,7 +28,7 @@ export const de = {
     missingDestination: 'Der Ordner oder das Label dieses Vorschlags ist nicht mehr vorhanden. Du kannst den Vorschlag abbrechen.', missingAccount: 'Das Konto dieser Regel ist nicht mehr vorhanden. Du kannst den Vorschlag abbrechen.',
     filters: 'Ordner und Labels', inbox: 'Posteingang', file: 'Zuordnen', clearFolder: 'Aus Ordner entfernen',
     addLabel: (name: string) => `Label ${name} zuordnen`, removeLabel: (name: string) => `Label ${name} entfernen`,
-    someLabel: (name: string) => `${name} (teilweise zugeordnet)`, enabled: 'Aktiv', disabled: 'Pausiert', on: 'Ein', off: 'Aus', conditions: 'Bedingungen', targets: 'Aktionen',
+    alreadyApplied: 'Bereits gesetzt', someLabel: (name: string) => `${name} (teilweise zugeordnet)`, enabled: 'Aktiv', disabled: 'Pausiert', on: 'Ein', off: 'Aus', conditions: 'Bedingungen', targets: 'Aktionen',
     done: 'Zuordnung gespeichert.', selectMail: 'Wähle zuerst eine Mail.',
     quickActions: 'Schnell zuordnen', quickEmpty: 'Noch keine Schnellaktionen. Ordne eine Mail zu, um hier Vorschläge zu sehen.', quickError: 'Die Schnellaktion konnte nicht ausgeführt werden. Lade die Auswahl neu.',
     createFolderForMail: 'Neuen Ordner anlegen und zuordnen', createLabelForMail: 'Neues Label anlegen und zuordnen', createRuleForMail: 'Regel aus dieser Mail erstellen',
