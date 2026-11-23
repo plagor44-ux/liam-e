@@ -13,12 +13,19 @@ directly: ``GET /v1/connectors``, ``GET /v1/connectors/{name}/tools``,
 from __future__ import annotations
 
 import json
+import logging
+from asyncio import sleep, timeout
+from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 from utils.mistral import mistral_api_url, mistral_app_token
+
+
+logger = logging.getLogger(__name__)
+_TOOL_TIMEOUT_SECONDS = 120
 
 # auth_type of accounts that live on a Mistral Studio connector.
 CONNECTOR = "mistral_connector"
@@ -46,7 +53,7 @@ async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
         return response.json()
 
 
-async def _post(path: str, payload: dict[str, Any], timeout: float = 120) -> Any:
+async def _post(path: str, payload: dict[str, Any], timeout: float = _TOOL_TIMEOUT_SECONDS) -> Any:
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(
             f"{mistral_api_url()}{path}", headers=_headers(), json=payload
@@ -87,7 +94,7 @@ class ToolNotAllowedError(ValueError):
     """Raised before dispatch when a tool is outside the requested capability."""
 
 
-async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeout: float = 120) -> str:
+async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeout: float = _TOOL_TIMEOUT_SECONDS) -> str:
     """Call one connector tool; returns the joined text content of the MCP-style result."""
     ref = quote(connector, safe="")
     path = f"/v1/connectors/{ref}/tools/{quote(tool, safe='')}/call"
@@ -97,7 +104,7 @@ async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeo
     data = await _post(
         path,
         {"arguments": arguments},
-        **({"timeout": timeout} if timeout != 120 else {}),
+        **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {}),
     )
     if tool in {"label_message", "unlabel_message"} and (data.get("isError") or data.get("is_error")):
         raise ValueError("Connector refused the label change")
@@ -158,34 +165,56 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
             await _call_tool(account.provider, tool, {"messageId": message.provider_uid, "labelIds": change})
             # HTTP 200 can contain a text diagnostic. Confirm TRASH before removing INBOX.
             expected.update(change)
-            # A full read may replay old labels. If the point read disagrees, recheck
-            # it once without allowing a full read to supply confirmation.
-            for minimal_only in (False, True):
-                observed = await thread_labels(
-                    account.provider, message.thread_id, {message.provider_uid}, minimal_only=minimal_only,
-                )
-                labels = observed.get(message.provider_uid)
-                if labels is not None and present.issubset(labels) and absent.isdisjoint(labels):
-                    break
-            else:
-                raise ValueError("Connector label change not confirmed")
+            await _confirm_label_change(account.provider, message.thread_id, message.provider_uid, present, absent)
+
+
+async def _confirm_label_change(provider: str, thread_id: str, uid: str, present: set[str], absent: set[str]) -> None:
+    observations: list[tuple[str, tuple[bool, bool, bool]]] = []
+
+    def evidence(labels: list[str] | None) -> tuple[bool, bool, bool]:
+        if labels is None:
+            return False, False, False
+        return True, present.issubset(labels), absent.isdisjoint(labels)
+
+    def record(fmt: str, labels: dict[str, list[str]]) -> None:
+        observations.append((fmt, evidence(labels.get(uid))))
+
+    # A full read can replay old labels. After the initial observation, only
+    # the point read can confirm the change. All delays and reads share one deadline.
+    async with timeout(_TOOL_TIMEOUT_SECONDS):
+        for delay in (0.0, 0.5, 1.0):
+            if delay:
+                await sleep(delay)
+            observed = await thread_labels(provider, thread_id, {uid}, minimal_only=bool(delay), on_read=record)
+            if all(evidence(observed.get(uid))):
+                return
+
+    for attempt, (fmt, checks) in enumerate(observations, 1):
+        logger.warning(
+            "Connector label change not confirmed format=%s attempt=%d labels_present=%s required_met=%s forbidden_absent=%s",
+            fmt, attempt, *checks,
+        )
+    raise ValueError("Connector label change not confirmed")
 
 
 async def thread_labels(
     provider: str, thread_id: str, uids: set[str], *, minimal_only: bool = False,
+    on_read: Callable[[str, dict[str, list[str]]], None] | None = None,
 ) -> dict[str, list[str]]:
     """Point-read exact thread members, with a full read for missing labels."""
     found = {}
     formats = ("MINIMAL",) if minimal_only else ("MINIMAL", "FULL_CONTENT")
     for fmt in formats:
         thread = await call_read_tool_json(provider, "get_thread", {"threadId": thread_id, "messageFormat": fmt})
-        if not isinstance(thread, dict) or thread.get("id") != thread_id or not isinstance(thread.get("messages"), list):
-            return found
-        for item in thread["messages"]:
-            if isinstance(item, dict) and isinstance(uid := item.get("id"), str) and uid in uids:
-                labels = item.get("labelIds")
-                if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
-                    found[uid] = labels
-        if uids <= found.keys():
+        valid = isinstance(thread, dict) and thread.get("id") == thread_id and isinstance(thread.get("messages"), list)
+        if valid:
+            for item in thread["messages"]:
+                if isinstance(item, dict) and isinstance(uid := item.get("id"), str) and uid in uids:
+                    labels = item.get("labelIds")
+                    if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
+                        found[uid] = labels
+        if on_read is not None:
+            on_read(fmt, found)
+        if not valid or uids <= found.keys():
             break
     return found

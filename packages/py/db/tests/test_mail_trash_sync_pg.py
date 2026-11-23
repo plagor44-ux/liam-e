@@ -122,6 +122,12 @@ def test_move_and_undo_recovers_from_stale_or_missing_minimal_labels(pg_db, monk
         provider = StudioMailbox()
         ids = await provider.connect(monkeypatch, verified=verified)
         stale = None
+        delays = []
+
+        async def wait_for_replication(seconds):
+            delays.append(seconds)
+
+        monkeypatch.setattr(connectors, "sleep", wait_for_replication, raising=False)
 
         async def lagged_readback(path, payload):
             nonlocal stale
@@ -129,17 +135,19 @@ def test_move_and_undo_recovers_from_stale_or_missing_minimal_labels(pg_db, monk
             args = payload["arguments"]
             if tool in {"label_message", "unlabel_message"}:
                 uid = args["messageId"]
-                stale = (uid, sorted(provider.labels[uid]))
+                stale = (uid, sorted(provider.labels[uid]), len(delays))
             result = await provider.dispatch(path, payload)
             if tool == "get_thread" and args == {"threadId": "mixed", "messageFormat": "MINIMAL"} and stale:
-                uid, labels = stale
-                stale = None
+                uid, labels, prior_delays = stale
                 thread = json.loads(result["content"][0]["text"])
                 member = next(row for row in thread["messages"] if row["id"] == uid)
                 if omit_labels:
                     member.pop("labelIds")
-                else:
+                    stale = None
+                elif delays[prior_delays:] != [0.5, 1.0]:
                     member["labelIds"] = labels
+                else:
+                    stale = None
                 result["content"][0]["text"] = json.dumps(thread)
             return result
 
@@ -170,6 +178,7 @@ def test_move_and_undo_recovers_from_stale_or_missing_minimal_labels(pg_db, monk
                 ("label_message", "target", ("INBOX",)),
                 ("unlabel_message", "target", ("TRASH",)),
             ]
+            assert delays == ([] if omit_labels else [0.5, 1.0] * 4)
 
     asyncio.run(run())
 
@@ -236,7 +245,7 @@ def test_refused_trash_never_hides_mail_or_records_success(pg_db, monkeypatch, r
 @pytest.mark.parametrize("verified", [True, False], ids=["bound", "inbox-only"])
 @pytest.mark.parametrize("undo", [False, True], ids=["trash", "undo"])
 @pytest.mark.parametrize("omit_on_retry", [False, True], ids=["contradiction", "missing-labels-on-retry"])
-def test_stale_full_read_cannot_confirm_a_noop_studio_move(pg_db, monkeypatch, verified, undo, omit_on_retry):
+def test_stale_full_read_cannot_confirm_a_noop_studio_move(pg_db, monkeypatch, caplog, verified, undo, omit_on_retry):
     async def run():
         provider = StudioMailbox()
         ids = await provider.connect(monkeypatch, verified=verified)
@@ -251,6 +260,12 @@ def test_stale_full_read_cannot_confirm_a_noop_studio_move(pg_db, monkeypatch, v
 
             writes_before = len(provider.writes)
             readbacks = []
+            delays = []
+
+            async def wait_for_replication(seconds):
+                delays.append(seconds)
+
+            monkeypatch.setattr(connectors, "sleep", wait_for_replication, raising=False)
             provider.reject = {"content": [{"text": "{}"}]}
             provider.replay = True
             provider.replayed_target_labels = ["INBOX"] if undo else ["TRASH"]
@@ -280,7 +295,17 @@ def test_stale_full_read_cannot_confirm_a_noop_studio_move(pg_db, monkeypatch, v
                 assert response.json()["detail"]["code"] == "provider_failed"
                 assert await mail_action.latest_open(target) is None
 
-            assert readbacks == ["MINIMAL", "MINIMAL"]
+            diagnostics = [record.getMessage() for record in caplog.records if record.name == connectors.__name__]
+            assert diagnostics == [
+                "Connector label change not confirmed format=MINIMAL attempt=1 "
+                "labels_present=True required_met=False forbidden_absent=True",
+                f"Connector label change not confirmed format=MINIMAL attempt=2 "
+                f"labels_present={not omit_on_retry} required_met=False forbidden_absent={not omit_on_retry}",
+                "Connector label change not confirmed format=MINIMAL attempt=3 "
+                "labels_present=True required_met=False forbidden_absent=True",
+            ]
+            assert readbacks == ["MINIMAL"] * 3
+            assert delays == [0.5, 1.0]
             assert provider.writes[writes_before:] == [
                 ("label_message", "target", ("INBOX" if undo else "TRASH",)),
             ]
