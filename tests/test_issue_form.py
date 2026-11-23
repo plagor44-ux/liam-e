@@ -95,6 +95,8 @@ def test_a_filled_body_passes_and_the_skeleton_does_not(stem: str, tmp_path: Pat
         (lambda body: body.replace("### Proposal", "### Suggestion"), "sections must be exactly"),
         (lambda body: body + "\n### Notes\n\nExtra.\n", "sections must be exactly"),
         (lambda body: body.replace("### Acceptance criteria\n\nSynthetic text.", "### Acceptance criteria\n\n_No response_"), "Acceptance criteria: required"),
+        (lambda body: body.replace("### Acceptance criteria\n\nSynthetic text.", "### Acceptance criteria\n\n"), "Acceptance criteria: required"),
+        (lambda body: body.replace("### Out of scope\n\nSynthetic text.", "### Out of scope\n\n"), "Out of scope: write _No response_"),
         (lambda body: body.replace("- [ ] Tables (generated migration)\n", ""), "Affected contracts: list every option"),
     ],
 )
@@ -138,6 +140,53 @@ def test_create_passes_title_body_and_the_form_labels_to_gh(gh: dict[str, str], 
     assert result.returncode == 0, result.stderr
     args = Path(gh["FAKE_GH_LOG"]).read_text().splitlines()
     assert args == ["issue", "create", "--title", "Inbox: example", "--body-file", str(body), "--label", "bug"]
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [("Compare speech providers", "Eval: Compare speech providers"), ("Eval: Compare speech providers", "Eval: Compare speech providers")],
+)
+def test_create_starts_the_title_with_the_form_title(title: str, expected: str, gh: dict[str, str], tmp_path: Path) -> None:
+    body = tmp_path / "body.md"
+    body.write_text(filled("03-evaluation"))
+
+    result = run("create", "03-evaluation", "--title", title, "--body-file", str(body), env=gh)
+
+    assert result.returncode == 0, result.stderr
+    args = Path(gh["FAKE_GH_LOG"]).read_text().splitlines()
+    assert args[args.index("--title") + 1] == expected
+
+
+@pytest.mark.parametrize("title", ["Eval: ", "Eval:", "  "])
+def test_create_rejects_a_title_that_is_only_the_form_title(title: str, gh: dict[str, str], tmp_path: Path) -> None:
+    body = tmp_path / "body.md"
+    body.write_text(filled("03-evaluation"))
+
+    result = run("create", "03-evaluation", "--title", title, "--body-file", str(body), env=gh)
+
+    assert result.returncode == 1
+    assert "the title is empty" in result.stderr
+    assert not Path(gh["FAKE_GH_LOG"]).exists()
+
+
+def test_forms_shows_the_title_default() -> None:
+    result = run("forms")
+
+    assert result.returncode == 0
+    assert 'title starts with "Eval: "' in next(line for line in result.stdout.splitlines() if line.startswith("03-evaluation:"))
+
+
+@pytest.mark.parametrize("command", ["check", "create"])
+def test_a_missing_body_file_gets_a_message(command: str, gh: dict[str, str], tmp_path: Path) -> None:
+    missing = tmp_path / "missing.md"
+    args = ["check", "02-change", str(missing)] if command == "check" else ["create", "02-change", "--title", "Example", "--body-file", str(missing)]
+
+    result = run(*args, env=gh)
+
+    assert result.returncode == 1
+    assert result.stderr.startswith(f"issue_form: cannot read {missing}")
+    assert "Traceback" not in result.stderr
+    assert not Path(gh["FAKE_GH_LOG"]).exists()
 
 
 def test_create_does_not_call_gh_when_the_body_fails(gh: dict[str, str], tmp_path: Path) -> None:

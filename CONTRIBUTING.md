@@ -25,13 +25,15 @@ in a form, so an issue created from the command line, by a person or a coding ag
 [`tools/issue_form.py`](tools/issue_form.py):
 
 ```bash
-bash tools/uv.sh run --no-sync python tools/issue_form.py skeleton 02-change > body.md
-# Answer every section in body.md and delete the hint comments, then:
-bash tools/uv.sh run --no-sync python tools/issue_form.py create 02-change --title "..." --body-file body.md
+body="$(mktemp)"   # outside the checkout, so the draft is never committed
+bash tools/uv.sh run --no-sync python tools/issue_form.py skeleton 02-change > "$body"
+# Answer every section in "$body" and delete the hint comments, then:
+bash tools/uv.sh run --no-sync python tools/issue_form.py create 02-change --title "..." --body-file "$body"
 ```
 
 `create` checks that the body has exactly the form's `###` sections in order, with every required
-field answered, and adds the form's label. `verify <number>` checks an existing issue, for example
+field answered, and adds the form's label. Like the browser, it starts the title with the form's
+title prefix, `Eval: ` for evaluations. `verify <number>` checks an existing issue, for example
 after an edit.
 
 ## Set up and check your change

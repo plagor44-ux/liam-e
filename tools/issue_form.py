@@ -5,12 +5,14 @@ GitHub enforces the forms only in the browser (`blank_issues_enabled: false`). T
 its `--template` flag only works interactively, and its template list comes from the GraphQL
 field `issueTemplates`, which lists Markdown templates but no YAML forms. This script builds and
 checks a body in the shape the browser produces for a form and creates the issue with the form's
-labels.
+labels and, like the browser, a title that starts with the form's `title` (`Eval: ` for
+evaluations).
 
+  body="$(mktemp)"   # outside the checkout, so the draft is never committed
   bash tools/uv.sh run --no-sync python tools/issue_form.py forms
-  bash tools/uv.sh run --no-sync python tools/issue_form.py skeleton 02-change > body.md
-  bash tools/uv.sh run --no-sync python tools/issue_form.py check 02-change body.md
-  bash tools/uv.sh run --no-sync python tools/issue_form.py create 02-change --title "..." --body-file body.md
+  bash tools/uv.sh run --no-sync python tools/issue_form.py skeleton 02-change > "$body"
+  bash tools/uv.sh run --no-sync python tools/issue_form.py check 02-change "$body"
+  bash tools/uv.sh run --no-sync python tools/issue_form.py create 02-change --title "..." --body-file "$body"
   bash tools/uv.sh run --no-sync python tools/issue_form.py verify 97
 
 A body holds one `### <label>` section per form field, in the form's order, and nothing else.
@@ -102,10 +104,10 @@ def check(form: dict[str, Any], body: str) -> list[str]:
             if not all(listed) or [match.group(2) for match in listed if match] != options:
                 problems.append(f"{label}: list every option once as '- [ ] <option>' or '- [X] <option>', in order")
             continue
-        if not value:
-            problems.append(f"{label}: write {NO_RESPONSE} for an empty field")
-        elif empty and required(field):
+        if empty and required(field):
             problems.append(f"{label}: required")
+        elif not value:
+            problems.append(f"{label}: write {NO_RESPONSE} for an empty optional field")
         elif empty:
             continue
         elif kind == "input" and "\n" in value:
@@ -131,6 +133,20 @@ def skeleton(form: dict[str, Any]) -> str:
             value = NO_RESPONSE
         parts.append(f"### {attributes['label']}\n\n{HINT} {hint} -->\n{value}")
     return "\n\n".join(parts) + "\n"
+
+
+def form_title(form: dict[str, Any], title: str) -> str:
+    """The title as the browser pre-fills it: starting with the form's `title`, if it has one.
+
+    An empty result means the title has nothing beyond that prefix.
+    """
+    prefix = str(form.get("title") or "")
+    title = title.strip()
+    if not prefix.strip():
+        return title
+    if not title.startswith(prefix.strip()):
+        title = prefix + title
+    return "" if title.strip() == prefix.strip() else title
 
 
 def run_gh(command: list[str], *, capture: bool) -> subprocess.CompletedProcess[str] | None:
@@ -168,7 +184,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "forms":
         for stem, form in load_forms().items():
-            print(f"{stem}: {form['name']} (labels: {', '.join(form.get('labels', []))})")
+            title = f'; title starts with "{form["title"]}"' if form.get("title") else ""
+            print(f"{stem}: {form['name']} (labels: {', '.join(form.get('labels', []))}{title})")
             for field in fields(form):
                 print(f"  ### {field['attributes']['label']}{'' if required(field) else '  (optional)'}")
         return 0
@@ -200,7 +217,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if problems else 0
 
     stem, form = resolve(args.form)
-    problems = check(form, args.body_file.read_text(encoding="utf-8"))
+    try:
+        body = args.body_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        reason = error.strerror if isinstance(error, OSError) and error.strerror else type(error).__name__
+        print(f"issue_form: cannot read {args.body_file}: {reason}", file=sys.stderr)
+        return 1
+    problems = check(form, body)
     for problem in problems:
         print(f"{stem}: {problem}", file=sys.stderr)
     if problems:
@@ -208,10 +231,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check":
         print(f"{args.body_file} follows {stem} ({form['name']})")
         return 0
-    if not args.title.strip():
+    title = form_title(form, args.title)
+    if not title:
         print("issue_form: the title is empty", file=sys.stderr)
         return 1
-    command = ["gh", "issue", "create", "--title", args.title, "--body-file", str(args.body_file)]
+    command = ["gh", "issue", "create", "--title", title, "--body-file", str(args.body_file)]
     for label in form.get("labels", []):
         command += ["--label", label]
     if args.dry_run:
