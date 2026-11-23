@@ -193,6 +193,8 @@
 .le-inbox-topbar .le-muted { flex: none; }
 .le-inbox-search { padding: var(--space-2) var(--space-4); }
 .le-inbox-search .le-input { width: 100%; }
+.le-filing-tags { display: flex; gap: var(--space-1); min-width: 0; overflow: hidden; white-space: nowrap; }
+.le-filing-tags .le-tag { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .le-inbox-selection { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); min-width: 0; max-width: 100%; overflow-x: auto; }
 .le-inbox-selection--limited { flex-wrap: nowrap; }
 .le-inbox-selection-actions { display: flex; gap: var(--space-2); }

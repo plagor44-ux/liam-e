@@ -32,6 +32,8 @@ export const de = {
     queued: (n: number) => `${n} ${n === 1 ? 'Mail' : 'Mails'} zur Verarbeitung vorgemerkt.`,
     applyDescription: 'Passende Mails werden für die Verarbeitung vorgemerkt. Eine schlafende Studio-Instanz verzögert sie. Änderungen beim Anbieter erfolgen nur, wenn das Konto sie unterstützt.',
     outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', localDone: 'App-Zuordnung gespeichert', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
+    folderOverridden: 'Ordner nicht zugeordnet: Eine höher priorisierte Regel hat Vorrang.',
+    imapRebuild: 'Nach dem Neuaufbau dieses IMAP-Postfachs wurden Regeln für diese Mails nicht automatisch angewendet. Du kannst sie manuell anwenden.',
     ruleConfirm: 'Regel erstellen?', filingConfirm: 'Mails zuordnen?', filingPending: 'Vorgeschlagene Zuordnung — wartet auf Bestätigung.', ruleDone: 'Regel erstellt.', filingDone: 'Mails zugeordnet.',
   },
   preferences: {

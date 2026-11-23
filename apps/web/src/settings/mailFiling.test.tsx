@@ -74,3 +74,38 @@ test('visible rule outcomes refresh after an initially empty result', async () =
   expect(await screen.findByText('Noch keine Ausführungen.')).toBeTruthy()
   expect(await screen.findByText('Beim Anbieter übersprungen', {}, { timeout: 6000 })).toBeTruthy()
 })
+
+test('an overridden folder is not presented as a completed filing', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/runs')) return Response.json([{ id: 'run', status: 'done', provider_results_json: '{"_folder":"overridden"}' }])
+    if (path.endsWith('/folders') || path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Example', version: 1, sender_domain: 'example.test', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Letzte Ausführungen' }))
+  expect(await screen.findByText('Ordner nicht zugeordnet: Eine höher priorisierte Regel hat Vorrang.')).toBeTruthy()
+  expect(screen.queryByText('App-Zuordnung gespeichert')).toBeNull()
+})
+
+test('an IMAP rebuild notice names the account and offers manual application', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/runs')) return Response.json([{ id: 'run', account_id: 'account', status: 'skipped_imap_rebuild', provider_results_json: '{}' }])
+    if (path.endsWith('/folders')) return Response.json([])
+    if (path.endsWith('/accounts')) return Response.json([{ id: 'account', display_name: 'Work', email_address: 'work@example.test' }])
+    return Response.json([{ id: 'rule', name: 'Example', version: 1, sender_domain: 'example.test', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Letzte Ausführungen' }))
+  expect(await screen.findByText(/Nach dem Neuaufbau dieses IMAP-Postfachs.*Konto: Work/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' })).toBeTruthy()
+})

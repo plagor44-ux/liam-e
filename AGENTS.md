@@ -262,7 +262,13 @@ writes are not retried automatically. A sleeping Studio instance delays jobs unt
 The owner can preview and explicitly queue a rule for indexed inbox mail. Each manual application
 uses the same durable worker and recovery protocol as sync-triggered runs; an interrupted provider
 dispatch becomes unknown without being resent. Verified duplicate merges retain rule-run
-deduplication; conflicting uncertain dispatches become unknown. Chat proposals require
+deduplication; conflicting uncertain dispatches become unknown. Run outcomes identify a folder
+assignment overridden by a higher-priority match using the reserved `_folder: overridden` entry in
+the run results (not a provider action). On an IMAP UIDVALIDITY change, the rebuilt page
+has no reliable old/new delivery identity, so it is conservatively excluded from new-mail rule and
+insight scheduling; later incremental deliveries continue normally. Active matching rules receive
+a durable rebuild notice suggesting manual apply. Message dates cannot prove delivery freshness.
+Chat proposals require
 confirmation, recheck the saved account grant and commit the card with the local mutation. Rule
 proposals require a direct request in the current stored user message. Folder and rule management
 reads are browser-only and every non-GET operation is in the MCP mutating inventory.

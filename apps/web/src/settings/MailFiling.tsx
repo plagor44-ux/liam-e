@@ -108,6 +108,10 @@ export function RuleSettings() {
       })
     } catch { return [] }
   }
+  const runAccount = (accountId: string) => {
+    const account = (accounts.data ?? []).find(item => item.id === accountId)
+    return account?.display_name || account?.email_address || t.none
+  }
   return <section className="le-prompts"><h2 className="heading">{t.rules}</h2><p>{t.ruleDelay}</p>
     <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
       <TextField label={t.ruleName} value={draft.name} onChange={event => update({ name: event.target.value })} maxLength={120} required />
@@ -134,8 +138,9 @@ export function RuleSettings() {
       {showRuns === row.id && runs.isPending && <p role="status">{t.loading}</p>}
       {showRuns === row.id && runs.isError && <p role="alert">{t.error}</p>}
       {showRuns === row.id && runs.data?.length === 0 && <p>{t.noRuns}</p>}
-      {showRuns === row.id && runs.data?.map(run => <div key={run.id} className="le-filing-summary"><p>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('skipped_unsupported') ? t.skipped : t.completed}</p>
-        {['done', 'local_done', 'unknown'].includes(run.status ?? '') && <small>{t.localDone}</small>}
+      {showRuns === row.id && runs.data?.map(run => <div key={run.id} className="le-filing-summary"><p>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status === 'skipped_imap_rebuild' ? `${t.imapRebuild} ${t.account}: ${runAccount(run.account_id)}` : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('overridden') ? t.folderOverridden : run.provider_results_json?.includes('skipped_unsupported') ? t.skipped : t.completed}</p>
+        {run.status !== 'done' && run.provider_results_json?.includes('overridden') && <small>{t.folderOverridden}</small>}
+        {['done', 'local_done', 'unknown'].includes(run.status ?? '') && (!run.provider_results_json?.includes('overridden') || row.label_id) && <small>{t.localDone}</small>}
         {providerOutcomes(run.provider_results_json).map(detail => <small key={detail}>{detail}</small>)}</div>)}
     </div>)}
     {applying && <PreferenceDialog title={t.applyTitle} close={() => { if (!busy) setApplying(undefined) }}><p>{applying.name}. {t.applyDescription}</p><div className="le-dialog-actions"><Button variant="secondary" onClick={() => setApplying(undefined)}>{t.cancel}</Button><Button variant="primary" disabled={busy} onClick={() => { void execute('apply') }}>{t.apply}</Button></div></PreferenceDialog>}

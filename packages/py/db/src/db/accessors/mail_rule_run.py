@@ -7,6 +7,20 @@ from db.engine import get_session_maker
 from db.models.mail_rule_run import MailRuleRun
 
 
+async def record_imap_rebuild(session, account_id: str, generation: str) -> None:
+    """Record a rule-level notice without creating runs for ambiguous messages."""
+    from sqlalchemy import or_
+    from db.models.mail_rule import MailRule
+
+    rules = (await session.execute(select(MailRule.id, MailRule.version).where(
+        MailRule.is_active.is_(True), or_(MailRule.account_id.is_(None), MailRule.account_id == account_id)))).all()
+    for rule_id, version in rules:
+        row = MailRuleRun(rule_id=rule_id, rule_version=version, account_id=account_id,
+                          message_id=f'imap-rebuild:{account_id}:{generation}', status='skipped_imap_rebuild')
+        await session.execute(insert(MailRuleRun).values(**row.model_dump()).on_conflict_do_nothing(
+            constraint='uq_mail_rule_run_version_message'))
+
+
 async def merge_verified(session, keep_id: str, duplicate_id: str) -> None:
     """Preserve rule/version deduplication when verified mail identities converge."""
     import json
@@ -33,6 +47,8 @@ async def merge_verified(session, keep_id: str, duplicate_id: str) -> None:
                 merged[kind] = 'skipped_unsupported'
             elif 'skipped_stale' in values:
                 merged[kind] = 'skipped_stale'
+            elif 'overridden' in values:
+                merged[kind] = 'overridden'
             else:
                 merged[kind] = 'pending'
         current.provider_results_json = json.dumps(merged)
@@ -98,8 +114,11 @@ async def prepare(run_id: str, matcher, snapshot: dict[str, int] | None = None) 
                 stmt = insert(MailLabelAssignment).values(message_id=message.id, label_id=rule.label_id)
                 await session.execute(stmt.on_conflict_do_nothing())
             pending = {kind: "pending" for kind, enabled in (("mark_read", rule.mark_read), ("mark_unread", rule.mark_unread), ("archive", rule.archive)) if enabled}
+            has_provider_actions = bool(pending)
+            if rule.folder_id and winner and winner.id != rule.id:
+                pending['_folder'] = 'overridden'
             run.provider_results_json = json.dumps(pending)
-            run.status = "local_done" if pending else "done"
+            run.status = "local_done" if has_provider_actions else "done"
         run.updated_at = utcnow()
         return run
 
@@ -124,7 +143,7 @@ async def record_action(run_id: str, kind: str, *, expected: str, result: str) -
             run.provider_results_json = json.dumps(states)
             if "unknown" in states.values():
                 run.status = "unknown"
-            elif all(state in {"done", "skipped_unsupported", "skipped_stale"} for state in states.values()):
+            elif all(state in {"done", "skipped_unsupported", "skipped_stale", "overridden"} for state in states.values()):
                 run.status = "done"
             run.updated_at = utcnow()
         return run, changed

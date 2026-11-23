@@ -39,6 +39,8 @@ export const en = {
     queued: n => plural(n, { one: '# email queued for processing.', other: '# emails queued for processing.' }),
     applyDescription: 'Matching inbox emails are queued for processing. A sleeping Studio instance delays them. Provider actions run only when the account supports them.',
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
+    folderOverridden: 'Folder not assigned: a higher-priority rule takes precedence.',
+    imapRebuild: 'Rules were not automatically applied to emails from this IMAP mailbox rebuild. You can apply them manually.',
     ruleConfirm: 'Create rule?', filingConfirm: 'File emails?', filingPending: 'Proposed filing — awaiting confirmation.', ruleDone: 'Rule created.', filingDone: 'Emails filed.',
   },
   preferences: {

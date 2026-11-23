@@ -412,6 +412,12 @@ async def rebuild_imap_uids(session: AsyncSession, account_id: str, candidates: 
     return set(rows.all())
 
 
+async def imap_generation_reset(session: AsyncSession, account_id: str, generation: str) -> bool:
+    """A prior mailbox generation cannot identify deliveries in a new generation."""
+    cursor = await session.scalar(select(MailSyncState.cursor).where(MailSyncState.account_id == account_id))
+    return bool(cursor) and cursor.partition(':')[0] != generation
+
+
 async def reconcile_label_folders(session: AsyncSession, account_id: str, inbox: set[str], archived: set[str],
                                   *, verified: bool, restored: set[str], trashed: set[str]) -> tuple[set[str], dict[str, str]]:
     """A label provider's UID follows the message. Only a point read can restore a trashed UID."""

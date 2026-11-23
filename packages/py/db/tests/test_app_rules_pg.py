@@ -72,6 +72,30 @@ def test_studio_skipped_seed_run_is_repeatable(pg_db):
     asyncio.run(run())
 
 
+def test_lower_priority_folder_reports_override_but_applies_label(pg_db):
+    async def run():
+        import json
+        from api.mail import rules
+        from db.accessors import mail_filing, mail_message, mail_rule
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='gmail', auth_type='mistral_connector', email_address='a@example.test')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        message = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='uid')
+        first = await mail_filing.create_destination('First', 'folder')
+        second = await mail_filing.create_destination('Second', 'folder')
+        label = await mail_filing.create_destination('Work', 'label')
+        await mail_rule.create(name='Higher', position=1, folder_id=first.id)
+        lower = await mail_rule.create(name='Lower', position=2, folder_id=second.id, label_id=label.id, mark_read=True)
+        result = await rules.execute_rule_run(lower.id, lower.version, message.id)
+        assert result.status == 'done'
+        assert json.loads(result.provider_results_json) == {'_folder': 'overridden', 'mark_read': 'skipped_unsupported'}
+        filing = await mail_filing.for_message(message.id)
+        assert filing.folder_id is None and filing.label_ids == [label.id]
+    asyncio.run(run())
+
+
 def test_rule_run_is_deduplicated_for_each_version_and_message(pg_db):
     async def run():
         from db.accessors import mail_rule_run

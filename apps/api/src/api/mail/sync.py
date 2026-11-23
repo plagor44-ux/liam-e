@@ -8,6 +8,7 @@ import httpx
 from db.accessors import mail_account as account_access
 from db.accessors import mail_job
 from db.accessors import mail_message as message_access
+from db.accessors import mail_rule_run
 from db.accessors import mail_sync_state as sync_state_access
 from db.models.mail_message import IMAP_RETIRED
 from env.mail import env as mail_env
@@ -189,6 +190,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
                                                       graph=graph, imap_validity=imap_validity):
             moved.discard(uid)
     imap_moves = {}
+    imap_reset = False
     if changes.full_rebuild:
         retained = changes.confirmed_inbox | moved if label_folders else {uid for uid, (_, present) in native_moves.items() if graph and present}
         # Keep only IDs proven to identify the same delivery across this rebuild.
@@ -197,6 +199,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
             retained.update(candidates)
         elif imap_validity:
             retained.update(await message_access.rebuild_imap_uids(session, account_id, candidates, imap_validity))
+            imap_reset = await message_access.imap_generation_reset(session, account_id, imap_validity)
         if imap_validity and known:
             imap_moves = await message_access.imap_inbox_moves_in_generation(session, account_id, imap_validity)
             retained.update(imap_moves)
@@ -234,7 +237,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
         outdated = uid in old_texts and insight_outdated(old_texts[uid], parsed.get("body_text", ""))
         row = await message_access.upsert_message(account_id=account_id, **parsed, body_version=BODY_VERSION, drop_insight=outdated,
                                                   unverified_connector=unverified, invalidated_insights=invalidated, session=session)
-        if uid not in known:
+        if uid not in known and not imap_reset:
             new_ids.append(row.id)
         if changes.full_rebuild or label_folders:
             known[parsed["provider_uid"]] = row.id
@@ -257,6 +260,8 @@ async def _apply_changes(account, changes, session, verified, native_moves):
             if connector:
                 updates["connector_labels"] = True
             await message_access.set_state(known[uid], **updates, session=session)
+    if imap_reset and changes.upserts:
+        await mail_rule_run.record_imap_rebuild(session, account_id, imap_validity)
     await mail_job.queue_mail_rules(session, account_id, new_ids)
     return new_ids, invalidated
 

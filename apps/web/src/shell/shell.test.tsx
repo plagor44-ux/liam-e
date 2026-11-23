@@ -22,6 +22,13 @@ function setup(path = '/', client = new QueryClient({ defaultOptions: { queries:
   return render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
 }
 afterEach(() => { cleanup(); mock.restore(); resetShellSyncForTest() })
+test('mobile header names the selected app folder', async () => {
+  width = 375
+  spyOn(sdk, 'mailSyncAll').mockResolvedValue({ data: {} } as never)
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'folder', name: 'Projects', kind: 'folder' }] } as never)
+  setup('/mail?app_folder=folder')
+  expect(await screen.findByText('Ordner: Projects')).toBeTruthy()
+})
 test('desktop navigation shows summary and conversations and syncs once across mounts', async () => {
   width = 1200
   const sync = spyOn(sdk, 'mailSyncAll').mockImplementation((async () => ({ data: {} })) as never)
