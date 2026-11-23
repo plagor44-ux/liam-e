@@ -119,6 +119,10 @@ test('editing a destination changes its colour without changing its kind', async
   render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
   await screen.findByText('Projects')
   expect(document.querySelector('.le-filing-row .le-destination-teal')).toBeTruthy()
+  const info = document.querySelector('.le-filing-row-info')!
+  expect(info.querySelector('.le-filing-row-name .lucide-folder')).toBeTruthy()
+  expect(within(info as HTMLElement).getByText('Projects')).toBeTruthy()
+  expect(within(info as HTMLElement).getByText('Ordner ·')).toBeTruthy()
   const actions = document.querySelector('.le-filing-row-actions')!
   expect(within(actions as HTMLElement).getByRole('button', { name: 'Umbenennen' })).toBeTruthy()
   expect(within(actions as HTMLElement).getByRole('button', { name: 'Projects löschen' })).toBeTruthy()
