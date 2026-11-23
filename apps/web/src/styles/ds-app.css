@@ -79,7 +79,7 @@
 .le-mailrow-marks { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); }
 .le-mailrow-more { display: none; position: relative; z-index: 3; align-self: flex-end; }
 .le-mailrow-more--coarse { display: flex; }
-@media (max-width: 639px), (pointer: coarse) { .le-mailrow-more { display: flex; } .le-mailrow-actions { display: none; } }
+@media (max-width: 639px), (pointer: coarse) { .le-mailrow-more { display: flex; } .le-mailrow .le-mailrow-actions { display: none; } }
 @media (pointer: coarse) { .le-composer .le-send, .le-composer .le-chip, .le-account-actions .le-icon-btn, .le-menu-item, .le-confirm-foot .le-btn, .le-chat-suggestions .le-chip, .le-chat-header .le-menu-anchor .le-chip, .le-chat-topbar .le-menu-anchor .le-chip, .le-model-control .le-chip, .le-chat-end .le-btn, .le-chat-retry .le-btn, .le-chat-reference .le-icon-btn { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }
 @media (pointer: coarse) { .le-drawer-brand .le-icon-btn, .le-shell-status .le-icon-btn { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }
 @media (pointer: coarse) { .le-topbar .le-icon-btn, .le-side .le-icon-btn, .le-side .le-nav-item, .le-side .le-conv, .le-drawer .le-nav-item, .le-drawer .le-conv { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } .le-composer textarea { min-height: var(--control-height-lg); } }
@@ -207,8 +207,10 @@
 .le-destination-indigo { background: var(--filing-indigo-background); border: 1px solid var(--filing-indigo-border); color: var(--ink); }
 .le-destination-plum { background: var(--filing-plum-background); border: 1px solid var(--filing-plum-border); color: var(--ink); }
 .le-destination-berry { background: var(--filing-berry-background); border: 1px solid var(--filing-berry-border); color: var(--ink); }
-.le-quick-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; margin-top: var(--space-1); }
-.le-quick-actions .le-btn { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--font-size-small); }
+.le-quick-actions { display: flex; flex-wrap: nowrap; gap: var(--space-1); min-width: 0; overflow: auto; }
+.le-quick-actions .le-btn { flex: 0 1 auto; max-width: 11rem; min-width: 0; white-space: nowrap; font-size: var(--font-size-small); }
+.le-quick-actions .le-btn span { overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 639px), (pointer: coarse) { .le-quick-actions .le-btn { min-height: var(--control-height-lg); } }
 .le-shortcut-list { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
 .le-shortcut-list li { display: flex; align-items: baseline; gap: var(--space-3); }
 .le-shortcut-list kbd { min-width: 5rem; font: inherit; font-weight: 600; }
@@ -244,7 +246,7 @@
 .le-mail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5); }
 .le-mail-article { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
 .le-mail-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); min-width: 0; }
-.le-mail-quick { flex-basis: 100%; min-width: 0; }
+.le-mail-quick { min-width: 0; padding: var(--space-2) var(--space-4); }
 .le-mail-sender { flex: 1; min-width: 0; }
 .le-mail-sender > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .le-mail-header time { flex-shrink: 0; }

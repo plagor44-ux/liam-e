@@ -84,6 +84,18 @@ test('a quick action in a list row files without opening it', async () => {
   expect(router.state.location.pathname).toBe('/mail')
 })
 
+test('mobile row menu offers a quick action without opening the mail', async () => {
+  const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
+  const { client, router } = setup('row', '/mail', true, true)
+  await screen.findByText('Termin')
+  await waitFor(() => expect(client.getQueryState(['mail-quick-actions'])?.status).toBe('success'))
+  act(() => client.setQueryData(['mail-quick-actions'], [{ destination: { id: 'folder', name: 'Projects', kind: 'folder' }, score: 2 }]))
+  fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen zu Termin' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Ordner: Projects' }))
+  await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['m1'], folder_id: 'folder' }))
+  expect(router.state.location.pathname).toBe('/mail')
+})
+
 test('inbox swipe uses the confirmed assignment and the shared action path', async () => {
   spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: { swipe_left: 'archive', swipe_right: 'toggle_read', revision: 1 }, response: { ok: true } })) as never)
   const action = spyOn(sdk, 'mailMessageAction').mockImplementation((async () => ({ data: { action_id: 'act', message: row }, response: { status: 200 } })) as never)

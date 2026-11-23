@@ -216,8 +216,8 @@ small { font-size: var(--font-size-small); }
 .le-mailrow-time { font-size: var(--font-size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .le-mailrow.is-unread .le-mailrow-time { color: var(--accent); font-weight: 600; }
 /* The hover bar covers the end of the text column, so time, urgency dot and attachment stay visible and can be hovered. */
-.le-mailrow-actions { position: absolute; z-index: 2; grid-column: 2 / 3; right: 0; top: 50%; transform: translateY(-50%); display: flex; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-pill); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); opacity: 0; pointer-events: none; transition: opacity var(--le-dur-fast) ease; }
-.le-mailrow:hover .le-mailrow-actions, .le-mailrow:focus-within .le-mailrow-actions, .le-mailrow.is-hover .le-mailrow-actions { opacity: 1; pointer-events: auto; }
+.le-mailrow-actions { position: relative; z-index: 2; grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-pill); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); display: none; }
+.le-mailrow:hover .le-mailrow-actions, .le-mailrow:focus-within .le-mailrow-actions, .le-mailrow.is-hover .le-mailrow-actions, .le-mailrow[aria-current="true"] .le-mailrow-actions { display: flex; }
 
 /* Confirm card */
 .le-confirm { border-radius: var(--radius-lg); background: var(--surface-soft); padding: var(--space-2); }

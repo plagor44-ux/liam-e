@@ -104,11 +104,11 @@ test('the urgency dot stays visible and reachable while the row shows its action
     const row = container.querySelector('.le-mailrow')!
     const actions = container.querySelector('.le-mailrow-actions')!
     row.classList.add('is-hover')
-    expect(getComputedStyle(actions).opacity).toBe('1')
+    expect(getComputedStyle(actions).display).toBe('flex')
     expect(getComputedStyle(screen.getByRole('img', { name: 'Dringend' })).visibility).toBe('visible')
     expect(getComputedStyle(container.querySelector('time')!).visibility).toBe('visible')
-    // The bar covers the end of the text column, not the column with time and marks.
-    expect(style.textContent).toMatch(/^\.le-mailrow-actions \{ position: absolute; z-index: 2; grid-column: 2 \/ 3; right: 0;/mu)
+    // The action bar occupies its own grid row and cannot cover the tags or time.
+    expect(style.textContent).toMatch(/^\.le-mailrow-actions \{ position: relative; z-index: 2; grid-column: 2 \/ 4;/mu)
     fireEvent.mouseEnter(screen.getByRole('img', { name: 'Dringend' }))
     expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', 'Dringend')
   } finally {

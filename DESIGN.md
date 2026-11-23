@@ -677,10 +677,12 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   Folder and label names carry their localized kind, with folder and tag icons in filing tags and
   choices. Tags wrap within a mail row rather than clipping the names on narrow screens; kind is
   never communicated by colour alone.
-  Recent and frequent destinations are one-click actions in rows and the reading pane, with the
-  same type cues and success or failure feedback. Show at most five on desktop, three on tablet and
-  two on mobile; their buttons wrap, retain touch targets, and never trigger row navigation. The
-  reader explains an empty history and the ordinary filing menu remains available.
+  Recent and frequent destinations are compact one-click actions in the hovered, focused or selected
+  desktop row, the selection bar and the reader. Mobile rows offer them in the more menu; mobile
+  controls retain 44 px touch targets. Already-assigned destinations are excluded. Names truncate
+  with their full text available to assistive technology and in a tooltip. Show at most five on
+  desktop, three on tablet and two on mobile; actions never trigger row navigation. The reader
+  explains an empty history and the ordinary filing menu remains available.
   The opened mail's action menu can create a folder or label and assign that mail in one explicit
   save, or open a new rule with editable account, sender, domain and subject suggestions. The owner
   chooses which suggested conditions to use; the rule is never created before Save. A missing source

@@ -62,3 +62,28 @@ test('desktop displays at most five quick actions', async () => {
   expect(screen.getAllByRole('button')).toHaveLength(5)
   expect(screen.queryByRole('button', { name: 'Label: Label 0' })).toBeNull()
 })
+
+
+test('already assigned folders and labels are excluded before the display limit', async () => {
+  const data = [
+    { destination: { id: 'f', name: 'Current', kind: 'folder' }, score: 4 },
+    { destination: { id: 'l', name: 'Applied', kind: 'label' }, score: 3 },
+    { destination: { id: 'new', name: 'Available', kind: 'label' }, score: 2 },
+  ]
+  spyOn(sdk, 'mailFilingQuickActions').mockResolvedValue({ data } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><QuickActions messages={[{ id: 'a', app_folder_id: 'f', app_label_ids: ['l'] }]} /></QueryClientProvider>)
+  expect(await screen.findByRole('button', { name: 'Label: Available' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Ordner: Current' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Label: Applied' })).toBeNull()
+})
+
+
+test('bulk quick action files the selected messages once', async () => {
+  spyOn(sdk, 'mailFilingQuickActions').mockResolvedValue({ data: [{ destination: { id: 'f', name: 'Projects', kind: 'folder' }, score: 2 }] } as never)
+  const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><QuickActions messages={[{ id: 'a' }, { id: 'b' }]} /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Ordner: Projects' }))
+  await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['a', 'b'], folder_id: 'f' }))
+})
