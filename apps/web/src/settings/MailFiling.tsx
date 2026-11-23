@@ -62,8 +62,8 @@ export function FolderSettings() {
       ] as const).map(([value, label]) => ({ label, checked: filter === value, onSelect: () => { setFilter(value); setPage(0) } }))} /></div>
       {!matches.length && <p>{t.noMatches}</p>}</>}
     {visible.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label} · <span aria-hidden="true" className={`le-filing-swatch${row.color && row.color !== 'none' ? ` le-destination-${row.color}` : ''}`} /> {t.colors[row.color ?? 'none']}</small>
-      <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name); setColor(row.color ?? 'none') }}>{t.rename}</Button>
-      <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div>)}
+      <div className="le-filing-row-actions"><Button variant="secondary" onClick={() => { setEditing(row); setName(row.name); setColor(row.color ?? 'none') }}>{t.rename}</Button>
+      <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div></div>)}
     {matches.length > 0 && <div className="le-prompt-actions"><Button variant="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t.previousPage}</Button><span aria-live="polite">{t.page(currentPage + 1, totalPages)}</span><Button variant="secondary" disabled={currentPage + 1 >= totalPages} onClick={() => setPage(currentPage + 1)}>{t.nextPage}</Button></div>}
     {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}
   </section>

@@ -119,6 +119,9 @@ test('editing a destination changes its colour without changing its kind', async
   render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
   await screen.findByText('Projects')
   expect(document.querySelector('.le-filing-row .le-destination-teal')).toBeTruthy()
+  const actions = document.querySelector('.le-filing-row-actions')!
+  expect(within(actions as HTMLElement).getByRole('button', { name: 'Umbenennen' })).toBeTruthy()
+  expect(within(actions as HTMLElement).getByRole('button', { name: 'Projects löschen' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Umbenennen' }))
   fireEvent.click(screen.getByRole('button', { name: 'Farbe: Petrol' }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: 'Moos' }))
