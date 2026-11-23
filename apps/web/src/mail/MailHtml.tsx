@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { mailMessageHtmlGet } from '../api/generated/sdk.gen'
 import { unwrap } from '../api/unwrap'
 import { Button } from '../ds'
 import { useI18n } from '../i18n/I18n'
-import { buildMailDocument } from './mail-html'
+import { prepareMailDocument } from './mail-html'
 import { paragraphs } from './paragraphs'
 
 export function MailHtml({ id, text, localOnly }: { id: string; text: string; localOnly: boolean }) {
@@ -16,11 +16,12 @@ export function MailHtml({ id, text, localOnly }: { id: string; text: string; lo
     retry: false, gcTime: 0,
   })
   const html = query.data?.html
-  if (!html || typeof window === 'undefined') {
+  const prepared = useMemo(() => html && typeof window !== 'undefined' ? prepareMailDocument(html, images, texts.mailHtml.imagePlaceholder) : null, [html, images, texts.mailHtml.imagePlaceholder])
+  if (!prepared) {
     return text ? <div className="le-mail-text body">{paragraphs(text).map((part, index) => <p key={index}>{part}</p>)}</div> : null
   }
   return <div className="le-mail-html">
-    {!images && <Button variant="secondary" onClick={() => setImages(true)}>{texts.mailHtml.showImages}</Button>}
-    <iframe title={texts.mailHtml.title} sandbox="allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={buildMailDocument(html, images, texts.mailHtml.imagePlaceholder)} />
+    {!images && prepared.hasRemoteImages && <Button variant="secondary" onClick={() => setImages(true)}>{texts.mailHtml.showImages}</Button>}
+    <iframe title={texts.mailHtml.title} sandbox="allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={prepared.document} />
   </div>
 }

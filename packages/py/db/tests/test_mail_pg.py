@@ -371,7 +371,11 @@ def test_html_backfill_is_independent_bounded_and_does_not_touch_text(pg_db):
         await m.set_html(initial.id, expected_uid='wrong', expected_message_id='', expected_uidvalidity=None, version=1, status='available', html='<p>wrong</p>')
         assert (await m.get_message(initial.id)).html_version == 0
         await m.set_html(initial.id, expected_uid='html', expected_message_id='', expected_uidvalidity=None, version=1, status='available', html='<p>ok</p>')
-        current = await m.get_message(initial.id)
+        from sqlalchemy import inspect
+        unloaded = await m.get_message(initial.id)
+        assert 'body_html' in inspect(unloaded).unloaded
+        current = await m.get_message(initial.id, include_html=True)
+        assert 'body_html' not in inspect(current).unloaded
         assert (current.body_html, current.html_status, current.body_text, current.body_version) == ('<p>ok</p>', 'available', 'plain', 1)
         assert (await m.get_message(archive.id)).html_status == 'pending'
         with pytest.raises(DBAPIError):

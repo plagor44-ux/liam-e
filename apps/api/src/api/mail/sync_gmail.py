@@ -141,7 +141,8 @@ async def _hydrate_html_parts(client: httpx.AsyncClient, message: dict[str, Any]
                         break
                     payload.extend(chunk)
                 else:
-                    data = json.loads(payload).get('data')
+                    result = json.loads(payload)
+                    data = result.get('data') if isinstance(result, dict) else None
                     if isinstance(data, str): body['data'] = data
         except (httpx.HTTPError, ValueError, KeyError):
             continue  # do not silently mark a failed HTML fetch as absent

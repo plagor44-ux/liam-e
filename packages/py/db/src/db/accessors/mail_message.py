@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import String, and_, any_, bindparam, case, cast, delete, exists, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, undefer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from db.accessors import mail_reference_snapshot, mail_sync_state
@@ -170,9 +170,12 @@ def matches_ids(message_ids: Collection[str]):
         func.cardinality(MailMessage.connector_alias_ids) > 0, MailMessage.connector_alias_ids.overlap(ids)))
 
 
-async def get_message(message_id: str, session: AsyncSession | None = None) -> MailMessage | None:
+async def get_message(message_id: str, session: AsyncSession | None = None, *, include_html: bool = False) -> MailMessage | None:
     async with (nullcontext(session) if session is not None else get_session_maker()()) as reader:
-        return (await reader.execute(select(MailMessage).where(matches_ids([message_id])))).scalar_one_or_none()
+        stmt = select(MailMessage).where(matches_ids([message_id]))
+        if include_html:
+            stmt = stmt.options(undefer(MailMessage.body_html))
+        return (await reader.execute(stmt)).scalar_one_or_none()
 
 
 async def legacy_imap_uidvalidity(message: MailMessage) -> str | None:

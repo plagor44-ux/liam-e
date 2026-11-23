@@ -2,8 +2,9 @@ import createDOMPurify from 'dompurify'
 
 // The DOM is detached and never inserted into the app; the result is only used inside
 // an opaque-origin, scriptless sandbox with its own restrictive CSP.
-export function buildMailDocument(raw: string, images: boolean, placeholder: string): string {
+export function prepareMailDocument(raw: string, images: boolean, placeholder: string): { document: string; hasRemoteImages: boolean } {
   const purifier = createDOMPurify(window)
+  let hasRemoteImages = false
   const styles = new Set(['color', 'background-color', 'font-weight', 'font-style', 'font-size', 'text-align', 'text-decoration', 'padding', 'margin', 'border', 'border-color', 'border-width', 'border-style', 'width', 'max-width', 'height', 'vertical-align'])
   purifier.addHook('uponSanitizeAttribute', (node, data) => {
     const name = data.attrName.toLowerCase()
@@ -14,6 +15,7 @@ export function buildMailDocument(raw: string, images: boolean, placeholder: str
     if (name === 'href' || name === 'src') {
       try {
         const url = new URL(data.attrValue)
+        if (name === 'src' && node.nodeName === 'IMG' && ['http:', 'https:'].includes(url.protocol)) hasRemoteImages = true
         if (!['http:', 'https:'].includes(url.protocol) || (name === 'src' && (!images || node.nodeName !== 'IMG'))) data.keepAttr = false
       } catch { data.keepAttr = false }
     }
@@ -31,5 +33,9 @@ export function buildMailDocument(raw: string, images: boolean, placeholder: str
     ALLOW_DATA_ATTR: false,
   })
   const imagePolicy = images ? 'https: http:' : "'none'"
-  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imagePolicy}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;background:white;color:#171b1a;overflow-wrap:anywhere}body{padding:8px;font:16px/1.5 sans-serif}img{max-width:100%;height:auto}table{max-width:100%}</style></head><body>${clean}</body></html>`
+  return { document: `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imagePolicy}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;background:#fff;color:#171b1a;overflow-wrap:anywhere}body{padding:8px;font:16px/1.5 sans-serif}img{max-width:100%;height:auto}table{max-width:100%}</style></head><body>${clean}</body></html>`, hasRemoteImages }
+}
+
+export function buildMailDocument(raw: string, images: boolean, placeholder: string): string {
+  return prepareMailDocument(raw, images, placeholder).document
 }

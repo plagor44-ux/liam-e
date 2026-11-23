@@ -180,7 +180,7 @@ async def message_original(message_id: str) -> MessageOriginalOut:
 
 @router.get("/{message_id}/html", operation_id="mail_message_html_get", summary="Read bounded HTML for a browser mail view")
 async def get_message_html(message_id: str, response: Response) -> MessageHtmlOut:
-    message = await message_access.get_message(message_id)
+    message = await message_access.get_message(message_id, include_html=True)
     if message is None:
         raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
     response.headers["Cache-Control"] = "no-store"

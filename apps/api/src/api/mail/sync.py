@@ -106,12 +106,17 @@ async def sync_account(account_id: str) -> SyncResult:
             state.last_sync_at = state.updated_at = datetime.now(UTC)
         try:
             reread = await refresh_bodies(account, provider)
-            await refresh_html_bodies(account, provider)
         except (connector_mailbox.MailboxUnavailable, sync_state_access.StaleMailSync):
             raise
         except Exception as error:  # noqa: BLE001 — keep the completed page and retry body refresh
             logger.warning("Body refresh failed: %s", type(error).__name__)
             reread = []
+        try:
+            await refresh_html_bodies(account, provider)
+        except (connector_mailbox.MailboxUnavailable, sync_state_access.StaleMailSync):
+            raise
+        except Exception as error:  # noqa: BLE001 — retry HTML without losing text refresh results
+            logger.warning("HTML refresh failed: %s", type(error).__name__)
         return SyncResult("ok", len(changes.upserts), stored_progress, "", new_ids, bool(invalidated or reread) and not verified)
     except sync_state_access.StaleMailSync:
         return SyncResult("error", 0, cursor, "provider_error")

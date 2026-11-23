@@ -601,6 +601,16 @@ def read(text, rfc=""):
 
 
 @pytest.mark.anyio
+async def test_html_refresh_failure_preserves_text_refresh_insight_signal(monkeypatch, fake_store, caplog):
+    refresh_store(monkeypatch, fake_store, [stored("m1", "5", body="old")], AsyncMock(return_value={"5": read("new")}))
+    monkeypatch.setattr(sync, "refresh_html_bodies", AsyncMock(side_effect=RuntimeError("private content")))
+    result = await sync.sync_account("a")
+    assert result.status == "ok" and result.refresh_insights
+    assert "m1" not in fake_store.insights
+    assert "RuntimeError" in caplog.text and "private content" not in caplog.text
+
+
+@pytest.mark.anyio
 async def test_sync_rereads_stale_bodies_and_drops_their_insights(monkeypatch, fake_store):
     fetch_bodies = AsyncMock(return_value={"5": read("Lesbarer Text", "<m@x>")})
     refresh_store(monkeypatch, fake_store, [stored("m1", "5", body="96 p{ margin:10px }", rfc="<m@x>"), stored("m2", "6", version=sync_types.BODY_VERSION, body="aktuell")], fetch_bodies)

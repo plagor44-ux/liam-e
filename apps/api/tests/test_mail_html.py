@@ -89,6 +89,16 @@ def test_html_endpoint_returns_only_bounded_stored_markup_and_no_store(monkeypat
     assert client.get('/api/v1/mail/messages/synthetic/html').json() == {'html': None}
 
 
+@pytest.mark.anyio
+async def test_gmail_html_attachment_non_object_response_stays_pending():
+    import httpx
+    from api.mail import sync_gmail
+    message = {'id': 'm', 'payload': {'mimeType': 'text/html', 'body': {'attachmentId': 'part'}}}
+    async with httpx.AsyncClient(base_url='https://example.test', transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[]))) as client:
+        await sync_gmail._hydrate_html_parts(client, message, {})
+    assert sync_gmail.parse_message(message, max_body_chars=100)['html_status'] == 'pending'
+
+
 def test_full_connector_content_without_html_marks_it_absent():
     from api.mail.sync_connector import _indexed_message
     parsed = _indexed_message({'id': 'synthetic', 'date': '2026-01-01T12:00:00+00:00', 'plaintextBody': 'text'}, 'thread', 100)

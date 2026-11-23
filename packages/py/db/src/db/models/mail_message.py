@@ -13,15 +13,18 @@ from datetime import datetime
 
 from sqlalchemy import Column, Computed, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
+from sqlalchemy.orm import deferred
 from sqlmodel import Field, SQLModel
 
 from db.models._common import new_id, utc_datetime_column, utcnow
 
 IMAP_RETIRED = "IMAP_RETIRED"
+_body_html_column = Column("body_html", String(200_000), nullable=True)
 
 
 class MailMessage(SQLModel, table=True):
     __tablename__ = "mail_message"
+    __mapper_args__ = {"properties": {"body_html": deferred(_body_html_column)}}
     __table_args__ = (
         UniqueConstraint(
             "account_id",
@@ -59,7 +62,7 @@ class MailMessage(SQLModel, table=True):
     recipients_json: str = "[]"
     snippet: str = ""
     body_text: str = ""
-    body_html: str | None = Field(default=None, sa_column=Column(String(200_000), nullable=True))
+    body_html: str | None = Field(default=None, sa_column=_body_html_column)
     html_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     html_status: str = Field(default="pending", sa_column_kwargs={"server_default": "pending"})
     # Version of the text extraction that produced body_text (api.mail.sync_types.BODY_VERSION);
