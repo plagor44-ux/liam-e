@@ -312,7 +312,7 @@ def _indexed_message(row, thread_id, max_body_chars):
     if not isinstance(row, dict) or not row.get("id"):
         return None
     try:
-        parsed = parse_message(row, thread_id=thread_id, folder="INBOX", max_body_chars=max_body_chars)
+        parsed = parse_message({"htmlBody": None, **row}, thread_id=thread_id, folder="INBOX", max_body_chars=max_body_chars)
     except (KeyError, TypeError, ValueError):
         return None
     return parsed if parsed["internal_date"] is not None else None

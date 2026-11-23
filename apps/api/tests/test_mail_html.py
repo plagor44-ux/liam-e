@@ -87,3 +87,9 @@ def test_html_endpoint_returns_only_bounded_stored_markup_and_no_store(monkeypat
     assert response.headers['cache-control'] == 'no-store'
     row.html_status = 'too_large'
     assert client.get('/api/v1/mail/messages/synthetic/html').json() == {'html': None}
+
+
+def test_full_connector_content_without_html_marks_it_absent():
+    from api.mail.sync_connector import _indexed_message
+    parsed = _indexed_message({'id': 'synthetic', 'date': '2026-01-01T12:00:00+00:00', 'plaintextBody': 'text'}, 'thread', 100)
+    assert parsed['body_html'] is None and parsed['html_status'] == 'absent' and parsed['html_version'] == 1
