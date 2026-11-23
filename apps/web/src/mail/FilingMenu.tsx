@@ -28,10 +28,10 @@ export function FilingMenu({ ids, messages = [], onDone, compact = false }: { id
   const labelCount = (id: string) => messages.filter(mail => (mail.app_label_ids ?? []).includes(id)).length
   return <><Menu trigger={props => compact ? <IconButton {...props} icon="folder" label={t.file} size="lg" disabled={!ids.length || busy || query.isPending || query.isError} /> : <Button {...props} variant="secondary" disabled={!ids.length || busy || query.isPending || query.isError}>{t.file}</Button>} items={[
     { label: t.clearFolder, checked: hasState ? allInFolder(null) : undefined, onSelect: () => { void assign({ folder_id: null }) } },
-    ...rows.filter(row => row.kind === 'folder' && row.id).map(row => ({ label: row.name, checked: hasState ? allInFolder(row.id!) : undefined, onSelect: () => { void assign({ folder_id: row.id }) } })),
+    ...rows.filter(row => row.kind === 'folder' && row.id).map(row => ({ label: `${t.folder}: ${row.name}`, icon: 'folder' as const, checked: hasState ? allInFolder(row.id!) : undefined, onSelect: () => { void assign({ folder_id: row.id }) } })),
     ...rows.filter(row => row.kind === 'label' && row.id).map(row => {
       const count = labelCount(row.id!), all = hasState && count === ids.length
-      return { label: count > 0 && !all ? t.someLabel(row.name) : row.name, checked: hasState ? count > 0 && !all ? 'mixed' as const : all : undefined, checkable: 'checkbox' as const,
+      return { label: `${t.label}: ${count > 0 && !all ? t.someLabel(row.name) : row.name}`, icon: 'tag' as const, checked: hasState ? count > 0 && !all ? 'mixed' as const : all : undefined, checkable: 'checkbox' as const,
         onSelect: () => { void assign(all ? { remove_labels: [row.id!] } : { add_labels: [row.id!] }) } }
     }),
   ]} />{error && <Notice tone="danger">{t.error}</Notice>}{done && <span role="status" className="le-sr">{t.done}</span>}</>

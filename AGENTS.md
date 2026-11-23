@@ -247,6 +247,10 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 
 ## App-side mail filing and rules
 
+The inbox, reading pane, filing choices and settings identify destinations by kind as well as
+name. Filing tags use folder and tag icons with text and wrap on narrow screens so both names
+remain readable without relying on colour.
+
 Folders and labels are global app data, never provider folders or labels. Each indexed message has
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label
 filters include filed and unfiled mail. App filters include the indexed inbox and archive, while

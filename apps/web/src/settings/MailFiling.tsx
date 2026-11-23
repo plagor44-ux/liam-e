@@ -42,7 +42,7 @@ export function FolderSettings() {
     {query.isPending && <p role="status">{t.loading}</p>}
     {(query.isError || error) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { setError(false); void query.refetch() } }}>{t.error}</Notice>}
     {query.data?.length === 0 && <p>{t.empty}</p>}
-    {query.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small>{row.kind === 'folder' ? t.folder : t.label}</small>
+    {query.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label}</small>
       <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name) }}>{t.rename}</Button>
       <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div>)}
     {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}

@@ -650,6 +650,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
 - The inbox filters global folders and labels across accounts. A selected mail or bulk selection
   can be filed without requiring provider write capabilities. Chat filing and rule cards show the
   target and conditions and require explicit confirmation before local changes.
+  Folder and label names carry their localized kind, with folder and tag icons in filing tags and
+  choices. Tags wrap within a mail row rather than clipping the names on narrow screens; kind is
+  never communicated by colour alone.
 - „Einstellungen“ is accessible in sidebar, toolbar and mobile drawer. `/settings` shows the template
   library, as does `/settings/prompts`. Further completed areas can be added to `settingsSections`;
   there are no empty landing pages. The current area is marked in section navigation like the current

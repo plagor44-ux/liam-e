@@ -7,5 +7,5 @@ export function FilingTags({ folderId, labelIds, destinations }: { folderId?: st
   const assigned = new Set([folderId, ...(labelIds ?? [])].filter(Boolean))
   const rows = destinations.filter(row => row.id && assigned.has(row.id))
   if (!rows.length) return null
-  return <div className="le-filing-tags">{rows.map(row => <Tag key={row.id} tone="on-surface">{row.kind === 'folder' ? texts.mailFiling.folder : texts.mailFiling.label}: {row.name}</Tag>)}</div>
+  return <div className="le-filing-tags">{rows.map(row => <Tag key={row.id} tone="on-surface" icon={row.kind === 'folder' ? 'folder' : 'tag'}><span>{row.kind === 'folder' ? texts.mailFiling.folder : texts.mailFiling.label}: {row.name}</span></Tag>)}</div>
 }
