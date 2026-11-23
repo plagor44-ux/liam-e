@@ -212,6 +212,7 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Mail / connectors | POST | `/api/v1/mail/connectors/{name}/connect` | `mail_account_connect_connector` |
 | Mail / connectors | GET | `/api/v1/mail/connectors/{name}/tools` | `mail_connector_tools_list` |
 | Mail / filing | GET | `/api/v1/mail/folders` | `mail_folders_list` |
+| Mail / filing | GET | `/api/v1/mail/folders/page` | `mail_folders_page` |
 | Mail / filing | POST | `/api/v1/mail/folders` | `mail_folder_create` |
 | Mail / filing | PATCH | `/api/v1/mail/folders/{destination_id}` | `mail_folder_update` |
 | Mail / filing | DELETE | `/api/v1/mail/folders/{destination_id}` | `mail_folder_delete` |
@@ -253,6 +254,9 @@ remain readable without relying on colour.
 User-facing destination lists sort folders and labels by the active UI locale, ignoring case and
 accents with ID ties. Rule settings use the same name order and show the stored priority; this
 display order never changes rule evaluation order.
+Folder settings fetch the complete inventory through browser-only, ID-cursor pages of at most 100,
+then sort and filter it before displaying 20 rows per page. The existing complete inventory remains
+available to filing and chat; settings changes invalidate both cached reads.
 
 Folders and labels are global app data, never provider folders or labels. Each indexed message has
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label

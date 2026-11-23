@@ -9,6 +9,14 @@ const original = globalThis.fetch, config = api.getConfig()
 let requests: { method: string; url: string; body?: unknown }[] = []
 afterEach(() => { cleanup(); globalThis.fetch = original; api.setConfig(config) })
 
+function inventoryPage(rows: { id: string; name: string; kind: string }[], request: Request) {
+  const params = new URL(request.url).searchParams
+  const cursor = params.get('cursor'), limit = Number(params.get('limit') ?? '100')
+  const ordered = [...rows].sort((a, b) => a.id.localeCompare(b.id)).filter(row => !cursor || row.id > cursor)
+  const items = ordered.slice(0, limit)
+  return Response.json({ items, next_cursor: ordered.length > limit ? items.at(-1)?.id : null })
+}
+
 test('folder deletion asks for confirmation and sends it explicitly', async () => {
   requests = []
   api.setConfig({ baseUrl: window.location.origin })
@@ -16,7 +24,7 @@ test('folder deletion asks for confirmation and sends it explicitly', async () =
     const req = input instanceof Request ? input : new Request(input, init)
     requests.push({ method: req.method, url: req.url })
     if (req.method === 'DELETE') return Response.json({ ok: true })
-    return Response.json([{ id: 'folder', name: 'Projects', kind: 'folder', created_at: '2026-01-01T00:00:00Z' }])
+    return inventoryPage([{ id: 'folder', name: 'Projects', kind: 'folder' }], req)
   }) as typeof fetch
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
@@ -25,6 +33,54 @@ test('folder deletion asks for confirmation and sends it explicitly', async () =
   expect(requests.filter(request => request.method === 'DELETE')).toHaveLength(0)
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Löschen' }))
   await waitFor(() => expect(requests.some(request => request.method === 'DELETE' && request.url.includes('confirm_delete=true'))).toBe(true))
+})
+
+test('folder settings search and filter the whole inventory and reset pagination', async () => {
+  api.setConfig({ baseUrl: window.location.origin })
+  const rows = Array.from({ length: 122 }, (_, i) => ({ id: `f${String(i).padStart(3, '0')}`, name: `Folder ${String(i).padStart(3, '0')}`, kind: 'folder' }))
+  rows.push({ id: 'l1', name: 'Special label', kind: 'label' })
+  let pageReads = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    pageReads++
+    return inventoryPage(rows, input instanceof Request ? input : new Request(input, init))
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
+  expect(await screen.findByText('Folder 000')).toBeTruthy()
+  expect(pageReads).toBe(2)
+  expect(screen.queryByText('Folder 021')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Nächste Seite' }))
+  expect(screen.getByText('Folder 021')).toBeTruthy()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Ordner und Labels suchen' }), { target: { value: 'special' } })
+  expect(screen.getByText('Special label')).toBeTruthy()
+  expect(screen.queryByText('Folder 021')).toBeNull()
+  expect(screen.getByText('Seite 1 von 1')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Suche löschen' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Alle Arten' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Nur Labels' }))
+  expect(screen.getByText('Special label')).toBeTruthy()
+  expect(screen.queryByText('Folder 000')).toBeNull()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Ordner und Labels suchen' }), { target: { value: 'missing' } })
+  expect(screen.getByText('Keine passenden Ordner oder Labels.')).toBeTruthy()
+})
+
+test('deleting the last item on a later page returns to a valid page', async () => {
+  api.setConfig({ baseUrl: window.location.origin })
+  let rows = Array.from({ length: 21 }, (_, i) => ({ id: `f${i}`, name: `Folder ${String(i).padStart(2, '0')}`, kind: 'folder' }))
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    if (req.method === 'DELETE') { rows = rows.filter(row => row.id !== 'f20'); return Response.json({ ok: true }) }
+    return inventoryPage(rows, req)
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
+  await screen.findByText('Folder 00')
+  fireEvent.click(screen.getByRole('button', { name: 'Nächste Seite' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Folder 20 löschen' }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Löschen' }))
+  await waitFor(() => expect(screen.queryByText('Folder 20') === null).toBe(true))
+  expect(screen.getByText('Seite 1 von 1')).toBeTruthy()
+  expect(screen.getByText('Folder 00')).toBeTruthy()
 })
 
 test('rules display alphabetically with their stored priority and do not mutate it', async () => {

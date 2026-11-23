@@ -24,6 +24,7 @@ export const en = {
     removeName: name => `Delete ${name}`, removeTitle: 'Delete folder or label?',
     removeDescription: 'Assignments are removed from emails. Nothing changes at the provider. First change any rules that use this item.',
     empty: 'No folders or labels yet. Create one for your emails.',
+    searchDestinations: 'Search folders and labels', clearSearch: 'Clear search', allKinds: 'All types', foldersOnly: 'Folders only', labelsOnly: 'Labels only', noMatches: 'No matching folders or labels.', previousPage: 'Previous page', nextPage: 'Next page', page: (current, total) => `Page ${current} of ${total}`,
     localOnly: 'Folders and labels apply across accounts only in liam-e. A folder removes an email from the inbox; labels only mark it.',
     loading: 'Loading …', error: 'The change couldn’t be completed. Try again.',
     missingDestination: 'The folder or label in this proposal no longer exists. You can cancel the proposal.', missingAccount: 'The account in this rule no longer exists. You can cancel the proposal.',

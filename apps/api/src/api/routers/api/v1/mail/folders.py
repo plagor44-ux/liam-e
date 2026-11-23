@@ -4,7 +4,7 @@ from typing import Literal
 
 from db.accessors import mail_filing
 from db.models.mail_folder import MailFolder
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 
@@ -32,9 +32,20 @@ class FilingIn(BaseModel):
     remove_labels: list[str] = Field(default_factory=list, max_length=100)
 
 
+class DestinationPage(BaseModel):
+    items: list[MailFolder]
+    next_cursor: str | None
+
+
 @router.get("", operation_id="mail_folders_list")
 async def list_destinations() -> list[MailFolder]:
     return await mail_filing.list_destinations()
+
+
+@router.get('/page', operation_id='mail_folders_page')
+async def destination_page(cursor: str | None = Query(default=None, max_length=100), limit: int = Query(default=100, ge=1, le=100)) -> DestinationPage:
+    rows, next_cursor = await mail_filing.destination_page(cursor, limit)
+    return DestinationPage(items=rows, next_cursor=next_cursor)
 
 
 @router.post("", operation_id="mail_folder_create")

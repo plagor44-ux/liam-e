@@ -35,6 +35,16 @@ async def list_destinations() -> list[MailFolder]:
         return list((await session.scalars(select(MailFolder).order_by(MailFolder.kind, MailFolder.name, MailFolder.id))).all())
 
 
+async def destination_page(cursor: str | None, limit: int) -> tuple[list[MailFolder], str | None]:
+    """Read a bounded ID-ordered page; callers may sort the complete inventory for display."""
+    query = select(MailFolder).order_by(MailFolder.id).limit(limit + 1)
+    if cursor is not None:
+        query = query.where(MailFolder.id > cursor)
+    async with get_session_maker()() as session:
+        rows = list((await session.scalars(query)).all())
+    return rows[:limit], rows[limit - 1].id if len(rows) > limit else None
+
+
 async def rename_destination(destination_id: str, name: str) -> MailFolder:
     name = name.strip()
     if not name or len(name) > 120:

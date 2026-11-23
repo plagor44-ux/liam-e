@@ -8,6 +8,36 @@ import pytest
 pytestmark = pytest.mark.skipif(not os.getenv("RUN_PG_CONTRACT"), reason="RUN_PG_CONTRACT is not set")
 
 
+def test_destination_inventory_pages_are_bounded_complete_and_preserve_the_existing_list(pg_db):
+    async def run():
+        import httpx
+        from fastapi import FastAPI
+        from api.routers.api.v1.mail import folders
+        from db.accessors import mail_filing
+
+        expected = [await mail_filing.create_destination(f"Folder {n:02}", "folder") for n in range(7)]
+        app = FastAPI()
+        app.include_router(folders.router, prefix="/folders")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            ids, cursor = [], None
+            while True:
+                response = await client.get('/folders/page', params={'limit': 2, **({'cursor': cursor} if cursor else {})})
+                assert response.status_code == 200
+                page = response.json()
+                assert len(page['items']) <= 2
+                ids.extend(row['id'] for row in page['items'])
+                cursor = page['next_cursor']
+                if cursor is None:
+                    break
+            assert len(ids) == len(set(ids)) == len(expected)
+            assert set(ids) == {row.id for row in expected}
+            assert {row['id'] for row in (await client.get('/folders')).json()} == set(ids)
+            assert (await client.get('/folders/page', params={'limit': 0})).status_code == 422
+            assert (await client.get('/folders/page', params={'limit': 101})).status_code == 422
+
+    asyncio.run(run())
+
+
 def test_cross_account_folders_replace_and_labels_accumulate(pg_db):
     async def run():
         from db.accessors import mail_filing, mail_message

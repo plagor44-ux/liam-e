@@ -1176,6 +1176,20 @@ export type DestinationIn = {
 };
 
 /**
+ * DestinationPage
+ */
+export type DestinationPage = {
+    /**
+     * Items
+     */
+    items: Array<MailFolder>;
+    /**
+     * Next Cursor
+     */
+    next_cursor: string | null;
+};
+
+/**
  * DeviceRecordingOut
  */
 export type DeviceRecordingOut = {
@@ -6304,6 +6318,40 @@ export type MailFilingAssignResponses = {
 };
 
 export type MailFilingAssignResponse = MailFilingAssignResponses[keyof MailFilingAssignResponses];
+
+export type MailFoldersPageData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/mail/folders/page';
+};
+
+export type MailFoldersPageErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailFoldersPageError = MailFoldersPageErrors[keyof MailFoldersPageErrors];
+
+export type MailFoldersPageResponses = {
+    /**
+     * Successful Response
+     */
+    200: DestinationPage;
+};
+
+export type MailFoldersPageResponse = MailFoldersPageResponses[keyof MailFoldersPageResponses];
 
 export type MailFolderDeleteData = {
     body?: never;

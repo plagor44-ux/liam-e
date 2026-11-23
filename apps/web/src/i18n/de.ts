@@ -17,6 +17,7 @@ export const de = {
     removeName: (name: string) => `${name} löschen`, removeTitle: 'Ordner oder Label löschen?',
     removeDescription: 'Die Zuordnung zu Mails wird entfernt. Beim Anbieter bleibt alles unverändert. Regeln, die diesen Eintrag verwenden, müssen zuerst geändert werden.',
     empty: 'Noch keine Ordner oder Labels. Erstelle einen Eintrag für deine Mails.',
+    searchDestinations: 'Ordner und Labels suchen', clearSearch: 'Suche löschen', allKinds: 'Alle Arten', foldersOnly: 'Nur Ordner', labelsOnly: 'Nur Labels', noMatches: 'Keine passenden Ordner oder Labels.', previousPage: 'Vorherige Seite', nextPage: 'Nächste Seite', page: (current: number, total: number) => `Seite ${current} von ${total}`,
     localOnly: 'Ordner und Labels gelten für alle Konten nur in liam-e. Ein Ordner nimmt die Mail aus dem Posteingang; Labels markieren sie nur.',
     loading: 'Wird geladen …', error: 'Die Änderung konnte nicht ausgeführt werden. Versuch es noch einmal.',
     missingDestination: 'Der Ordner oder das Label dieses Vorschlags ist nicht mehr vorhanden. Du kannst den Vorschlag abbrechen.', missingAccount: 'Das Konto dieser Regel ist nicht mehr vorhanden. Du kannst den Vorschlag abbrechen.',

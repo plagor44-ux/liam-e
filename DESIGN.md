@@ -634,6 +634,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
 - `/settings/folders` manages global app folders and labels. Explain that a folder hides mail from
   liam-e's inbox, labels do not, and neither changes the provider. Deletion names the consequence
   and needs a confirmation dialog; a destination used by a rule cannot be deleted yet.
+  Search and the type filter apply to the complete inventory, with 20 rows per page and previous
+  and next controls. Changing a search or filter returns to the first page; deletion cannot leave
+  the user on an invalid page. Empty inventories and searches with no matches have distinct text.
 - `/settings/rules` manages ordered, versioned rules with account, sender, domain, subject and
   recipient conditions. Preview shows a count; applying to existing mail needs a separate dialog and
   confirms the number queued for background processing. Rule rows summarize their conditions, targets

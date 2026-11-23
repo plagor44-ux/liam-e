@@ -1,11 +1,11 @@
 // i18n-exempt: API keys and CSS classes.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { mailFolderCreate, mailFolderDelete, mailFolderUpdate, mailRulesList, mailRuleCreate, mailRuleUpdate, mailRuleDelete, mailRulesPreview, mailRuleApply, mailRuleRunsList } from '../api/generated/sdk.gen'
 import type { MailFolder, MailRule, RuleIn } from '../api/generated/types.gen'
 import { unwrap } from '../api/unwrap'
 import { accountsQuery } from '../api/queries'
-import { foldersQuery } from './mailQueries'
+import { folderInventoryQuery, foldersQuery } from './mailQueries'
 import { Button, Chip, Icon, Menu, Notice, TextField } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import { PreferenceDialog } from './Preferences'
@@ -13,8 +13,9 @@ import { sortDestinations, sortNamed } from '../mail/filingOrder'
 
 export function FolderSettings() {
   const { texts, locale } = useI18n(), t = texts.mailFiling
-  const client = useQueryClient(), query = useQuery(foldersQuery())
+  const client = useQueryClient(), query = useQuery(folderInventoryQuery())
   const [name, setName] = useState(''), [kind, setKind] = useState<'folder' | 'label'>('folder')
+  const [search, setSearch] = useState(''), [filter, setFilter] = useState<'all' | 'folder' | 'label'>('all'), [page, setPage] = useState(0)
   const [editing, setEditing] = useState<MailFolder>(), [deleting, setDeleting] = useState<MailFolder>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
   const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-folders'] }); void client.invalidateQueries({ queryKey: ['messages'] }) }
@@ -33,6 +34,12 @@ export function FolderSettings() {
     try { await unwrap(mailFolderDelete({ path: { destination_id: deleting.id }, query: { confirm_delete: true }, throwOnError: true })); setDeleting(undefined); refresh() }
     catch { setError(true) } finally { setBusy(false) }
   }
+  const fold = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase(locale)
+  const matches = sortDestinations(query.data ?? [], locale).filter(row => (filter === 'all' || row.kind === filter) && fold(row.name).includes(fold(search.trim())))
+  const totalPages = Math.max(1, Math.ceil(matches.length / 20))
+  const currentPage = Math.min(page, totalPages - 1)
+  const visible = matches.slice(currentPage * 20, (currentPage + 1) * 20)
+  useEffect(() => { setPage(previous => Math.min(previous, totalPages - 1)) }, [totalPages])
   return <section className="le-prompts"><h2 className="heading">{t.folders}</h2><p>{t.localOnly}</p>
     <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void save() }}>
       <TextField label={t.name} value={name} maxLength={120} onChange={event => setName(event.target.value)} required />
@@ -43,9 +50,16 @@ export function FolderSettings() {
     {query.isPending && <p role="status">{t.loading}</p>}
     {(query.isError || error) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { setError(false); void query.refetch() } }}>{t.error}</Notice>}
     {query.data?.length === 0 && <p>{t.empty}</p>}
-    {sortDestinations(query.data ?? [], locale).map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label}</small>
+    {query.data && query.data.length > 0 && <><div className="le-filing-form"><TextField type="search" label={t.searchDestinations} value={search} onChange={event => { setSearch(event.target.value); setPage(0) }} />
+      {search && <Button variant="secondary" onClick={() => { setSearch(''); setPage(0) }}>{t.clearSearch}</Button>}
+      <Menu trigger={props => <Chip {...props} quiet>{filter === 'folder' ? t.foldersOnly : filter === 'label' ? t.labelsOnly : t.allKinds}<Icon name="chevron-down" size="sm" /></Chip>} items={([
+        ['all', t.allKinds], ['folder', t.foldersOnly], ['label', t.labelsOnly],
+      ] as const).map(([value, label]) => ({ label, checked: filter === value, onSelect: () => { setFilter(value); setPage(0) } }))} /></div>
+      {!matches.length && <p>{t.noMatches}</p>}</>}
+    {visible.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label}</small>
       <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name) }}>{t.rename}</Button>
       <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div>)}
+    {matches.length > 0 && <div className="le-prompt-actions"><Button variant="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t.previousPage}</Button><span aria-live="polite">{t.page(currentPage + 1, totalPages)}</span><Button variant="secondary" disabled={currentPage + 1 >= totalPages} onClick={() => setPage(currentPage + 1)}>{t.nextPage}</Button></div>}
     {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}
   </section>
 }
