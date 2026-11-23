@@ -199,7 +199,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   const labels = new Map(accounts.map(account => [account.id, providerLabel(account)]))
   const groups = groupByDay(items, new Date(), undefined, locale)
   return <>
-    {breakpoint !== 'mobile' && (selectionMode ? selectionBar : <div className="le-topbar"><h1 className="le-crumb">{selectedDestination ? destinationName(selectedDestination) : texts.inbox.title}</h1>{time && <small className="le-muted le-num">{texts.inbox.stand(time)}</small>}<span className="le-grow" />{buttons}</div>)}
+    {breakpoint !== 'mobile' && (selectionMode ? selectionBar : <div className="le-topbar le-inbox-topbar"><h1 className="le-crumb le-inbox-title" title={selectedDestination ? destinationName(selectedDestination) : undefined}>{selectedDestination ? destinationName(selectedDestination) : texts.inbox.title}</h1>{time && <small className="le-muted le-num">{texts.inbox.stand(time)}</small>}<span className="le-grow" />{buttons}</div>)}
     <div className="le-inbox-filters"><Menu trigger={props => <Chip {...props} quiet>{accountLabel}<Icon name="chevron-down" size="sm" /></Chip>} items={[{ label: texts.controls.allAccounts, onSelect: () => changeSearch({ account: undefined }) }, ...accounts.map(account => ({ label: account.display_name || account.email_address, onSelect: () => changeSearch({ account: [account.id] }) }))]} />
       <Menu trigger={props => <Chip {...props} quiet>{selectedDestination ? destinationName(selectedDestination) : texts.mailFiling.filters}<Icon name="chevron-down" size="sm" /></Chip>} items={[
         { label: texts.mailFiling.inbox, onSelect: () => changeSearch({ app_folder: undefined, app_label: undefined }) },
