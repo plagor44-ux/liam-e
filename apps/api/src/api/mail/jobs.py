@@ -154,8 +154,16 @@ async def worker_loop(
     wait = wait or _wait_for_stop
     last_poll = None
     last_calendar_poll = None
+    last_filing_cleanup = None
     while not stop.is_set():
         now = clock()
+        if poll_due(now, last_filing_cleanup, 60):
+            last_filing_cleanup = now
+            try:
+                from db.accessors import mail_filing_usage
+                await mail_filing_usage.cleanup(now)
+            except Exception:
+                _logger.warning("Filing history cleanup failed")
         if poll_due(now, last_calendar_poll, 1):
             last_calendar_poll = now
             try:

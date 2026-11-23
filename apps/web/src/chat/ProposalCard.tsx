@@ -165,6 +165,7 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
       void client.invalidateQueries({ queryKey: ['summary'] })
       if (proposal?.kind === 'filing' || proposal?.kind === 'rule') {
         void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-rules'] })
+        if (proposal.kind === 'filing') void client.invalidateQueries({ queryKey: ['mail-quick-actions'] })
       }
       if (proposal?.kind === 'preference') {
         for (const key of ['preference-candidates', 'preferences', 'personalization']) void client.invalidateQueries({ queryKey: [key] })

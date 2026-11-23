@@ -9,10 +9,42 @@ from api.mail import jobs
 from api.lifespan.startup import mail_worker
 
 
+@pytest.fixture(autouse=True)
+def fake_filing_cleanup(monkeypatch):
+    from db.accessors import mail_filing_usage
+    async def cleanup(now):
+        pass
+    monkeypatch.setattr(mail_filing_usage, 'cleanup', cleanup)
+
+
 def account(store, name):
     row = MailAccount(provider="imap", auth_type="imap_password", email_address=f"{name}@example.test")
     store.accounts[row.id] = row
     return row
+
+
+@pytest.mark.anyio
+async def test_worker_periodically_cleans_filing_history(monkeypatch):
+    from db.accessors import mail_filing_usage
+    t0 = datetime.now(timezone.utc)
+    now = t0
+    calls = []
+    stop = asyncio.Event()
+    async def cleanup(at):
+        calls.append(at)
+    async def run_once():
+        return False
+    async def wait(stop, timeout):
+        nonlocal now
+        if now == t0:
+            now = t0 + timedelta(minutes=60)
+        else:
+            stop.set()
+    monkeypatch.setattr(mail_filing_usage, 'cleanup', cleanup)
+    monkeypatch.setattr(jobs, 'run_once', run_once)
+    monkeypatch.setattr(jobs.mail_env, 'mail_sync_interval_minutes', 0)
+    await jobs.worker_loop(stop, clock=lambda: now, wait=wait)
+    assert calls == [t0, t0 + timedelta(minutes=60)]
 
 
 @pytest.mark.anyio

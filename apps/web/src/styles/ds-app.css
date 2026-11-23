@@ -196,6 +196,8 @@
 .le-filing-tags { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
 .le-filing-tags .le-tag { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .le-filing-tags .le-tag svg { flex-shrink: 0; }
+.le-quick-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; margin-top: var(--space-1); }
+.le-quick-actions .le-btn { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--font-size-small); }
 .le-shortcut-list { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
 .le-shortcut-list li { display: flex; align-items: baseline; gap: var(--space-3); }
 .le-shortcut-list kbd { min-width: 5rem; font: inherit; font-weight: 600; }
@@ -229,7 +231,8 @@
 .le-mail-topbar { flex-shrink: 0; }
 .le-mail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5); }
 .le-mail-article { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
-.le-mail-header { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.le-mail-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); min-width: 0; }
+.le-mail-quick { flex-basis: 100%; min-width: 0; }
 .le-mail-sender { flex: 1; min-width: 0; }
 .le-mail-sender > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .le-mail-header time { flex-shrink: 0; }

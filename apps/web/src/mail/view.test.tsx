@@ -21,6 +21,7 @@ function StartPageTasks({ scope }: { scope?: TaskScope }) {
   return null
 }
 function setup({ mobile = false, unread = false, referenceOnly = false, missing = false, loading = false, failed = false, path = '/mail/m1', stream = false, insight, startTasks, preferencesFail = false, limited = false }: { mobile?: boolean; unread?: boolean; referenceOnly?: boolean; missing?: boolean; loading?: boolean; failed?: boolean; path?: string; stream?: boolean; insight?: () => Promise<{ data: InsightOut }>; startTasks?: TaskScope; preferencesFail?: boolean; limited?: boolean } = {}) {
+  spyOn(sdk, 'mailFilingQuickActions').mockResolvedValue({ data: [] } as never)
   window.matchMedia = ((q: string) => ({ matches: !mobile && (q.includes('1024px') || q.includes('640px')), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   let request: Record<string, unknown> | undefined
   const requests: Record<string, unknown>[] = []
@@ -51,6 +52,17 @@ function setup({ mobile = false, unread = false, referenceOnly = false, missing 
 afterEach(() => { cleanup(); mock.restore(); window.matchMedia = originalMatchMedia; globalThis.fetch = originalFetch })
 // Lets queries a view starts on mount settle inside act() before the test moves on or ends.
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+test('mobile reader offers direct label filing without provider actions', async () => {
+  const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
+  const { client, action } = setup({ mobile: true })
+  await screen.findByRole('heading', { name: 'Termin' })
+  await waitFor(() => expect(client.getQueryState(['mail-quick-actions'])?.status).toBe('success'))
+  client.setQueryData(['mail-quick-actions'], [{ destination: { id: 'label', name: 'Important', kind: 'label' }, use_count: 2, last_used_at: '2026-11-23T00:00:00Z', score: 2 }])
+  fireEvent.click(await screen.findByRole('button', { name: 'Label: Important' }))
+  await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['m1'], add_labels: ['label'] }))
+  expect(action).not.toHaveBeenCalled()
+})
 
 test('task proposal starts a fresh chat with explicit mail and task account scope', async () => {
   const { request, action, router } = setup({ stream: true })

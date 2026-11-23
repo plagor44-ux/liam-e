@@ -213,6 +213,7 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Mail / connectors | GET | `/api/v1/mail/connectors/{name}/tools` | `mail_connector_tools_list` |
 | Mail / filing | GET | `/api/v1/mail/folders` | `mail_folders_list` |
 | Mail / filing | GET | `/api/v1/mail/folders/page` | `mail_folders_page` |
+| Mail / filing | GET | `/api/v1/mail/folders/quick-actions` | `mail_filing_quick_actions` |
 | Mail / filing | POST | `/api/v1/mail/folders` | `mail_folder_create` |
 | Mail / filing | PATCH | `/api/v1/mail/folders/{destination_id}` | `mail_folder_update` |
 | Mail / filing | DELETE | `/api/v1/mail/folders/{destination_id}` | `mail_folder_delete` |
@@ -261,6 +262,11 @@ Desktop inbox shortcuts use `apps/web/src/mail/inboxShortcuts.ts` as the shared 
 handling, hints and the visible overview. V opens folders, L opens labels and ? opens the overview;
 J/K, Enter, E, U, Delete/#, X and Escape retain their documented inbox actions. Editing fields,
 composition, conflicting modifiers, menus and dialogs prevent shortcuts.
+Filing records destination usage in the same transaction, without mail content or an extra write
+request. The installation-scoped history is capped at 200 destinations and 90 days since last use;
+deleting a destination removes its history. Expired entries are removed on reads and writes and
+hourly while the worker runs. The browser-only quick-action read ranks frequency with a 30-day age
+weight; the UI applies locale order to ties and shows at most five actions, fewer on narrow screens.
 
 Folders and labels are global app data, never provider folders or labels. Each indexed message has
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label

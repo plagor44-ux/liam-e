@@ -22,7 +22,7 @@ export function FilingMenu({ ids, messages = [], onDone, compact = false, reques
     setBusy(true); setError(false); setDone(false)
     try {
       await unwrap(mailFilingAssign({ body: { message_ids: ids, ...change }, throwOnError: true }))
-      void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['message'] }); void client.invalidateQueries({ queryKey: ['summary'] })
+      void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['message'] }); void client.invalidateQueries({ queryKey: ['summary'] }); void client.invalidateQueries({ queryKey: ['mail-quick-actions'] })
       setDone(true)
       onDone?.()
     } catch { setError(true) } finally { setBusy(false) }

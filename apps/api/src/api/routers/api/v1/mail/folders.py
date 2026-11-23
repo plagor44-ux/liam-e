@@ -1,8 +1,9 @@
 """Owner-managed, app-side folders and labels."""
 
 from typing import Literal
+from datetime import datetime
 
-from db.accessors import mail_filing
+from db.accessors import mail_filing, mail_filing_usage
 from db.models.mail_folder import MailFolder
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -37,6 +38,13 @@ class DestinationPage(BaseModel):
     next_cursor: str | None
 
 
+class QuickActionOut(BaseModel):
+    destination: MailFolder
+    use_count: int
+    last_used_at: datetime
+    score: float
+
+
 @router.get("", operation_id="mail_folders_list")
 async def list_destinations() -> list[MailFolder]:
     return await mail_filing.list_destinations()
@@ -46,6 +54,12 @@ async def list_destinations() -> list[MailFolder]:
 async def destination_page(cursor: str | None = Query(default=None, max_length=100), limit: int = Query(default=100, ge=1, le=100)) -> DestinationPage:
     rows, next_cursor = await mail_filing.destination_page(cursor, limit)
     return DestinationPage(items=rows, next_cursor=next_cursor)
+
+
+@router.get('/quick-actions', operation_id='mail_filing_quick_actions')
+async def quick_actions() -> list[QuickActionOut]:
+    return [QuickActionOut(destination=row.destination, use_count=row.use_count, last_used_at=row.last_used_at, score=row.score)
+            for row in await mail_filing_usage.list_quick_actions()]
 
 
 @router.post("", operation_id="mail_folder_create")

@@ -99,6 +99,7 @@ BROWSER_ONLY_GET_OPERATIONS: frozenset[str] = frozenset(
         "mail_message_html_get",  # Browser-only untrusted markup.
         "mail_folders_list",  # Private owner-managed folder and label names.
         "mail_folders_page",  # The paginated inventory is also private.
+        "mail_filing_quick_actions",  # Installation usage history is browser-only.
         "mail_rules_list",
         "mail_rule_runs_list",
         "audio_capabilities_get",  # Owner-only application capability.

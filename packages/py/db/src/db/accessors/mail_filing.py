@@ -12,6 +12,7 @@ from db.models.mail_folder import MailFolder
 from db.models.mail_label_assignment import MailLabelAssignment
 from db.models.mail_message import MailMessage
 from db.models.mail_rule import MailRule
+from db.models.mail_filing_usage import MailFilingUsage
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ async def delete_destination(destination_id: str) -> None:
             raise ValueError("Destination is used by a rule")
         await session.execute(update(MailFiling).where(MailFiling.folder_id == destination_id).values(folder_id=None))
         await session.execute(delete(MailLabelAssignment).where(MailLabelAssignment.label_id == destination_id))
+        await session.execute(delete(MailFilingUsage).where(MailFilingUsage.destination_id == destination_id))
         await session.delete(row)
 
 
@@ -123,6 +125,9 @@ async def assign(message_ids: list[str], *, folder_id: str | None | object = _UN
             for label_id in labels:
                 stmt = insert(MailLabelAssignment).values(message_id=message_id, label_id=label_id)
                 await session.execute(stmt.on_conflict_do_nothing())
+        if ids:
+            from db.accessors import mail_filing_usage
+            await mail_filing_usage.record(session, ([folder_id] if isinstance(folder_id, str) else []) + labels)
 
 
 async def for_message(message_id: str) -> Filing:

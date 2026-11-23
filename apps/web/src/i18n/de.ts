@@ -29,6 +29,7 @@ export const de = {
     addLabel: (name: string) => `Label ${name} zuordnen`, removeLabel: (name: string) => `Label ${name} entfernen`,
     someLabel: (name: string) => `${name} (teilweise zugeordnet)`, enabled: 'Aktiv', disabled: 'Pausiert', on: 'Ein', off: 'Aus', conditions: 'Bedingungen', targets: 'Aktionen',
     done: 'Zuordnung gespeichert.', selectMail: 'Wähle zuerst eine Mail.',
+    quickActions: 'Schnell zuordnen', quickEmpty: 'Noch keine Schnellaktionen. Ordne eine Mail zu, um hier Vorschläge zu sehen.', quickError: 'Die Schnellaktion konnte nicht ausgeführt werden. Lade die Auswahl neu.',
     ruleName: 'Name der Regel', account: 'Konto', allAccounts: 'Alle Konten', sender: 'Absenderadresse', domain: 'Absenderdomain', subject: 'Betreff enthält', recipient: 'Empfängeradresse',
     none: 'Keine Auswahl', markRead: 'Als gelesen markieren', markUnread: 'Als ungelesen markieren', archive: 'Beim Anbieter archivieren',
     active: 'Regel aktiv', priority: 'Reihenfolge', addRule: 'Regel anlegen', editRule: 'Regel bearbeiten', deleteRule: 'Regel löschen',

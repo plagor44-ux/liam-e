@@ -659,6 +659,10 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   Folder and label names carry their localized kind, with folder and tag icons in filing tags and
   choices. Tags wrap within a mail row rather than clipping the names on narrow screens; kind is
   never communicated by colour alone.
+  Recent and frequent destinations are one-click actions in rows and the reading pane, with the
+  same type cues and success or failure feedback. Show at most five on desktop, three on tablet and
+  two on mobile; their buttons wrap, retain touch targets, and never trigger row navigation. The
+  reader explains an empty history and the ordinary filing menu remains available.
   Destination choices and tags use locale-aware name order within each kind, ignoring case and
   accents; fixed commands stay first. Rule rows sort by name and display the stored execution
   priority, which is independent of their visual order.

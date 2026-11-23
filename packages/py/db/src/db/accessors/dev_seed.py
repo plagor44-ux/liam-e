@@ -37,13 +37,14 @@ async def replace_mail_data(accounts: list[MailAccount], states: list[MailSyncSt
         await session.commit()
 
 
-async def replace_filing(destinations, filings, labels, rules, runs=()) -> None:
+async def replace_filing(destinations, filings, labels, rules, runs=(), usage=()) -> None:
     """Replace only the deterministic filing rows provided by the local seed."""
     from db.models.mail_folder import MailFolder
     from db.models.mail_filing import MailFiling
     from db.models.mail_label_assignment import MailLabelAssignment
     from db.models.mail_rule import MailRule
     from db.models.mail_rule_run import MailRuleRun
+    from db.models.mail_filing_usage import MailFilingUsage
 
     async with get_session_maker().begin() as session:
         message_ids = {row.message_id for row in filings} | {row.message_id for row in labels}
@@ -52,5 +53,9 @@ async def replace_filing(destinations, filings, labels, rules, runs=()) -> None:
         await session.execute(delete(MailRule).where(MailRule.id.in_(rule_ids)))
         await session.execute(delete(MailFiling).where(MailFiling.message_id.in_(message_ids)))
         await session.execute(delete(MailLabelAssignment).where(MailLabelAssignment.message_id.in_(message_ids)))
+        await session.execute(delete(MailFilingUsage).where(MailFilingUsage.destination_id.in_([row.id for row in destinations])))
         await session.execute(delete(MailFolder).where(MailFolder.id.in_([row.id for row in destinations])))
-        session.add_all([*destinations, *filings, *labels, *rules, *runs])
+        session.add_all([*destinations, *filings, *labels, *rules, *runs, *usage])
+        await session.flush()
+        from db.accessors import mail_filing_usage
+        await mail_filing_usage.prune_in_session(session)

@@ -32,7 +32,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
   const breakpoint = useBreakpoint()
   const [entries, setEntries] = useState<UndoEntry[]>([])
   const entriesRef = useRef<UndoEntry[]>([])
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ text: string; tone: 'danger' | 'success' } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const reservations = useRef(0)
@@ -61,8 +61,8 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     setEntries(next)
     schedule(next)
   }
-  const notify = (text: string) => {
-    setNotice(text)
+  const notify = (text: string, tone: 'danger' | 'success' = 'danger') => {
+    setNotice({ text, tone })
     if (noticeTimer.current !== undefined) clock.clearTimeout(noticeTimer.current)
     noticeTimer.current = clock.setTimeout(() => { noticeTimer.current = undefined; setNotice(null) }, 10_000)
   }
@@ -319,7 +319,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     return work
   }
   const latest = entries.at(-1)
-  const toast: Toast | null = notice ? { tone: 'danger', text: notice, undoable: false } : latest ? { tone: latest.partial ? 'danger' : 'success', text: latest.text, undoable: true } : null
+  const toast: Toast | null = notice ? { tone: notice.tone, text: notice.text, undoable: false } : latest ? { tone: latest.partial ? 'danger' : 'success', text: latest.text, undoable: true } : null
   return { run, runBulk, undo, notify, toast, entries, checkCapacity, isBusy: (id: string) => queues.current.has(id), capacityAvailable: entries.filter(entry => entry.pending || entry.deadline > clock.now()).length + reserved < LIMIT }
 }
 

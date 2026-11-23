@@ -18,7 +18,7 @@ export function FolderSettings() {
   const [search, setSearch] = useState(''), [filter, setFilter] = useState<'all' | 'folder' | 'label'>('all'), [page, setPage] = useState(0)
   const [editing, setEditing] = useState<MailFolder>(), [deleting, setDeleting] = useState<MailFolder>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
-  const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-folders'] }); void client.invalidateQueries({ queryKey: ['messages'] }) }
+  const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-folders'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-quick-actions'] }) }
   const save = async () => {
     if (busy || !name.trim()) return
     setBusy(true); setError(false)

@@ -2889,6 +2889,25 @@ export type ProposalResult = {
 };
 
 /**
+ * QuickActionOut
+ */
+export type QuickActionOut = {
+    destination: MailFolder;
+    /**
+     * Last Used At
+     */
+    last_used_at: string;
+    /**
+     * Score
+     */
+    score: number;
+    /**
+     * Use Count
+     */
+    use_count: number;
+};
+
+/**
  * ReadError
  */
 export type ReadError = {
@@ -6352,6 +6371,24 @@ export type MailFoldersPageResponses = {
 };
 
 export type MailFoldersPageResponse = MailFoldersPageResponses[keyof MailFoldersPageResponses];
+
+export type MailFilingQuickActionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/folders/quick-actions';
+};
+
+export type MailFilingQuickActionsResponses = {
+    /**
+     * Response Mail Filing Quick Actions
+     *
+     * Successful Response
+     */
+    200: Array<QuickActionOut>;
+};
+
+export type MailFilingQuickActionsResponse = MailFilingQuickActionsResponses[keyof MailFilingQuickActionsResponses];
 
 export type MailFolderDeleteData = {
     body?: never;

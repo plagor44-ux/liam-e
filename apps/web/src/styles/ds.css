@@ -210,6 +210,7 @@ small { font-size: var(--font-size-small); }
   .le-mailrow-top .le-tag { grid-row: 4; grid-column: 1; }
   .le-mailrow-deadline { grid-row: 4; grid-column: 2; }
   .le-mailrow-main > .le-filing-tags { grid-row: 5; grid-column: 1 / -1; }
+  .le-mailrow-main > .le-quick-actions { grid-row: 6; grid-column: 1 / -1; }
 }
 .le-mailrow-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
 .le-mailrow-time { font-size: var(--font-size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; }

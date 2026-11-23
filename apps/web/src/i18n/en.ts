@@ -36,6 +36,7 @@ export const en = {
     addLabel: name => `Add label ${name}`, removeLabel: name => `Remove label ${name}`,
     someLabel: name => `${name} (partly assigned)`, enabled: 'Active', disabled: 'Paused', on: 'On', off: 'Off', conditions: 'Conditions', targets: 'Actions',
     done: 'Filing saved.', selectMail: 'Select an email first.',
+    quickActions: 'Quick filing', quickEmpty: 'No quick actions yet. File an email to see suggestions here.', quickError: 'The quick action could not be completed. Reload the choices.',
     ruleName: 'Rule name', account: 'Account', allAccounts: 'All accounts', sender: 'Sender address', domain: 'Sender domain', subject: 'Subject contains', recipient: 'Recipient address',
     none: 'None', markRead: 'Mark as read', markUnread: 'Mark as unread', archive: 'Archive at provider',
     active: 'Rule active', priority: 'Order', addRule: 'Add rule', editRule: 'Edit rule', deleteRule: 'Delete rule',

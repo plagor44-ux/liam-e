@@ -5218,6 +5218,34 @@
         "title": "ProposalResult",
         "type": "object"
       },
+      "QuickActionOut": {
+        "properties": {
+          "destination": {
+            "$ref": "#/components/schemas/MailFolder"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "title": "Last Used At",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "use_count": {
+            "title": "Use Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "destination",
+          "use_count",
+          "last_used_at",
+          "score"
+        ],
+        "title": "QuickActionOut",
+        "type": "object"
+      },
       "ReadError": {
         "properties": {
           "detail": {
@@ -11110,6 +11138,28 @@
           }
         },
         "summary": "Destination Page"
+      }
+    },
+    "/api/v1/mail/folders/quick-actions": {
+      "get": {
+        "operationId": "mail_filing_quick_actions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuickActionOut"
+                  },
+                  "title": "Response Mail Filing Quick Actions",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Quick Actions"
       }
     },
     "/api/v1/mail/folders/{destination_id}": {
