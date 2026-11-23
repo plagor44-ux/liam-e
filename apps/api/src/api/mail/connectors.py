@@ -13,6 +13,7 @@ directly: ``GET /v1/connectors``, ``GET /v1/connectors/{name}/tools``,
 from __future__ import annotations
 
 import json
+from collections.abc import Set as AbstractSet
 from contextvars import ContextVar
 from typing import Any
 from urllib.parse import quote
@@ -158,13 +159,18 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
             await _call_tool(account.provider, tool, {"messageId": message.provider_uid, "labelIds": change})
             # HTTP 200 can contain a text diagnostic. Confirm TRASH before removing INBOX.
             expected.update(change)
-            labels = (await thread_labels(account.provider, message.thread_id, {message.provider_uid})).get(message.provider_uid)
-            if labels is None or not present.issubset(labels) or absent.intersection(labels):
+            labels = await thread_labels(
+                account.provider, message.thread_id, {message.provider_uid}, required=present, forbidden=absent,
+            )
+            if message.provider_uid not in labels:
                 raise ValueError("Connector label change not confirmed")
 
 
-async def thread_labels(provider: str, thread_id: str, uids: set[str]) -> dict[str, list[str]]:
-    """Point-read only these thread members. Minimal responses may omit their labels."""
+async def thread_labels(
+    provider: str, thread_id: str, uids: set[str], *,
+    required: AbstractSet[str] = frozenset(), forbidden: AbstractSet[str] = frozenset(),
+) -> dict[str, list[str]]:
+    """Read exact thread members, falling back if MINIMAL lacks the required evidence."""
     found = {}
     for fmt in ("MINIMAL", "FULL_CONTENT"):
         thread = await call_read_tool_json(provider, "get_thread", {"threadId": thread_id, "messageFormat": fmt})
@@ -174,7 +180,8 @@ async def thread_labels(provider: str, thread_id: str, uids: set[str]) -> dict[s
             if isinstance(item, dict) and isinstance(uid := item.get("id"), str) and uid in uids:
                 labels = item.get("labelIds")
                 if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
-                    found[uid] = labels
+                    if required <= set(labels) and forbidden.isdisjoint(labels):
+                        found[uid] = labels
         if uids <= found.keys():
             break
     return found
