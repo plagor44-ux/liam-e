@@ -130,7 +130,9 @@ function applyDarkRules(fragment: DocumentFragment, rules: DarkRule[]): void {
     if (rule.selector.length > 512) continue
     for (const selector of rule.selector.split(',')) {
       if (selectorBudget-- <= 0) break
-      const part = selector.trim().replace(/(^|[\s>])(html|body)(?=$|[.#\s>])/giu, '$1.le-mail-dark-root')
+      const part = selector.trim()
+        .replace(/(^|[\s>])html\s*(?:>\s*)?body(?=$|[.#\s>])/giu, '$1body')
+        .replace(/(^|[\s>])(html|body)(?=$|[.#\s>])/giu, '$1.le-mail-dark-root')
       const weight = (part.match(/#[\w-]+/gu)?.length ?? 0) * 1_000_000
         + (part.match(/\.[\w-]+/gu)?.length ?? 0) * 1_000
         + (part.match(/(?:^|[\s>])([a-z][\w-]*)/giu)?.length ?? 0)
@@ -216,18 +218,20 @@ export function prepareMailDocument(raw: string, images: boolean, placeholder: s
     ALLOW_DATA_ATTR: false,
     RETURN_DOM_FRAGMENT: true,
   })
+  let canvasBackground: RGB | null = null
   if (dark) {
-    const root = document.createElement('div')
+    const root = clean.ownerDocument.createElement('div')
     root.className = 'le-mail-dark-root'
     root.append(clean)
     clean.append(root)
     applyDarkRules(clean, darkRules(stylesheets))
+    canvasBackground = rgb(root.style.backgroundColor)
   }
-  const wrapper = document.createElement('template')
+  const wrapper = clean.ownerDocument.createElement('template')
   wrapper.content.append(clean)
   const content = wrapper.innerHTML
   const imagePolicy = images ? 'https: http:' : "'none'"
-  const colors = dark ? `color-scheme:dark;background:#161e1c;color:#e8efec` : 'color-scheme:light;background:#fff;color:#171b1a'
+  const colors = dark ? `color-scheme:dark;background:${canvasBackground ? hexColor(canvasBackground) : '#161e1c'};color:#e8efec` : 'color-scheme:light;background:#fff;color:#171b1a'
   return { document: `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imagePolicy}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;${colors};overflow-wrap:anywhere}body{padding:8px;font:16px/1.5 sans-serif}img{max-width:100%;height:auto}table{max-width:100%}</style></head><body>${content}</body></html>`, hasRemoteImages }
 }
 

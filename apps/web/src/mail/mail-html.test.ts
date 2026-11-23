@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, spyOn, test } from 'bun:test'
 import { buildMailDocument, prepareMailDocument } from './mail-html'
 
 const hostile = `<script>alert(1)</script><p onclick="alert(2)">Hi</p><a href="javascript:alert(1)">bad</a><a href="https://example.test/page">link</a><meta http-equiv="refresh" content="0;url=https://evil.test"><form action="https://evil.test"><input></form><iframe src="https://evil.test"></iframe><style>@import url(https://evil.test/a)</style><p style="background:url(https://evil.test/b)">Hi</p><img src="https://images.example.test/x"><img src="cid:embedded">`
@@ -69,6 +69,34 @@ test('sender body rules apply to the message root and descendants', () => {
   const result = prepareMailDocument(raw, false, 'Unavailable', true).document
   expect(result).toContain('background-color: rgb(255, 255, 255)')
   expect(result).toContain('color: rgb(0, 0, 0)')
+})
+
+test.each(['html body', 'html > body'])('nested root selector %s colours the entire canvas', selector => {
+  const raw = `<style>@media(prefers-color-scheme:dark){${selector}{background:#fff;color:#000}}</style><p>Visible</p>`
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(result).toContain('background:#ffffff;color:#e8efec')
+  expect(result).toContain('background-color: rgb(255, 255, 255)')
+  expect(result).toContain('color: rgb(0, 0, 0)')
+})
+
+test('sanitized image nodes are never appended into an element of the app document', () => {
+  const calls: boolean[] = []
+  const hasImage = (nodes: (Node | string)[]) => nodes.some(node =>
+    (node instanceof window.DocumentFragment || node instanceof window.Element) && node.querySelector('img'))
+  const appendElement = window.Element.prototype.append
+  const appendFragment = window.DocumentFragment.prototype.append
+  const elementSpy = spyOn(window.Element.prototype, 'append').mockImplementation(function (this: Element, ...nodes: (Node | string)[]) {
+    if (hasImage(nodes)) calls.push(this.ownerDocument === document)
+    return appendElement.apply(this, nodes)
+  })
+  const fragmentSpy = spyOn(window.DocumentFragment.prototype, 'append').mockImplementation(function (this: DocumentFragment, ...nodes: (Node | string)[]) {
+    if (hasImage(nodes)) calls.push(this.ownerDocument === document)
+    return appendFragment.apply(this, nodes)
+  })
+  try {
+    prepareMailDocument('<img src="https://example.test/image">', true, 'Unavailable', true)
+    expect(calls).toEqual([false, false, false])
+  } finally { elementSpy.mockRestore(); fragmentSpy.mockRestore() }
 })
 
 test.each([

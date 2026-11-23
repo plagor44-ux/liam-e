@@ -61,6 +61,16 @@ async function main() {
     await paragraph.waitFor()
     const colors = await paragraph.evaluate(node => [getComputedStyle(node.parentElement).backgroundColor, getComputedStyle(node).color])
     if (colors[0] !== 'rgb(255, 255, 255)' || colors[1] !== 'rgb(0, 0, 0)') throw Error(`unexpected separated-rule colours: ${colors}`)
+    await page.evaluate(() => {
+      const frame = document.createElement('iframe')
+      frame.sandbox = 'allow-popups allow-popups-to-escape-sandbox'
+      frame.srcdoc = window.prepareMailDocument('<style>@media(prefers-color-scheme:dark){html > body{background:#fff;color:#000}}</style><p>Visible</p>', false, 'Unavailable', true).document
+      document.querySelector('main').replaceChildren(frame)
+    })
+    const frame = page.frameLocator('iframe')
+    await frame.locator('p').waitFor()
+    const canvas = await frame.locator('html').evaluate(node => getComputedStyle(node).backgroundColor)
+    if (canvas !== 'rgb(255, 255, 255)') throw Error(`sender background does not cover canvas: ${canvas}`)
     console.log('Synthetic Chromium: image consent, script isolation and safe link opening passed')
   } finally {
     await browser?.close()
