@@ -180,7 +180,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   return <section className="le-prompts"><h2 className="heading">{t.rules}</h2><p>{t.ruleDelay}</p>
     <form ref={formRef} className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
       {sourceActive && !editing && <p>{t.sourceRuleHint}</p>}
-      {sourceInitializing && <p role="status">{t.loading}</p>}
+      {sourceInitializing && <><p role="status">{t.loading}</p><Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button></>}
       {sourceLoadFailed && <Notice tone="info">{t.sourceLoadManual}</Notice>}
       {sourceActive && !editing && (sourceMissing || source.error instanceof MessageNotFoundError || source.data?.local_reference_only) && <Notice tone="danger">{t.sourceGone}</Notice>}
       {sourceActive && !editing && source.isError && !(source.error instanceof MessageNotFoundError) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void source.refetch() } }}>{t.error}</Notice>}
@@ -197,7 +197,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       <TextField type="number" label={t.priority} value={draft.position ?? 0} onChange={event => update({ position: Number(event.target.value) })} />
       <div className="le-prompt-actions"><Button type="submit" variant="primary" aria-describedby={!draft.folder_id && !draft.label_id ? targetHintId : undefined} disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_id) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
-      {(editing || sourceActive) && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
+      {(editing || sourceActive) && !sourceInitializing && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
       {!draft.folder_id && !draft.label_id && <p id={targetHintId} className="le-hint">{t.ruleTargetRequired}</p>}
       {matched !== undefined && <p role="status">{t.matches(matched)}</p>}
       </fieldset>

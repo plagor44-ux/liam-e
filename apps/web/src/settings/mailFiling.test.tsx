@@ -406,3 +406,27 @@ test('source load failure unlocks an empty manual rule draft', async () => {
   fireEvent.change(name, { target: { value: 'Manual' } })
   expect(name.value).toBe('Manual')
 })
+
+
+test('cancel during source loading ignores a late response', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  let resolveSource!: (value: unknown) => void
+  spyOn(sdk, 'mailMessageGet').mockImplementation((() => new Promise(resolve => { resolveSource = resolve })) as never)
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [] } as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [] } as never)
+  spyOn(sdk, 'mailRulesList').mockResolvedValue({ data: [] } as never)
+  const sourceUsed = mock(() => {})
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="mail" onSourceUsed={sourceUsed} /></QueryClientProvider>)
+  const cancel = screen.getByRole('button', { name: 'Abbrechen' }) as HTMLButtonElement
+  expect(cancel.matches(':disabled')).toBe(false)
+  fireEvent.click(cancel)
+  expect(sourceUsed).toHaveBeenCalledTimes(1)
+  const name = screen.getByLabelText('Name der Regel') as HTMLInputElement
+  expect(name.matches(':disabled')).toBe(false)
+  fireEvent.change(name, { target: { value: 'Manual draft' } })
+  await act(async () => { resolveSource({ data: { id: 'mail', account_id: 'account', sender_name: 'Late', sender_address: 'late@example.org', subject: 'Late' } }); await Promise.resolve() })
+  expect(name.value).toBe('Manual draft')
+  expect(name.matches(':disabled')).toBe(false)
+  expect(screen.queryByText('Vorschläge aus dieser Mail: Wähle die Bedingungen, die du verwenden möchtest.')).toBeNull()
+})
