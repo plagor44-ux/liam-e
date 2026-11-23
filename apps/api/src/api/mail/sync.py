@@ -219,7 +219,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
             verified=not unverified, restored=changes.confirmed_inbox, trashed=changes.trashed)
         changes.upserts = [row for row in changes.upserts if row["provider_uid"] not in blocked]
     # Rows this run rewrites that still hold text from an older extraction.
-    old_texts = {} if changes.full_rebuild else await message_access.stale_body_texts(account_id, "INBOX", BODY_VERSION, [parsed["provider_uid"] for parsed in changes.upserts], session=session)
+    old_texts = await message_access.stale_body_texts(account_id, "INBOX", BODY_VERSION, [parsed["provider_uid"] for parsed in changes.upserts], session=session)
     new_ids = []
     for parsed in changes.upserts:
         uid = parsed["provider_uid"]
@@ -231,7 +231,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
                 parsed["is_read"] = changes.read_updates[uid]
             if uid in changes.flag_updates:
                 parsed["is_flagged"] = changes.flag_updates[uid]
-        outdated = uid in old_texts and insight_outdated(old_texts[uid], parsed["body_text"])
+        outdated = uid in old_texts and insight_outdated(old_texts[uid], parsed.get("body_text", ""))
         row = await message_access.upsert_message(account_id=account_id, **parsed, body_version=BODY_VERSION, drop_insight=outdated,
                                                   unverified_connector=unverified, invalidated_insights=invalidated, session=session)
         if uid not in known:

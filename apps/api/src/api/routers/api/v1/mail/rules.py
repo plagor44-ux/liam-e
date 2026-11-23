@@ -1,6 +1,6 @@
 """Owner-managed classification rules and confirmed application."""
 
-from db.accessors import mail_message, mail_rule, mail_rule_run
+from db.accessors import mail_job, mail_message, mail_rule, mail_rule_run
 from db.models.mail_rule import MailRule
 from db.models.mail_rule_run import MailRuleRun
 from fastapi import APIRouter
@@ -84,9 +84,12 @@ async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
         raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.")
     if rule.version != body.expected_version:
         raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.")
+    snapshot = [[item.id, item.version] for item in await mail_rule.list_rules() if item.is_active]
     count = 0
     async for message in matching_messages(rule):
-        await rule_engine.execute_rule_run(rule.id, rule.version, message.id)
+        await mail_job.enqueue("mail_rule_apply", {"account_id": message.account_id, "message_id": message.id,
+            "rules": [[rule.id, rule.version]], "snapshot": snapshot},
+            dedupe_key=f"mail-rule-manual:{rule.id}:{rule.version}:{message.id}")
         count += 1
     return {"matched": count}
 

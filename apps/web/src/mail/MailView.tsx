@@ -82,7 +82,7 @@ export function MailView({ id }: { id: string }) {
   }
   const iconSize = !split || coarse ? 'lg' : 'md'
   const actions = data && !data.local_reference_only && <>
-    <FilingMenu ids={[id]} compact={!split} />
+    <FilingMenu ids={[id]} messages={[data]} compact={!split} />
     <IconButton label={texts.controls.archive} icon="archive" size={iconSize} shortcut={split ? 'E' : undefined} disabled={capabilities?.archive === false} tip={capabilities?.archive === false ? hint : undefined} onClick={() => remove('archive')} />
     <IconButton label={data.is_read ? texts.controls.markUnread : texts.controls.markRead} icon="mail-open" size={iconSize} shortcut={split ? 'U' : undefined} disabled={capabilities?.[readKind] === false} tip={capabilities?.[readKind] === false ? hint : undefined} onClick={() => { void run(id, readKind) }} />
     <IconButton label={texts.controls.trash} icon="trash-2" size={iconSize} tone="danger" shortcut={split ? 'Entf' : undefined} disabled={capabilities?.trash === false} tip={capabilities?.trash === false ? hint : undefined} onClick={() => remove('trash')} />

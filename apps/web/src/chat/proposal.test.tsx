@@ -656,10 +656,12 @@ test('app filing card names its destination and changes nothing until confirmed'
   const confirm = spyOn(sdk, 'chatProposalConfirm').mockImplementation((async () => ({ data: { ...initial, proposal_status: 'done', proposal: { ...initial.proposal!, result: { done: 1 } } } })) as never)
   setup(initial)
   expect(await screen.findByText(/Ordner: Projects/)).toBeTruthy()
+  expect(screen.getByText(/Vorgeschlagene Zuordnung — wartet auf Bestätigung/)).toBeTruthy()
   expect(confirm).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Zuordnen' }))
   await waitFor(() => expect(confirm).toHaveBeenCalledWith({ path: { proposal_id: 'p' }, body: { selected_ids: ['m'] }, throwOnError: true }))
   expect(await screen.findByText('Mails zugeordnet.')).toBeTruthy()
+  expect(screen.queryByText(/wartet auf Bestätigung/)).toBeNull()
 })
 
 test('rule card shows scope and actions before confirmation', async () => {

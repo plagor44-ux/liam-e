@@ -82,12 +82,20 @@ async def assign(message_ids: list[str], *, folder_id: str | None | object = _UN
     if set(labels) & set(removed):
         raise ValueError("A label cannot be added and removed together")
     async with _writer(session) as session:
-        query = select(MailMessage).where(MailMessage.id.in_(ids))
+        query = select(MailMessage).where(or_(MailMessage.id.in_(ids),
+            (MailMessage.unverified_connector.is_(False) & MailMessage.connector_alias_ids.overlap(ids))))
         if account_ids is not None:
             query = query.where(MailMessage.account_id.in_(account_ids), MailMessage.unverified_connector.is_(False))
         messages = (await session.scalars(query.order_by(MailMessage.id).with_for_update())).all()
-        if len(messages) != len(ids):
+        resolved = {row.id: row.id for row in messages}
+        for row in messages:
+            if not row.unverified_connector:
+                for alias in row.connector_alias_ids:
+                    if alias not in resolved:
+                        resolved[alias] = row.id
+        if any(message_id not in resolved for message_id in ids):
             raise LookupError("Message not found")
+        ids = sorted({resolved[message_id] for message_id in ids})
         destinations = ([folder_id] if isinstance(folder_id, str) else []) + labels + removed
         rows = (await session.scalars(select(MailFolder).where(MailFolder.id.in_(destinations)).with_for_update())).all()
         kinds = {row.id: row.kind for row in rows}

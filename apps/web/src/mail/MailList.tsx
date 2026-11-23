@@ -177,7 +177,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
     <span className="le-inbox-selection-count" role="status">{texts.inbox.selectionCount(selection.size)}</span>
     <Chip style={breakpoint === 'mobile' ? { minHeight: 'var(--control-height-lg)' } : undefined} onClick={() => { setSelection(new Set(items.slice(0, 100).map(item => item.id))); if (items.length > 100) notify(texts.inbox.selectLimit) }}>{texts.inbox.selectAll}</Chip>
     <div className="le-inbox-selection-actions">
-      <FilingMenu ids={[...selection]} onDone={endSelection} />
+      <FilingMenu ids={[...selection]} messages={selectedMails} onDone={endSelection} />
       <IconButton icon="archive" label={texts.controls.archive} tip={texts.inbox.bulkTips.archive} size={controlSize} disabled={!selection.size || bulkBlocked('archive')} onClick={() => bulk('archive')} />
       <IconButton icon="mail-open" label={bulkRead === 'mark_read' ? texts.controls.markRead : texts.controls.markUnread} tip={texts.inbox.bulkTips[bulkRead]} size={controlSize} disabled={!selection.size || bulkBlocked(bulkRead)} onClick={() => bulk(bulkRead)} />
       <IconButton icon="trash-2" label={texts.controls.trash} tip={texts.inbox.bulkTips.trash} tone="danger" size={controlSize} disabled={!selection.size || bulkBlocked('trash')} onClick={() => bulk('trash')} />

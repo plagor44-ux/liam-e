@@ -123,6 +123,7 @@ async def seed_filing() -> None:
     from db.models.mail_filing import MailFiling
     from db.models.mail_label_assignment import MailLabelAssignment
     from db.models.mail_rule import MailRule
+    from db.models.mail_rule_run import MailRuleRun
 
     require_local_database()
     folder = MailFolder(id=seed_id("folder", "projects"), name="Projekte (Beispiel)", kind="folder")
@@ -131,8 +132,14 @@ async def seed_filing() -> None:
     filings = [MailFiling(message_id=message_id, folder_id=folder.id) for message_id in messages]
     labels = [MailLabelAssignment(message_id=messages[0], label_id=label.id)]
     rules = [MailRule(id=seed_id("rule", "projects"), name="Angebote zuordnen (Beispiel)",
-                      sender_domain="meyer-gmbh.example", folder_id=folder.id, label_id=label.id)]
-    await seed_access.replace_filing([folder, label], filings, labels, rules)
+                      sender_domain="meyer-gmbh.example", folder_id=folder.id, label_id=label.id),
+             MailRule(id=seed_id("rule", "studio-skip"), name="Studio-Aktion (Beispiel)",
+                      account_id=seed_id("account", "privat"), sender_domain="hv-kurz.example",
+                      label_id=label.id, mark_read=True)]
+    runs = [MailRuleRun(id=seed_id("rule-run", "studio-skip"), rule_id=rules[1].id, rule_version=1,
+                        message_id=seed_id("mail", "hausverwaltung-nebenkosten"), account_id=seed_id("account", "privat"),
+                        status="done", provider_results_json=json.dumps({"mark_read": "skipped_unsupported"}))]
+    await seed_access.replace_filing([folder, label], filings, labels, rules, runs)
 
 
 async def seed(now: datetime | None = None) -> SeedResult:

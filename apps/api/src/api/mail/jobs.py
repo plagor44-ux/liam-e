@@ -74,7 +74,7 @@ async def _rules_with_lease(payload: dict, job_id: str, attempt: int) -> None:
 
     async def apply():
         prepared = []
-        snapshot = dict(payload["rules"])
+        snapshot = dict(payload.get("snapshot", payload["rules"]))
         for rule_id, version in payload["rules"]:
             prepared.append(await rules.prepare_rule_run(rule_id, version, payload["message_id"], snapshot=snapshot))
         for run in prepared:

@@ -40,6 +40,18 @@ def test_allows_local_database(monkeypatch, host):
 
 
 @pytest.mark.anyio
+async def test_filing_seed_includes_unsupported_studio_action(monkeypatch):
+    monkeypatch.setattr(db_env, 'database_url', 'postgresql+asyncpg://localhost/test')
+    replace = AsyncMock()
+    monkeypatch.setattr(dev_seed.seed_access, 'replace_filing', replace)
+    await dev_seed.seed_filing()
+    _, _, _, rules, runs = replace.await_args.args
+    rule = next(row for row in rules if row.id == dev_seed.seed_id('rule', 'studio-skip'))
+    assert rule.mark_read and rule.account_id == dev_seed.seed_id('account', 'privat')
+    assert runs[0].rule_id == rule.id and json.loads(runs[0].provider_results_json) == {'mark_read': 'skipped_unsupported'}
+
+
+@pytest.mark.anyio
 async def test_task_seed_uses_services_and_only_deletes_its_own_series(monkeypatch):
     from types import SimpleNamespace
     from db import engine

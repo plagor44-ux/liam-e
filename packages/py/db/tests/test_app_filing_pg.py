@@ -301,3 +301,39 @@ def test_verified_action_duplicate_keeps_app_filing(pg_db):
         assert await mail_message.get_message(duplicate.id) is None
 
     asyncio.run(run())
+
+
+def test_filing_accepts_verified_alias_and_checks_account_scope(pg_db):
+    async def run():
+        from db.accessors import mail_filing, mail_message
+        from db.engine import get_session_maker
+        from db.models.mail_message import MailMessage
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        row = await mail_message.upsert_message(account_id='account-a', folder='INBOX', provider_uid='uid')
+        async with get_session_maker().begin() as session:
+            current = await session.get(MailMessage, row.id)
+            current.connector_alias_ids = ['old-id']
+        with pytest.raises(LookupError):
+            await mail_filing.assign(['old-id'], folder_id=folder.id, account_ids=['account-b'])
+        await mail_filing.assign(['old-id', row.id], folder_id=folder.id, account_ids=['account-a'])
+        assert (await mail_filing.for_message(row.id)).folder_id == folder.id
+    asyncio.run(run())
+
+
+def test_rebuild_invalidates_changed_insight_for_retained_message(pg_db):
+    async def run():
+        from api.mail.sync import _apply_changes
+        from api.mail.sync_types import SyncChanges, BODY_VERSION
+        from db.accessors import mail_insight, mail_message
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='google', auth_type='oauth2', email_address='a@example.test')
+        row = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='uid', body_text='old', body_version=0)
+        await mail_insight.store_if_missing(row.id, points=['old'], deadline=None, needs_reply=False, followups=[], model='seed')
+        changes = SyncChanges(full_rebuild=True, cursor='new', upserts=[{'folder': 'INBOX', 'provider_uid': 'uid', 'body_text': 'new'}])
+        async with get_session_maker().begin() as session:
+            _, invalidated = await _apply_changes(account, changes, session, False, {})
+        assert row.id in invalidated
+        assert await mail_insight.get(row.id) is None
+        assert (await mail_message.get_message(row.id)).body_version == BODY_VERSION
+    asyncio.run(run())

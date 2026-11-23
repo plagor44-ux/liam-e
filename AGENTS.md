@@ -258,7 +258,9 @@ first matching folder wins and matching labels accumulate. New-message jobs and 
 rule snapshots commit with the sync batch. Local assignments precede provider actions; provider
 actions pass through `require_action`, unsupported actions are recorded as skipped, and uncertain
 writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.
-The owner can preview and explicitly apply a rule to indexed inbox mail. Chat proposals require
+The owner can preview and explicitly queue a rule for indexed inbox mail. Each manual application
+uses the same durable worker and recovery protocol as sync-triggered runs; an interrupted provider
+dispatch becomes unknown without being resent. Chat proposals require
 confirmation, recheck the saved account grant and commit the card with the local mutation. Rule
 proposals require a direct request in the current stored user message. Folder and rule management
 reads are browser-only and every non-GET operation is in the MCP mutating inventory.

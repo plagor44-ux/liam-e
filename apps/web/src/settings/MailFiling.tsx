@@ -6,7 +6,7 @@ import type { MailFolder, MailRule, RuleIn } from '../api/generated/types.gen'
 import { unwrap } from '../api/unwrap'
 import { accountsQuery } from '../api/queries'
 import { foldersQuery } from './mailQueries'
-import { Button, Notice, TextField } from '../ds'
+import { Button, Chip, Icon, Menu, Notice, TextField } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import { PreferenceDialog } from './Preferences'
 
@@ -35,9 +35,9 @@ export function FolderSettings() {
   return <section className="le-prompts"><h2 className="heading">{t.folders}</h2><p>{t.localOnly}</p>
     <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void save() }}>
       <TextField label={t.name} value={name} maxLength={120} onChange={event => setName(event.target.value)} required />
-      {!editing && <label className="le-label">{t.kind}<select className="le-input" value={kind} onChange={event => setKind(event.target.value as 'folder' | 'label')}><option value="folder">{t.folder}</option><option value="label">{t.label}</option></select></label>}
-      <Button type="submit" variant="primary" disabled={busy || !name.trim()}>{editing ? t.save : t.add}</Button>
-      {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setName('') }}>{t.cancel}</Button>}
+      {!editing && <div className="le-field"><span className="le-label">{t.kind}</span><Menu trigger={props => <Chip {...props} quiet aria-label={`${t.kind}: ${kind === 'folder' ? t.folder : t.label}`}>{kind === 'folder' ? t.folder : t.label}<Icon name="chevron-down" size="sm" /></Chip>} items={(['folder', 'label'] as const).map(value => ({ label: value === 'folder' ? t.folder : t.label, checked: kind === value, onSelect: () => setKind(value) }))} /></div>}
+      <div className="le-prompt-actions"><Button type="submit" variant="primary" disabled={busy || !name.trim()}>{editing ? t.save : t.add}</Button>
+      {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setName('') }}>{t.cancel}</Button>}</div>
     </form>
     {query.isPending && <p role="status">{t.loading}</p>}
     {(query.isError || error) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { setError(false); void query.refetch() } }}>{t.error}</Notice>}
@@ -56,6 +56,7 @@ export function RuleSettings() {
   const [draft, setDraft] = useState<RuleIn>({ name: '', is_active: true })
   const [editing, setEditing] = useState<MailRule>(), [applying, setApplying] = useState<MailRule>(), [deleting, setDeleting] = useState<MailRule>()
   const [showRuns, setShowRuns] = useState<string>(), [matched, setMatched] = useState<number>()
+  const [queued, setQueued] = useState<number>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
   const runs = useQuery({ queryKey: ['mail-rule-runs', showRuns], enabled: Boolean(showRuns), queryFn: () => unwrap(mailRuleRunsList({ path: { rule_id: showRuns! }, throwOnError: true })) })
   const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-rules'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-rule-runs'] }) }
@@ -71,7 +72,8 @@ export function RuleSettings() {
         setDraft({ name: '', is_active: true }); setEditing(undefined); setMatched(undefined); refresh()
       }
       if (action === 'apply' && applying?.id && applying.version) {
-        await unwrap(mailRuleApply({ path: { rule_id: applying.id }, body: { expected_version: applying.version, confirm_apply: true }, throwOnError: true }))
+        const result = await unwrap(mailRuleApply({ path: { rule_id: applying.id }, body: { expected_version: applying.version, confirm_apply: true }, throwOnError: true }))
+        setQueued(result.matched)
         setApplying(undefined); refresh()
       }
       if (action === 'delete' && deleting?.id && deleting.version) {
@@ -81,26 +83,41 @@ export function RuleSettings() {
     } catch { setError(true) } finally { setBusy(false) }
   }
   const rows = destinations.data ?? []
-  const choose = (key: 'account_id' | 'folder_id' | 'label_id', label: string, options: { id?: string; name: string }[]) => <label className="le-label">{label}<select className="le-input" value={draft[key] ?? ''} onChange={event => update({ [key]: event.target.value || null })}><option value="">{key === 'account_id' ? t.allAccounts : t.none}</option>{options.filter(row => row.id).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+  const choose = (key: 'account_id' | 'folder_id' | 'label_id', label: string, options: { id?: string; name: string }[]) => {
+    const selected = options.find(row => row.id === draft[key])?.name ?? (key === 'account_id' ? t.allAccounts : t.none)
+    return <div className="le-field"><span className="le-label">{label}</span><Menu trigger={props => <Chip {...props} quiet aria-label={`${label}: ${selected}`}>{selected}<Icon name="chevron-down" size="sm" /></Chip>} items={[
+      { label: key === 'account_id' ? t.allAccounts : t.none, checked: !draft[key], onSelect: () => update({ [key]: null }) },
+      ...options.filter(row => row.id).map(row => ({ label: row.name, checked: row.id === draft[key], onSelect: () => update({ [key]: row.id }) })),
+    ]} /></div>
+  }
+  const ruleSummary = (row: MailRule) => {
+    const account = (accounts.data ?? []).find(item => item.id === row.account_id)
+    const folder = rows.find(item => item.id === row.folder_id), label = rows.find(item => item.id === row.label_id)
+    const conditions = [row.account_id && `${t.account}: ${account?.display_name || account?.email_address || t.none}`, row.sender_address && `${t.sender}: ${row.sender_address}`, row.sender_domain && `${t.domain}: ${row.sender_domain}`, row.subject_contains && `${t.subject}: ${row.subject_contains}`, row.recipient && `${t.recipient}: ${row.recipient}`].filter(Boolean)
+    const actions = [folder && `${t.folder}: ${folder.name}`, label && `${t.label}: ${label.name}`,
+      row.mark_read && t.markRead, row.mark_unread && t.markUnread, row.archive && t.archive].filter(Boolean)
+    return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.conditions}: {conditions.join(' · ')}</small><small>{t.targets}: {actions.join(' · ')}</small></div>
+  }
   return <section className="le-prompts"><h2 className="heading">{t.rules}</h2><p>{t.ruleDelay}</p>
     <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
       <TextField label={t.ruleName} value={draft.name} onChange={event => update({ name: event.target.value })} maxLength={120} required />
       {choose('account_id', t.account, (accounts.data ?? []).map(account => ({ id: account.id, name: account.display_name || account.email_address })))}
       {(['sender_address', 'sender_domain', 'subject_contains', 'recipient'] as const).map((key, index) => <TextField key={key} label={[t.sender, t.domain, t.subject, t.recipient][index]!} value={draft[key] ?? ''} onChange={event => update({ [key]: event.target.value })} />)}
       {choose('folder_id', t.folder, rows.filter(row => row.kind === 'folder'))}{choose('label_id', t.label, rows.filter(row => row.kind === 'label'))}
-      <label><input type="checkbox" checked={draft.mark_read ?? false} onChange={event => update({ mark_read: event.target.checked, mark_unread: false })} /> {t.markRead}</label>
-      <label><input type="checkbox" checked={draft.mark_unread ?? false} onChange={event => update({ mark_unread: event.target.checked, mark_read: false })} /> {t.markUnread}</label>
-      <label><input type="checkbox" checked={draft.archive ?? false} onChange={event => update({ archive: event.target.checked })} /> {t.archive}</label>
-      <label><input type="checkbox" checked={draft.is_active ?? true} onChange={event => update({ is_active: event.target.checked })} /> {t.active}</label>
+      <div className="le-prompt-actions">{([['mark_read', t.markRead], ['mark_unread', t.markUnread], ['archive', t.archive], ['is_active', t.active]] as const).map(([key, label]) => {
+        const checked = key === 'is_active' ? draft.is_active ?? true : draft[key] ?? false
+        return <Button key={key} type="button" variant={checked ? 'primary' : 'secondary'} role="switch" aria-checked={checked} onClick={() => update(key === 'mark_read' ? { mark_read: !checked, mark_unread: false } : key === 'mark_unread' ? { mark_unread: !checked, mark_read: false } : { [key]: !checked })}>{label} · {checked ? t.on : t.off}</Button>
+      })}</div>
       <TextField type="number" label={t.priority} value={draft.position ?? 0} onChange={event => update({ position: Number(event.target.value) })} />
-      <Button type="submit" variant="primary" disabled={busy || !draft.name.trim()}>{editing ? t.save : t.addRule}</Button>
+      <div className="le-prompt-actions"><Button type="submit" variant="primary" disabled={busy || !draft.name.trim()}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
-      {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setDraft({ name: '', is_active: true }) }}>{t.cancel}</Button>}
+      {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setDraft({ name: '', is_active: true }) }}>{t.cancel}</Button>}</div>
       {matched !== undefined && <p role="status">{t.matches(matched)}</p>}
     </form>
+    {queued !== undefined && <p role="status">{t.queued(queued)}</p>}
     {rules.isPending && <p role="status">{t.loading}</p>}{(error || rules.isError || destinations.isError || accounts.isError) && <Notice tone="danger">{t.error}</Notice>}
     {rules.data?.length === 0 && <p>{t.ruleEmpty}</p>}
-    {rules.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>
+    {rules.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>{ruleSummary(row)}
       <Button variant="secondary" onClick={() => { setEditing(row); setDraft({ name: row.name, account_id: row.account_id, sender_address: row.sender_address, sender_domain: row.sender_domain, subject_contains: row.subject_contains, recipient: row.recipient, folder_id: row.folder_id, label_id: row.label_id, mark_read: row.mark_read, mark_unread: row.mark_unread, archive: row.archive, position: row.position, is_active: row.is_active }) }}>{t.editRule}</Button>
       <Button variant="secondary" onClick={() => setApplying(row)}>{t.apply}</Button><Button variant="secondary" onClick={() => setDeleting(row)}>{t.deleteRule}</Button>
       <Button variant="secondary" onClick={() => setShowRuns(showRuns === row.id ? undefined : row.id)}>{t.outcomes}</Button>

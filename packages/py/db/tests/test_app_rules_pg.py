@@ -25,6 +25,53 @@ def test_stale_rule_update_is_rejected(pg_db):
     asyncio.run(run())
 
 
+def test_manual_apply_recovers_interrupted_provider_action_as_unknown(pg_db, monkeypatch):
+    async def run():
+        import json
+        from datetime import timedelta
+        from unittest.mock import AsyncMock
+        from api.mail import actions, jobs, rules
+        from api.routers.api.v1.mail.rules import apply_rule, ApplyIn
+        from db.accessors import mail_filing, mail_job, mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models._common import utcnow
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='google', auth_type='oauth2', email_address='a@example.test')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        message = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='uid', sender_address='a@example.test')
+        rule = await mail_rule.create(name='File', sender_domain='example.test', folder_id=folder.id, mark_read=True)
+        assert (await apply_rule(rule.id, ApplyIn(expected_version=rule.version, confirm_apply=True)))['matched'] == 1
+        job = await mail_job.claim_next(utcnow(), stale_after=timedelta(minutes=5))
+        assert job and job.kind == 'mail_rule_apply'
+        run = await rules.prepare_rule_run(rule.id, rule.version, message.id, snapshot={rule.id: rule.version})
+        run, claimed = await mail_rule_run.record_action(run.id, 'mark_read', expected='pending', result='dispatching')
+        assert claimed
+        write = AsyncMock()
+        monkeypatch.setattr(actions, 'apply_action', write)
+        assert await jobs.run_once(utcnow() + timedelta(hours=1))
+        recovered = (await mail_rule_run.list_for_rule(rule.id))[0]
+        assert recovered.status == 'unknown'
+        assert json.loads(recovered.provider_results_json)['mark_read'] == 'unknown'
+        write.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_studio_skipped_seed_run_is_repeatable(pg_db):
+    async def run():
+        import json
+        from api.mail import dev_seed
+        from db.accessors import mail_rule, mail_rule_run
+        await dev_seed.seed_filing()
+        await dev_seed.seed_filing()
+        rule = await mail_rule.get(dev_seed.seed_id('rule', 'studio-skip'))
+        runs = await mail_rule_run.list_for_rule(rule.id)
+        assert rule.account_id == dev_seed.seed_id('account', 'privat') and rule.mark_read
+        assert len(runs) == 1 and json.loads(runs[0].provider_results_json) == {'mark_read': 'skipped_unsupported'}
+    asyncio.run(run())
+
+
 def test_rule_run_is_deduplicated_for_each_version_and_message(pg_db):
     async def run():
         from db.accessors import mail_rule_run

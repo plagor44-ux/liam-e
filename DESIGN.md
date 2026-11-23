@@ -635,7 +635,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   liam-e's inbox, labels do not, and neither changes the provider. Deletion names the consequence
   and needs a confirmation dialog; a destination used by a rule cannot be deleted yet.
 - `/settings/rules` manages ordered, versioned rules with account, sender, domain, subject and
-  recipient conditions. Preview shows a count; applying to existing mail needs a separate dialog.
+  recipient conditions. Preview shows a count; applying to existing mail needs a separate dialog and
+  confirms the number queued for background processing. Rule rows summarize their conditions, targets
+  and active state. Filing menus show shared assignments and identify partially assigned labels.
   Show unsupported provider actions as skipped and uncertain provider outcomes as unknown. Explain
   that a sleeping Studio instance delays rule execution until the next fetch.
 - The inbox filters global folders and labels across accounts. A selected mail or bulk selection
