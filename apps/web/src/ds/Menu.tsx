@@ -10,7 +10,7 @@ type TriggerProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref: Ref<HTMLBut
 // scrolls within the room it has, and no scroll area or stacking context around the trigger can cut it off or cover
 // it. Tab leaves it for the trigger, so the focus order stays that of the page.
 type Placement = 'down-start' | 'down-end' | 'up-start' | 'up-end'
-export type MenuItem = { label: string; icon?: IconName; tone?: 'danger'; disabled?: boolean; hint?: string; checked?: boolean | 'mixed'; checkable?: 'checkbox' } & (
+export type MenuItem = { label: string; icon?: IconName; tone?: 'danger'; disabled?: boolean; hint?: string; shortcut?: string; checked?: boolean | 'mixed'; checkable?: 'checkbox' } & (
   { onSelect: () => void; href?: undefined } | { href: string; onSelect?: undefined }
 )
 type MenuProps = {
@@ -20,14 +20,20 @@ type MenuProps = {
   placement?: Placement
   label?: string
   onOpen?: () => void
+  openRequest?: number
 }
-export function Menu({ trigger, items = [], groups, placement = 'down-start', label, onOpen }: MenuProps) {
+export function Menu({ trigger, items = [], groups, placement = 'down-start', label, onOpen, openRequest }: MenuProps) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLSpanElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const id = useId()
   const [vertical, edge] = placement.split('-') as ['down' | 'up', Align]
+  useEffect(() => {
+    if (openRequest === undefined || triggerRef.current?.disabled) return
+    document.dispatchEvent(new Event('liam-menu-open'))
+    setOpen(true)
+  }, [openRequest])
   const side: Side = vertical === 'up' ? 'top' : 'bottom'
   // Back to the trigger without scrolling to it: it may just have left the screen.
   const close = () => { setOpen(false); triggerRef.current?.focus({ preventScroll: true }) }
@@ -57,7 +63,7 @@ export function Menu({ trigger, items = [], groups, placement = 'down-start', la
     }
   }, [open])
   function renderItem(item: MenuItem, index: number) {
-    const content = <><span className="le-menu-title">{item.label}</span>{item.checked === true ? <Icon name="check" /> : item.icon && <Icon name={item.icon} />}{item.hint && <span className="le-menu-sub">{item.hint}</span>}</>
+    const content = <><span className="le-menu-title">{item.label}{item.shortcut && <> ({item.shortcut})</>}</span>{item.checked === true ? <Icon name="check" /> : item.icon && <Icon name={item.icon} />}{item.hint && <span className="le-menu-sub">{item.hint}</span>}</>
     if (item.href !== undefined) return <a key={index} role="menuitem" className="le-menu-item" href={item.href} target="_blank" rel="noreferrer" onClick={close}>{content}</a>
     return <button key={index} type="button" role={item.checked === undefined ? 'menuitem' : item.checkable === 'checkbox' ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={item.checked} aria-disabled={item.disabled || undefined} className={`le-menu-item${item.tone === 'danger' ? ' le-menu-item--danger' : ''}`} onClick={() => { if (item.disabled) return; close(); item.onSelect() }}>{content}</button>
   }

@@ -10,8 +10,9 @@ import { IconButton } from './IconButton'
 import { Menu } from './Menu'
 import { Tooltip } from './Tooltip'
 import { FilingTags } from '../mail/FilingTags'
+import { shortcutHint } from '../mail/inboxShortcuts'
 // A flagged mail carries the warm urgency dot next to the time; the dot names itself and shows a tooltip on hover.
-export function MailRow({ mail, actionCapabilities, accountLabel, filingDestinations = [], selected, coarse, onOpen, onAsk, onArchive, onToggleRead, onTrash, swipe, selectionMode = false, checked = false, onSelect }: { mail: MessageListItemOut; actionCapabilities?: MailActionCapabilities; accountLabel?: string; filingDestinations?: MailFolder[]; selected: boolean; coarse: boolean; onOpen: () => void; onAsk?: () => void; onArchive: () => void; onToggleRead: () => void; onTrash: () => void; selectionMode?: boolean; checked?: boolean; onSelect?: (shift: boolean) => void; swipe?: { basis?: SwipeBasis; enabled: boolean; navigation: string; valid: (basis: SwipeBasis) => boolean; run: (action: 'archive' | 'trash' | 'mark_read' | 'mark_unread') => void } }) {
+export function MailRow({ mail, actionCapabilities, accountLabel, filingDestinations = [], selected, coarse, shortcutsEnabled = true, onOpen, onAsk, onArchive, onToggleRead, onTrash, swipe, selectionMode = false, checked = false, onSelect }: { mail: MessageListItemOut; actionCapabilities?: MailActionCapabilities; accountLabel?: string; filingDestinations?: MailFolder[]; selected: boolean; coarse: boolean; shortcutsEnabled?: boolean; onOpen: () => void; onAsk?: () => void; onArchive: () => void; onToggleRead: () => void; onTrash: () => void; selectionMode?: boolean; checked?: boolean; onSelect?: (shift: boolean) => void; swipe?: { basis?: SwipeBasis; enabled: boolean; navigation: string; valid: (basis: SwipeBasis) => boolean; run: (action: 'archive' | 'trash' | 'mark_read' | 'mark_unread') => void } }) {
   const { texts, locale } = useI18n()
   const gesture = useSwipeRow(swipe?.basis, swipe?.enabled ?? false, swipe?.navigation ?? '', basis => swipe?.valid(basis) ?? false, action => swipe?.run(action))
   const readLabel = mail.is_read ? texts.controls.markUnread : texts.controls.markRead
@@ -20,9 +21,9 @@ export function MailRow({ mail, actionCapabilities, accountLabel, filingDestinat
   const readDisabled = actionCapabilities?.[mail.is_read ? 'mark_unread' : 'mark_read'] === false
   const trashDisabled = actionCapabilities?.trash === false
   const items = [
-    { label: texts.controls.archive, icon: 'archive' as const, shortcut: 'E', onSelect: onArchive, disabled: archiveDisabled, hint: archiveDisabled ? hint : undefined },
-    { label: readLabel, icon: 'mail-open' as const, shortcut: 'U', onSelect: onToggleRead, disabled: readDisabled, hint: readDisabled ? hint : undefined },
-    { label: texts.controls.trash, icon: 'trash-2' as const, shortcut: 'Entf', tone: 'danger' as const, onSelect: onTrash, disabled: trashDisabled, hint: trashDisabled ? hint : undefined },
+    { label: texts.controls.archive, icon: 'archive' as const, shortcut: shortcutsEnabled ? shortcutHint('archive', locale) : undefined, onSelect: onArchive, disabled: archiveDisabled, hint: archiveDisabled ? hint : undefined },
+    { label: readLabel, icon: 'mail-open' as const, shortcut: shortcutsEnabled ? shortcutHint('read', locale) : undefined, onSelect: onToggleRead, disabled: readDisabled, hint: readDisabled ? hint : undefined },
+    { label: texts.controls.trash, icon: 'trash-2' as const, shortcut: shortcutsEnabled ? shortcutHint('trash', locale) : undefined, tone: 'danger' as const, onSelect: onTrash, disabled: trashDisabled, hint: trashDisabled ? hint : undefined },
   ]
   const preview = gesture.preview
   const blockedPreview = preview && actionCapabilities?.[preview.action] === false

@@ -511,8 +511,11 @@ The quoted key label is UI text.
   returns to the trigger afterwards.
 - **Inbox keyboard shortcuts**, only on `desktop` and `wide`, not in fields and menus and never
   while a dialog is open (even if focus is not currently inside it): j and k next and previous
-  mail, Enter open, e archive, u read/unread, Entf or # trash. Tooltips name the shortcut in
-  parentheses, „Entf“ for trash.
+  mail, Enter open, e archive, u read/unread, Entf or # trash, x select, Esc end selection,
+  v choose a folder, l add a label and ? show the overview. The overview is also available from a
+  visible touch-sized button and names the context of every action. The shared binding definition
+  supplies handlers, overview, menu hints and tooltips; an already assigned label is not removed
+  through the add-label shortcut. Composition and conflicting modifiers also block shortcuts.
 - Icon buttons carry `aria-label`. Tooltips are `role="tooltip"` and attached to the element via
   `aria-describedby`.
 - Never status by color alone: urgency has a dot **and** text or tooltip, errors an icon and sentence.

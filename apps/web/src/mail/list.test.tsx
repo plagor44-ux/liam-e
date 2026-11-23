@@ -33,6 +33,44 @@ const settle = () => act(async () => { await new Promise(resolve => setTimeout(r
 // Waits until a removal's follow-up refetches are done, then lets their renders settle.
 const settleFetches = async (client: QueryClient) => { await waitFor(() => expect(client.isFetching()).toBe(0)); await settle() }
 
+test('shortcut overview is visible by button and the question-mark key', async () => {
+  setup('row')
+  await screen.findByText('Termin')
+  const button = screen.getByRole('button', { name: 'Tastenkürzel' })
+  fireEvent.click(button)
+  expect(screen.getByRole('dialog', { name: 'Tastenkürzel' })).toBeTruthy()
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  fireEvent.keyDown(document.body, { key: '?', shiftKey: true })
+  expect(await screen.findByRole('dialog', { name: 'Tastenkürzel' })).toBeTruthy()
+})
+
+test('filing shortcuts open the matching choices for current and selected mail', async () => {
+  const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
+  setup('row')
+  await screen.findByText('Termin')
+  fireEvent.keyDown(document.body, { key: 'j' })
+  fireEvent.keyDown(document.body, { key: 'v' })
+  expect(await screen.findByRole('menuitemradio', { name: 'Ordner: Projects' })).toBeTruthy()
+  expect(screen.queryByRole('menuitemcheckbox', { name: 'Label: Projects' })).toBeNull()
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+  fireEvent.click(screen.getByRole('button', { name: 'Auswählen: Termin' }))
+  fireEvent.keyDown(document.body, { key: 'l' })
+  fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Label: Projects' }))
+  await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['m1'], add_labels: ['label'] }))
+})
+
+test('filing shortcut uses the opened mail even when it is outside the loaded list', async () => {
+  const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
+  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { ...row, id: 'canonical', body_text: '', attachments: [], to: [], cc: [], thread_id: '', can_show_original: false, can_unsubscribe: false } } as never)
+  setup('empty', '/mail/alias')
+  const trigger = await screen.findByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement
+  await waitFor(() => expect(trigger.disabled).toBe(false))
+  fireEvent.keyDown(document.body, { key: 'v' })
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Ordner: Projects' }))
+  await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['canonical'], folder_id: 'folder' }))
+})
+
 test('inbox swipe uses the confirmed assignment and the shared action path', async () => {
   spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: { swipe_left: 'archive', swipe_right: 'toggle_read', revision: 1 }, response: { ok: true } })) as never)
   const action = spyOn(sdk, 'mailMessageAction').mockImplementation((async () => ({ data: { action_id: 'act', message: row }, response: { status: 200 } })) as never)

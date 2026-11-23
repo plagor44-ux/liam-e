@@ -105,3 +105,18 @@ test('filing menu removes an already assigned label', async () => {
   await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['a'], remove_labels: ['l'] }))
   folders.mockRestore(); assign.mockRestore()
 })
+
+test('add-label shortcut never removes a label already assigned', async () => {
+  const folders = spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'l', name: 'Work', kind: 'label' }] } as never)
+  const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const message = { id: 'a', app_label_ids: ['l'] } as MessageListItemOut
+  const { rerender } = render(<QueryClientProvider client={client}><FilingMenu ids={['a']} messages={[message]} /></QueryClientProvider>)
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement).disabled).toBe(false))
+  rerender(<QueryClientProvider client={client}><FilingMenu ids={['a']} messages={[message]} request={{ kind: 'label', serial: 1 }} /></QueryClientProvider>)
+  const item = await screen.findByRole('menuitemcheckbox', { name: 'Label: Work' })
+  expect(item.getAttribute('aria-disabled')).toBe('true')
+  fireEvent.click(item)
+  expect(assign).not.toHaveBeenCalled()
+  folders.mockRestore(); assign.mockRestore()
+})

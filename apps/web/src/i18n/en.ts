@@ -18,6 +18,10 @@ const ordinal = (day: number) => day + ({ one: 'st', two: 'nd', few: 'rd', other
 
 export const en = {
   offline: offline.en,
+  mailShortcuts: {
+    title: 'Keyboard shortcuts', close: 'Close', inbox: 'Inbox', current: 'Inbox · current email', selected: 'Inbox · current email or selection', selection: 'Inbox · selection',
+    next: 'Next email', previous: 'Previous email', open: 'Open email', archive: 'Archive', read: 'Toggle read status', trash: 'Move to trash', select: 'Select email', escape: 'End selection', folder: 'Move to folder', label: 'Add label', overview: 'Show keyboard shortcuts',
+  },
   mailFiling: {
     folders: 'Folders and labels', rules: 'Mail rules', folder: 'Folder', label: 'Label', name: 'Name', kind: 'Type',
     add: 'Add', rename: 'Rename', remove: 'Delete', save: 'Save', cancel: 'Cancel',

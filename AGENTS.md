@@ -257,6 +257,10 @@ display order never changes rule evaluation order.
 Folder settings fetch the complete inventory through browser-only, ID-cursor pages of at most 100,
 then sort and filter it before displaying 20 rows per page. The existing complete inventory remains
 available to filing and chat; settings changes invalidate both cached reads.
+Desktop inbox shortcuts use `apps/web/src/mail/inboxShortcuts.ts` as the shared definition for
+handling, hints and the visible overview. V opens folders, L opens labels and ? opens the overview;
+J/K, Enter, E, U, Delete/#, X and Escape retain their documented inbox actions. Editing fields,
+composition, conflicting modifiers, menus and dialogs prevent shortcuts.
 
 Folders and labels are global app data, never provider folders or labels. Each indexed message has
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label

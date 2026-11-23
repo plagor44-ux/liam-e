@@ -11,6 +11,10 @@ const noticeSubject = (subject: string) => {
 
 export const de = {
   offline: offline.de,
+  mailShortcuts: {
+    title: 'Tastenkürzel', close: 'Schließen', inbox: 'Posteingang', current: 'Posteingang · aktuelle Mail', selected: 'Posteingang · aktuelle Mail oder Auswahl', selection: 'Posteingang · Auswahl',
+    next: 'Nächste Mail', previous: 'Vorherige Mail', open: 'Mail öffnen', archive: 'Archivieren', read: 'Gelesenstatus ändern', trash: 'In den Papierkorb', select: 'Mail auswählen', escape: 'Auswahl beenden', folder: 'Ordner zuordnen', label: 'Label zuordnen', overview: 'Tastenkürzel anzeigen',
+  },
   mailFiling: {
     folders: 'Ordner und Labels', rules: 'Mailregeln', folder: 'Ordner', label: 'Label', name: 'Name', kind: 'Art',
     add: 'Anlegen', rename: 'Umbenennen', remove: 'Löschen', save: 'Speichern', cancel: 'Abbrechen',

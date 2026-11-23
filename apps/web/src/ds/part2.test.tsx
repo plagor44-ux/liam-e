@@ -6,6 +6,7 @@ import { ConfirmCard } from './ConfirmCard'
 import { MailRow } from './MailRow'
 import { Composer } from './Composer'
 import { AccountCard } from './AccountCard'
+import { shortcutHint } from '../mail/inboxShortcuts'
 
 afterEach(cleanup)
 const items: ProposalItem[] = ['a', 'b', 'c', 'd'].map(id => ({ id, kind: 'mail', title: id, subtitle: '' }))
@@ -72,7 +73,14 @@ test('unread coarse mail exposes its actions and markers', () => {
 test('the trash action of a mail row names the same shortcut as the open mail', async () => {
   render(<MailRow mail={mail} selected={false} coarse={false} onOpen={() => {}} onArchive={() => {}} onToggleRead={() => {}} onTrash={() => {}} />)
   fireEvent.mouseEnter(screen.getByRole('button', { name: 'In den Papierkorb' }))
-  expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', 'In den Papierkorb (Entf)')
+  expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', `In den Papierkorb (${shortcutHint('trash', 'de')})`)
+})
+
+test('mail action menu displays the same keys as the shortcut registry', () => {
+  render(<MailRow mail={mail} selected={false} coarse onOpen={() => {}} onArchive={() => {}} onToggleRead={() => {}} onTrash={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen zu Nebenkostenabrechnung 2025' }))
+  expect(screen.getByRole('menuitem', { name: `Archivieren (${shortcutHint('archive', 'de')})` })).toBeTruthy()
+  expect(screen.getByRole('menuitem', { name: `In den Papierkorb (${shortcutHint('trash', 'de')})` })).toBeTruthy()
 })
 
 test('a flagged mail row shows the warm urgency dot with a name and a tooltip', async () => {
