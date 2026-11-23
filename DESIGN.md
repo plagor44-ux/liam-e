@@ -532,7 +532,8 @@ The quoted key label is UI text.
   mail, Enter open, e archive, u read/unread, Entf or # trash, x select, Esc end selection,
   v choose a folder, l add a label and ? show the overview. The overview is also available from a
   visible touch-sized button and names the context of every action. The shared binding definition
-  supplies handlers, overview, menu hints and tooltips; an already assigned label is not removed
+  supplies handlers, overview, filing-menu header hints and tooltips; destination names have no key
+  suffix. An already assigned label is not removed
   through the add-label shortcut. Composition and conflicting modifiers also block shortcuts.
 - Icon buttons carry `aria-label`. Tooltips are `role="tooltip"` and attached to the element via
   `aria-describedby`.
@@ -678,7 +679,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   choices. Tags wrap within a mail row rather than clipping the names on narrow screens; kind is
   never communicated by colour alone.
   Recent and frequent destinations are compact one-click actions in the hovered, focused or selected
-  desktop row, the selection bar and the reader. Mobile rows offer them in the more menu; mobile
+  desktop row, the selection bar and the reader. The desktop row overlay stays out of layout and
+  above the filing tags. Mobile rows offer them in the more menu; mobile
   controls retain 44 px touch targets. Already-assigned destinations are excluded. Names truncate
   with their full text available to assistive technology and in a tooltip. Show at most five on
   desktop, three on tablet and two on mobile; actions never trigger row navigation. The reader
@@ -686,7 +688,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   The opened mail's action menu can create a folder or label and assign that mail in one explicit
   save, or open a new rule with editable account, sender, domain and subject suggestions. The owner
   chooses which suggested conditions to use; the sender suggests a name and the form has one Save
-  action. Leaving with edits asks for confirmation. A missing source
+  action. A folder or label is required, with a visible explanation until chosen. Leaving with edits
+  asks for confirmation. A missing source
   or duplicate name is explained, and unsaved rule edits use the settings leave guard.
   Destination choices and tags use locale-aware name order within each kind, ignoring case and
   accents and comparing digit runs numerically; fixed commands stay first. Rule rows sort by name and display the stored execution

@@ -261,7 +261,8 @@ Folder settings fetch the complete inventory through browser-only, ID-cursor pag
 then sort and filter it before displaying 20 rows per page. The existing complete inventory remains
 available to filing and chat; settings changes invalidate both cached reads.
 Desktop inbox shortcuts use `apps/web/src/mail/inboxShortcuts.ts` as the shared definition for
-handling, hints and the visible overview. V opens folders, L opens labels and ? opens the overview;
+handling, hints and the visible overview. Filing-menu headers show V and L once rather than on
+every destination. V opens folders, L opens labels and ? opens the overview;
 J/K, Enter, E, U, Delete/#, X and Escape retain their documented inbox actions. Editing fields,
 composition, conflicting modifiers, menus and dialogs prevent shortcuts.
 Filing records destination usage in the same transaction, without mail content or an extra write
@@ -269,12 +270,14 @@ request. The installation-scoped history is capped at 200 destinations and 90 da
 deleting a destination removes its history. Expired entries are removed on reads and writes and
 hourly while the worker runs. The browser-only quick-action read ranks frequency with a 30-day age
 weight; the UI applies locale order to ties and shows at most five actions, fewer on narrow screens.
-Already-applied destinations are excluded. Desktop rows show quick actions on hover, focus or selection;
+Already-applied destinations are excluded. Desktop rows show quick actions in an out-of-flow overlay
+on hover, focus or selection, above the filing tags;
 mobile rows expose them in the more menu. The selection bar and reader also offer compact actions.
 From an opened mail, create-and-assign creates the destination and files the verified source in one
 transaction; a missing source or duplicate name leaves no partial destination. The rule editor can
 prefill account, sender, domain and subject from that mail, proposing a rule name from the sender.
-The form has one explicit save action; its unsaved changes retain the leave confirmation. Only selected conditions are saved, and
+The form has one explicit save action; it explains the required folder or label before enabling
+save, and unsaved changes retain the leave confirmation. Only selected conditions are saved, and
 the source and its account are rechecked under lock during creation, including verified aliases.
 List-header conditions are not supported. Unsaved rule edits use the settings leave guard.
 Each destination has a validated named colour or `none`; existing rows default to `none` on upgrade.
