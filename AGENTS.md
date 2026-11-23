@@ -255,7 +255,7 @@ The inbox, reading pane, filing choices and settings identify destinations by ki
 name. Filing tags use folder and tag icons with text and wrap on narrow screens so both names
 remain readable without relying on colour.
 User-facing destination lists sort folders and labels by the active UI locale, ignoring case and
-accents, using numeric collation and ID ties. Server inventories use ID order; the UI sorts names. Rule settings use the same name order and show the stored priority; this
+accents, using numeric collation and ID ties. Server inventories use the same case- and accent-insensitive numeric ordering; the UI sorts for its locale. Rule settings use the same name order and show the stored priority; this
 display order never changes rule evaluation order.
 Folder settings fetch the complete inventory through browser-only, ID-cursor pages of at most 100,
 then sort and filter it before displaying 20 rows per page. The existing complete inventory remains

@@ -525,3 +525,13 @@ def test_verified_merge_preserves_rule_dispatch_deduplication(pg_db, monkeypatch
         assert len(await mail_rule_run.list_for_rule(rule.id)) == 1
         write.assert_not_awaited()
     asyncio.run(run())
+
+
+def test_destination_inventory_uses_numeric_case_and_accent_order(pg_db):
+    async def run():
+        from db.accessors import mail_filing
+        for name in ('Archiv 10', 'archiv 2', 'Äpfel'):
+            await mail_filing.create_destination(name, 'folder')
+        rows = await mail_filing.list_destinations()
+        assert [row.name for row in rows] == ['Äpfel', 'archiv 2', 'Archiv 10']
+    asyncio.run(run())

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
+import re
+import unicodedata
 from typing import get_args
 
 from sqlalchemy import delete, or_, select, update
@@ -51,9 +53,17 @@ async def create_and_assign(message_id: str, name: str, kind: str, color: Destin
         return row
 
 
+def _destination_order(row: MailFolder) -> tuple:
+    # DE/EN base-strength ordering with numeric digit runs and stable ID ties.
+    name = ''.join(char for char in unicodedata.normalize('NFD', row.name.casefold()) if not unicodedata.combining(char))
+    parts = tuple((1, int(part)) if part.isdecimal() else (0, part) for part in re.split(r'(\d+)', name))
+    return (row.kind, parts, row.id)
+
+
 async def list_destinations() -> list[MailFolder]:
     async with get_session_maker()() as session:
-        return list((await session.scalars(select(MailFolder).order_by(MailFolder.id))).all())
+        rows = list((await session.scalars(select(MailFolder))).all())
+    return sorted(rows, key=_destination_order)
 
 
 async def destination_page(cursor: str | None, limit: int) -> tuple[list[MailFolder], str | None]:
