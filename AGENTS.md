@@ -945,6 +945,7 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
   - `bunx nx run db:revision --message "..."` — autogenerate Alembic revision; `bunx nx run db:migrate` — apply (`heads`, not `head`)
   - `bash tools/uv.sh run --no-sync python -m api.mail.dev_seed` — fill the local database with the design-board sample data. The seed rejects database hosts other than `localhost`, `127.0.0.1` and `::1`; repeated runs replace only seed rows and associated insight/sync/chat rows. For visual checks start the API with `MAIL_WORKER_ENABLED=false` so seed accounts are not synced.
   - `bash tools/deploy.sh <commit>` — deploy a commit from `origin/main` to the existing Studio app; the IDs come from the git-ignored `mistral.deployment.json` ([docs/providers-and-operations.md](docs/providers-and-operations.md)).
+  - `bash tools/uv.sh run --no-sync python tools/issue_form.py forms|skeleton <form>|check <form> <file>|create <form> --title ... --body-file <file>|verify <number>` — create and check issues in the shape of an issue form (`--dry-run` prints the `gh` command).
 
 ## Conventions
 
@@ -1074,7 +1075,8 @@ anything on GitHub (issues, PRs, reviews, comments), therefore already counts as
 - After API changes always run `gen-types` and commit `apps/api/openapi.json` + `apps/web/src/api/generated`.
 - Table changes always require a migration (`db:revision` + `db:migrate`), never hand-edited `versions/` files.
 - Before committing: run `bun run check` (builds everything, checks UI types with `tsc` and the generated client) and the affected test suites.
-- Use the templates in `.github/` (`ISSUE_TEMPLATE/`, `pull_request_template.md`) for issues and PRs. One task produces exactly one branch and one PR, even when it covers several issues; each issue gets its own commits and closing keyword (`Closes #12. Closes #13.`). State explicitly in the PR what was not checked.
+- Every issue follows exactly one form in `.github/ISSUE_TEMPLATE/`: that form's `### <label>` sections in the form's order and nothing else (an empty optional field reads `_No response_`, checkboxes list every option), plus that form's label. GitHub enforces the forms only in the browser. The API and `gh issue create` accept any body, and gh cannot fill in a form (its `--template` works only interactively and lists no YAML forms). Create issues with `tools/issue_form.py create` after starting from its `skeleton`; it checks the sections and sets the label. After editing an issue, `tools/issue_form.py verify <number>` must pass.
+- PRs use `.github/pull_request_template.md`. One task produces exactly one branch and one PR, even when it covers several issues; each issue gets its own commits and closing keyword (`Closes #12. Closes #13.`). State explicitly in the PR what was not checked.
 
 <!-- OPENWIKI:START -->
 

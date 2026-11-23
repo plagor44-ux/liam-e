@@ -19,6 +19,21 @@ start with a [bug report](.github/ISSUE_TEMPLATE/01-bug.yml) or a
 acceptance criteria and how to verify them, so that a person or a coding agent can implement the
 issue and a reviewer can check it.
 
+Every issue follows exactly one form: its sections in the form's order and its label. In the
+browser GitHub offers only the forms. The API and `gh issue create` accept any text and cannot fill
+in a form, so an issue created from the command line, by a person or a coding agent, goes through
+[`tools/issue_form.py`](tools/issue_form.py):
+
+```bash
+bash tools/uv.sh run --no-sync python tools/issue_form.py skeleton 02-change > body.md
+# Answer every section in body.md and delete the hint comments, then:
+bash tools/uv.sh run --no-sync python tools/issue_form.py create 02-change --title "..." --body-file body.md
+```
+
+`create` checks that the body has exactly the form's `###` sections in order, with every required
+field answered, and adds the form's label. `verify <number>` checks an existing issue, for example
+after an edit.
+
 ## Set up and check your change
 
 The [local development guide](docs/local-development.md) covers installation, the database,
