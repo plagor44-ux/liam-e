@@ -886,7 +886,12 @@ def test_partial_label_failure_publishes_observed_trash(pg_db, monkeypatch, veri
             result = await browser.post(f"{MAIL}/messages/{ids['target']}/actions", json={"kind": "trash"})
             assert provider.labels["target"] == {"INBOX", "TRASH"}
             assert await mail_action.latest_open(ids["target"]) is None
-            assert (result.status_code, result.json()["detail"]["code"]) == (409, "provider_partial")
+            assert result.status_code == 409
+            assert result.json()["detail"] == {
+                "code": "provider_partial",
+                "message": "Der Anbieter hat nur einen Teil der Änderung ausgeführt.",
+                "folder": "TRASH",
+            }
             assert await listed(browser, "INBOX") == {ids["sibling"]}
             assert await listed(browser, "TRASH") == {ids["target"]}
             provider.replay = True

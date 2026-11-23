@@ -141,7 +141,7 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
     except actions.ActionPartialError as error:
         raise HTTPException(status_code=409, detail={
             "code": "provider_partial",
-            "message": "Gmail hat nur einen Teil der Änderung ausgeführt.",
+            "message": "Der Anbieter hat nur einen Teil der Änderung ausgeführt.",
             "folder": error.folder,
         }) from None
     except actions.ActionFailedError:

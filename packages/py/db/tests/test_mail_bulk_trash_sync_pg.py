@@ -187,7 +187,11 @@ def test_toolbar_bulk_trash_sync_and_group_undo(pg_db, monkeypatch, record_prope
             if partial:
                 assert f"{len(confirmed)} von {len(selected)} Mails in den Papierkorb gelegt" in outcome["toast"]
                 assert "fehlt die Bestätigung" in outcome["toast"]
-                assert ("teilweise geändert" in outcome["toast"]) == bool(part_moved)
+                if part_moved:
+                    noun = "Mail" if len(part_moved) == 1 else "Mails"
+                    assert f"Der Anbieter hat {len(part_moved)} {noun} teilweise geändert." in outcome["toast"]
+                else:
+                    assert "teilweise geändert" not in outcome["toast"]
                 assert outcome["tone"] == "alert"
             else:
                 assert f"{len(selected)} Mails in den Papierkorb gelegt" in outcome["toast"]

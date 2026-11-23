@@ -47,8 +47,7 @@ test('a partial trash reconciles the inbox without a success toast or undo', asy
   setup()
   fireEvent.click(screen.getByText('trash 2'))
   const status = await screen.findByRole('status')
-  expect(status.textContent).toContain('nur einen Teil')
-  expect(status.textContent).toContain('Papierkorb')
+  expect(status.textContent).toBe('Der Anbieter hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Papierkorb.')
   expect(screen.queryByText('Zweite:false')).toBeNull()
   expect(screen.getByText('Erste:false')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
@@ -65,7 +64,7 @@ test('bulk trash identifies partial moves and offers undo only for completed mes
   setup()
   fireEvent.click(screen.getByText('bulk trash'))
   const status = await screen.findByRole('status')
-  expect(status.textContent).toContain('teilweise')
+  expect(status.textContent).toContain('Der Anbieter hat 1 Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.')
   expect(screen.queryByText('Erste:false')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Rückgängig' }))
   await screen.findByText('Zweite:false')
@@ -86,6 +85,9 @@ test('bulk notices use the proper plural and action wording', () => {
   expect(de.inbox.bulkResult('trash', 0, 2)).toBe('0 von 2 Mails in den Papierkorb gelegt. Für 2 Mails fehlt die Bestätigung.')
   expect(en.inbox.bulkResult('trash', 2, 3)).toBe('Moved 2 of 3 emails to trash. The move is unconfirmed for 1 email.')
   expect(de.inbox.bulkResult('spam', 2, 2)).toBe('2 Mails als Spam markiert.')
+  expect(en.inbox.bulkProviderPartial(2)).toBe('The provider partly changed 2 emails. The list shows their reported folders.')
+  expect(en.inbox.providerPartial.ARCHIVE).toBe('The provider only applied part of the change. The email is in the archive.')
+  expect(en.errors.provider_partial).toBe('The provider only applied part of the change. Check the email’s folder.')
 })
 
 test('bulk partial failure rolls back only failed rows and keeps one group undo', async () => {
