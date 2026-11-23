@@ -233,12 +233,13 @@ def test_refused_trash_never_hides_mail_or_records_success(pg_db, monkeypatch, r
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("verified", [True, False], ids=["bound", "inbox-only"])
 @pytest.mark.parametrize("undo", [False, True], ids=["trash", "undo"])
 @pytest.mark.parametrize("omit_on_retry", [False, True], ids=["contradiction", "missing-labels-on-retry"])
-def test_stale_full_read_cannot_confirm_a_noop_studio_move(pg_db, monkeypatch, undo, omit_on_retry):
+def test_stale_full_read_cannot_confirm_a_noop_studio_move(pg_db, monkeypatch, verified, undo, omit_on_retry):
     async def run():
         provider = StudioMailbox()
-        ids = await provider.connect(monkeypatch)
+        ids = await provider.connect(monkeypatch, verified=verified)
         target, sibling = ids["target"], ids["sibling"]
         endpoint = f"{MAIL}/messages/{target}/actions"
         async with client() as browser:
