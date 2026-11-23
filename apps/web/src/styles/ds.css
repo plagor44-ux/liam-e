@@ -53,7 +53,7 @@ small { font-size: var(--font-size-small); }
 .le-icon-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-pill); border: 0; background: transparent; color: var(--ink-muted); transition: background-color var(--le-dur) ease, color var(--le-dur) ease; }
 .le-icon-btn:hover { background: var(--accent-soft); color: var(--accent); }
 .le-icon-btn--danger:hover { background: var(--danger-soft); color: var(--danger); }
-.le-icon-btn:disabled { background: transparent; color: var(--line-strong); cursor: not-allowed; }
+.le-icon-btn:disabled, .le-mailrow-actions .le-icon-btn[aria-disabled="true"] { background: transparent; color: var(--line-strong); cursor: not-allowed; }
 .le-icon-btn--lg { width: 44px; height: 44px; }
 .le-send { display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-pill); border: 0; background: var(--accent); color: var(--on-accent); transition: background-color var(--le-dur) ease, transform var(--le-dur-fast) ease; }
 .le-send:hover { background: var(--accent-hover); }

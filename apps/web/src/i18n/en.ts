@@ -644,6 +644,7 @@ export const en = {
     askTip: 'Opens a chat about this email', draftTip: 'Drafts a reply in chat. liam-e sends it once you confirm.',
     draftPrompt: 'Draft a reply to this email.', forward: 'Forward', forwardPrompt: 'Forward this email.', unsubscribe: 'Unsubscribe', unsubscribePrompt: 'Unsubscribe from this newsletter.', unsubscribeUnavailable: 'This email offers no way to unsubscribe.', spam: 'Mark as spam',
     original: 'View original', originalUnavailable: 'This account can’t fetch the original email.',
+    studioGmailActionsUnavailable: 'With Gmail in Mistral Studio, you can’t archive emails, move them to trash, mark them as spam, or mark them as read or unread.',
     localReference: 'Saved local copy. Its connection to the current mailbox could not be verified.',
     originalTitle: 'Original email', originalLoading: 'Fetching original …', originalHeaders: 'Headers', originalSource: 'Source',
     originalTruncated: 'This email is large, so you’re seeing the beginning of its source.', originalEmpty: 'The provider returned no source for this email.',

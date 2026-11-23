@@ -2,7 +2,7 @@ import { mailCapabilities } from '../test/mailCapabilities'
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
 import { Route } from '../routes/_app/mail'
 import { inboxSearchSchema } from './filters'
@@ -388,6 +388,29 @@ test('a mixed selection keeps every message and explains why actions are blocked
   expect(screen.getByText('2 ausgewählt')).toBeTruthy()
 })
 
+test('a Gmail Studio row explains unavailable actions on hover and focus', async () => {
+  const action = spyOn(sdk, 'mailMessageAction')
+  setup('rows', '/mail', false, false, true)
+  const row = (await screen.findByText('Zweite')).closest<HTMLElement>('.le-mailrow')!
+  const hint = 'Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.'
+  expect(within(row).queryByText(hint)).toBeNull()
+  const archive = within(row).getByRole('button', { name: 'Archivieren' })
+  expect(archive.getAttribute('aria-disabled')).toBe('true')
+  fireEvent.mouseEnter(archive)
+  expect((await screen.findByRole('tooltip')).textContent).toBe(hint)
+  fireEvent.mouseLeave(archive)
+  expect(screen.queryByRole('tooltip')).toBeNull()
+  fireEvent.keyDown(document.body, { key: 'Tab' })
+  act(() => { archive.focus() })
+  expect(document.activeElement).toBe(archive)
+  const tooltip = screen.getByRole('tooltip')
+  expect(tooltip.textContent).toBe(hint)
+  expect(archive.getAttribute('aria-describedby')).toBe(tooltip.id)
+  fireEvent.click(archive)
+  expect(action).not.toHaveBeenCalled()
+  expect(screen.getByText('Zweite')).toBeTruthy()
+})
+
 test('a swipe on Gmail Studio explains the restriction without an action', async () => {
   spyOn(sdk, 'settingsUiGet').mockImplementation((async () => ({ data: { swipe_left: 'trash', swipe_right: 'archive', revision: 1 }, response: { ok: true } })) as never)
   const action = spyOn(sdk, 'mailMessageAction')
@@ -401,7 +424,9 @@ test('a swipe on Gmail Studio explains the restriction without an action', async
     fireEvent(element, event)
   }
   pointer('pointerdown', 200); pointer('pointermove', 300); pointer('pointerup', 300)
-  expect((await screen.findByRole('alert')).textContent).toContain('Gmail in Mistral Studio')
+  const hint = 'Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.'
+  expect((await screen.findByRole('alert')).textContent).toBe(hint)
+  expect(screen.getAllByText(hint)).toHaveLength(1)
   expect(action).not.toHaveBeenCalled()
   expect(screen.getByText('Zweite')).toBeTruthy()
 })
