@@ -112,6 +112,8 @@ test('filing menu removes an already assigned label', async () => {
   fireEvent.click(trigger)
   const label = await screen.findByRole('menuitemcheckbox', { name: 'Label: Work' })
   expect(label.getAttribute('aria-checked')).toBe('true')
+  expect(label.querySelector('.lucide-tag')).toBeTruthy()
+  expect(label.querySelector('.lucide-check')).toBeTruthy()
   fireEvent.click(label)
   await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['a'], remove_labels: ['l'] }))
   folders.mockRestore(); assign.mockRestore()
@@ -130,4 +132,17 @@ test('add-label shortcut never removes a label already assigned', async () => {
   fireEvent.click(item)
   expect(assign).not.toHaveBeenCalled()
   folders.mockRestore(); assign.mockRestore()
+})
+
+
+test('filing menu choices expose their shortcut hints', async () => {
+  const folders = spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', name: 'Projects', kind: 'folder' }, { id: 'l', name: 'Work', kind: 'label' }] } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><FilingMenu ids={['a']} showShortcuts /></QueryClientProvider>)
+  const trigger = await screen.findByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement
+  await waitFor(() => expect(trigger.disabled).toBe(false))
+  fireEvent.click(trigger)
+  expect(await screen.findByRole('menuitem', { name: 'Ordner: Projects (V)' })).toBeTruthy()
+  expect(screen.getByRole('menuitem', { name: 'Label: Work (L)' })).toBeTruthy()
+  folders.mockRestore()
 })

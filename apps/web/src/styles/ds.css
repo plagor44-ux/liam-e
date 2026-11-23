@@ -120,7 +120,7 @@ small { font-size: var(--font-size-small); }
 .le-menu-item:hover { background: var(--surface-soft); }
 .le-menu-title { font-weight: 600; }
 .le-menu-sub { grid-column: 1; font-size: var(--font-size-small); color: var(--ink-muted); }
-.le-menu-item .le-ico { grid-row: 1 / span 2; grid-column: 2; color: var(--accent); }
+.le-menu-icons { grid-row: 1 / span 2; grid-column: 2; display: inline-flex; align-items: center; gap: var(--space-1); color: var(--accent); }
 
 /* Quick action */
 .le-qa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }

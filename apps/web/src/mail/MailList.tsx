@@ -201,7 +201,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
       <IconButton icon="key-round" label={texts.mailShortcuts.title} shortcut={breakpoint === 'desktop' || breakpoint === 'wide' ? shortcutHint('overview', locale) : undefined} size={controlSize} onClick={() => setShowShortcuts(true)} />
     </div>
   </div>
-  const buttons = <>
+  const buttons = <div className="le-inbox-controls">
     {(breakpoint === 'desktop' || breakpoint === 'wide') && <FilingMenu ids={filingCurrent ? [filingCurrent.id] : []} messages={filingCurrent ? [filingCurrent] : []} compact request={!selectionMode ? filingRequest : undefined} showShortcuts />}
     {breakpoint === 'mobile'
       ? <Tooltip content={texts.inbox.selectTip}><Button className="le-inbox-control" variant="secondary" icon="list-checks" onClick={() => setSelectionMode(true)}>{texts.inbox.startSelection}</Button></Tooltip>
@@ -209,7 +209,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
     <IconButton className="le-inbox-control" icon="search" label={texts.inbox.search} tip={texts.inbox.searchTip} size={controlSize} onClick={() => { setSearchOpen(true); searchRef.current?.querySelector('input')?.focus() }} />
     <IconButton className="le-inbox-control" icon="refresh-cw" label={texts.inbox.refresh} tip={texts.inbox.refreshTip} size={controlSize} disabled={syncing} onClick={() => { void refresh() }} />
     <IconButton className="le-inbox-control" icon="key-round" label={texts.mailShortcuts.title} shortcut={breakpoint === 'desktop' || breakpoint === 'wide' ? shortcutHint('overview', locale) : undefined} size={controlSize} onClick={() => setShowShortcuts(true)} />
-  </>
+  </div>
   const time = summary.data?.last_sync_at ? formatTime(new Date(summary.data.last_sync_at), undefined, locale) : undefined
   const selectedAccount = accounts.find(account => account.id === search.account?.[0])
   const accountLabel = selectedAccount ? selectedAccount.display_name || selectedAccount.email_address : texts.controls.allAccounts

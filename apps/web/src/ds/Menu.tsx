@@ -63,7 +63,7 @@ export function Menu({ trigger, items = [], groups, placement = 'down-start', la
     }
   }, [open])
   function renderItem(item: MenuItem, index: number) {
-    const content = <><span className="le-menu-title">{item.label}{item.shortcut && <> ({item.shortcut})</>}</span>{item.checked === true ? <Icon name="check" /> : item.icon && <Icon name={item.icon} />}{item.hint && <span className="le-menu-sub">{item.hint}</span>}</>
+    const content = <><span className="le-menu-title">{item.label}{item.shortcut && <> ({item.shortcut})</>}</span>{(item.icon || item.checked === true) && <span className="le-menu-icons">{item.icon && <Icon name={item.icon} />}{item.checked === true && <Icon name="check" />}</span>}{item.hint && <span className="le-menu-sub">{item.hint}</span>}</>
     if (item.href !== undefined) return <a key={index} role="menuitem" className="le-menu-item" href={item.href} target="_blank" rel="noreferrer" onClick={close}>{content}</a>
     return <button key={index} type="button" role={item.checked === undefined ? 'menuitem' : item.checkable === 'checkbox' ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={item.checked} aria-disabled={item.disabled || undefined} className={`le-menu-item${item.tone === 'danger' ? ' le-menu-item--danger' : ''}`} onClick={() => { if (item.disabled) return; close(); item.onSelect() }}>{content}</button>
   }
