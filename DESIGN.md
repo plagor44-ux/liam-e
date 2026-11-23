@@ -426,8 +426,8 @@ Quoted German labels in this section are UI text.
   „Diese Woche“ (from Monday) and „Älter“.
 - Selection mode replaces the top bar on `desktop` and `tablet`, the status-and-buttons row on
   `mobile`. It shows „Auswahl beenden“, the count, „Alle auswählen“ and archive, read/unread,
-  trash and spam. On phones the four actions occupy a second row so they are all visible. The bar
-  may scroll independently on larger displays. On `mobile` and
+  trash and spam. The filing and provider actions occupy a second row so they remain visible
+  within the mail list; they wrap further if needed. On `mobile` and
   with a coarse pointer targets are at least 44 px. Tapping a row selects it; the avatar directly
   selects even outside the mode. With a mouse it shows a checkbox on hover, shift-click selects the
   range. „Alle auswählen“ selects at most 100 loaded mails. Escape ends selection. Swiping and row

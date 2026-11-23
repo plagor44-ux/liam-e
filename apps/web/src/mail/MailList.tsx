@@ -172,7 +172,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   }
   const controlSize = breakpoint === 'mobile' || coarse ? 'lg' : 'md'
   const selectionBlocked = bulkBlocked('archive') || bulkBlocked('trash') || bulkBlocked('spam') || bulkBlocked(bulkRead)
-  const selectionBar = <div className={`le-inbox-selection${selectionBlocked ? ' le-inbox-selection--limited' : ''}`}>
+  const selectionBar = <div className="le-inbox-selection">
     <IconButton icon="x" label={texts.inbox.endSelection} tip={texts.inbox.endSelectionTip} size={controlSize} onClick={endSelection} />
     <span className="le-inbox-selection-count" role="status">{texts.inbox.selectionCount(selection.size)}</span>
     <Chip style={breakpoint === 'mobile' ? { minHeight: 'var(--control-height-lg)' } : undefined} onClick={() => { setSelection(new Set(items.slice(0, 100).map(item => item.id))); if (items.length > 100) notify(texts.inbox.selectLimit) }}>{texts.inbox.selectAll}</Chip>

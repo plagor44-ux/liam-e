@@ -195,16 +195,14 @@
 .le-inbox-search .le-input { width: 100%; }
 .le-filing-tags { display: flex; gap: var(--space-1); min-width: 0; overflow: hidden; white-space: nowrap; }
 .le-filing-tags .le-tag { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.le-inbox-selection { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); min-width: 0; max-width: 100%; overflow-x: auto; }
-.le-inbox-selection--limited { flex-wrap: nowrap; }
-.le-inbox-selection-actions { display: flex; gap: var(--space-2); }
+.le-inbox-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); min-width: 0; max-width: 100%; }
+.le-inbox-selection-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); }
 .le-mailrow-swipe .le-mailrow.is-checked { background: var(--accent-soft); }
 .le-inbox-selection > * { flex: none; }
-.le-inbox-selection-count { white-space: nowrap; }
+.le-inbox-selection > .le-inbox-selection-count { flex: 1; white-space: nowrap; }
+.le-inbox-selection > .le-inbox-selection-actions { flex: 0 1 100%; min-width: 0; }
 @media (max-width: 639px) {
-  .le-inbox-selection { flex-wrap: wrap; row-gap: 0; }
-  .le-inbox-selection-count { flex: 1; }
-  .le-inbox-selection-actions { flex-basis: 100%; justify-content: space-between; }
+  .le-inbox-selection { row-gap: 0; }
   .le-inbox-mobile-status .le-inbox-control { min-height: var(--control-height-lg); }
 }
 @media (pointer: coarse) { .le-inbox-selection .le-chip { min-height: var(--control-height-lg); min-width: var(--control-height-lg); } }
