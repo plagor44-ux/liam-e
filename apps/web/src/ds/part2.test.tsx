@@ -107,8 +107,9 @@ test('the urgency dot stays visible and reachable while the row shows its action
     expect(getComputedStyle(actions).display).toBe('flex')
     expect(getComputedStyle(screen.getByRole('img', { name: 'Dringend' })).visibility).toBe('visible')
     expect(getComputedStyle(container.querySelector('time')!).visibility).toBe('visible')
-    // The action bar occupies its own grid row and cannot cover the tags or time.
-    expect(style.textContent).toMatch(/^\.le-mailrow-actions \{ position: relative; z-index: 2; grid-column: 2 \/ 4;/mu)
+    // The toolbar is out of flow and cannot add height on hover or focus.
+    expect(style.textContent).toMatch(/^\.le-mailrow-actions \{ position: absolute;[^}]*flex-wrap: nowrap;/mu)
+    expect(style.textContent).toMatch(/\.le-mailrow-actions \{[^}]*top: 0;[^}]*right: 0;/u)
     fireEvent.mouseEnter(screen.getByRole('img', { name: 'Dringend' }))
     expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', 'Dringend')
   } finally {
@@ -227,4 +228,10 @@ test('mobile single-line composer centers its 20 px line box inside the 54 px he
   expect(mobileBlock).toContain('.le-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }')
   expect(mobileBlock).toContain('.le-composer textarea { min-width: 0; padding: var(--space-4) var(--space-3) var(--space-4) var(--space-4); line-height: 20px; }')
   expect(mobileBlock).toContain('.le-composer-bar { align-self: end; flex-wrap: nowrap; gap: var(--space-1); padding: var(--space-1); }')
+})
+
+
+test('mobile rows hide the desktop action bar in every active state', async () => {
+  const css = await Bun.file(new URL('../styles/ds-app.css', import.meta.url)).text()
+  expect(css).toMatch(/@media \(max-width: 639px\), \(pointer: coarse\) \{[^\n]*\.le-mailrow:hover \.le-mailrow-actions[^\n]*\.le-mailrow:focus-within \.le-mailrow-actions[^\n]*\.le-mailrow\.is-hover \.le-mailrow-actions[^\n]*\.le-mailrow\[aria-current="true"\] \.le-mailrow-actions \{ display: none; \}/u)
 })

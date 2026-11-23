@@ -79,7 +79,7 @@
 .le-mailrow-marks { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); }
 .le-mailrow-more { display: none; position: relative; z-index: 3; align-self: flex-end; }
 .le-mailrow-more--coarse { display: flex; }
-@media (max-width: 639px), (pointer: coarse) { .le-mailrow-more { display: flex; } .le-mailrow .le-mailrow-actions { display: none; } }
+@media (max-width: 639px), (pointer: coarse) { .le-mailrow-more { display: flex; } .le-mailrow:hover .le-mailrow-actions, .le-mailrow:focus-within .le-mailrow-actions, .le-mailrow.is-hover .le-mailrow-actions, .le-mailrow[aria-current="true"] .le-mailrow-actions { display: none; } }
 @media (pointer: coarse) { .le-composer .le-send, .le-composer .le-chip, .le-account-actions .le-icon-btn, .le-menu-item, .le-confirm-foot .le-btn, .le-chat-suggestions .le-chip, .le-chat-header .le-menu-anchor .le-chip, .le-chat-topbar .le-menu-anchor .le-chip, .le-model-control .le-chip, .le-chat-end .le-btn, .le-chat-retry .le-btn, .le-chat-reference .le-icon-btn { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }
 @media (pointer: coarse) { .le-drawer-brand .le-icon-btn, .le-shell-status .le-icon-btn { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }
 @media (pointer: coarse) { .le-topbar .le-icon-btn, .le-side .le-icon-btn, .le-side .le-nav-item, .le-side .le-conv, .le-drawer .le-nav-item, .le-drawer .le-conv { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } .le-composer textarea { min-height: var(--control-height-lg); } }
