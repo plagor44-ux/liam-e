@@ -36,7 +36,7 @@ export const de = {
     createUnknown: 'Die Antwort fehlt. Prüfe den Eintrag und die Mail, bevor du es erneut versuchst.',
     sourceAccountGone: 'Das Konto dieser Mail ist nicht mehr verfügbar. Erstelle bei Bedarf eine neue Regel ohne diesen Bezug.',
     sourceRuleHint: 'Vorschläge aus dieser Mail: Wähle die Bedingungen, die du verwenden möchtest.', useCondition: (name: string) => `${name} verwenden`,
-    ruleName: 'Name der Regel', account: 'Konto', allAccounts: 'Alle Konten', sender: 'Absenderadresse', domain: 'Absenderdomain', subject: 'Betreff enthält', recipient: 'Empfängeradresse',
+    ruleTargetRequired: 'Wähle einen Ordner oder ein Label, um die Regel anzulegen.', ruleName: 'Name der Regel', account: 'Konto', allAccounts: 'Alle Konten', sender: 'Absenderadresse', domain: 'Absenderdomain', subject: 'Betreff enthält', recipient: 'Empfängeradresse',
     none: 'Keine Auswahl', markRead: 'Als gelesen markieren', markUnread: 'Als ungelesen markieren', archive: 'Beim Anbieter archivieren',
     active: 'Regel aktiv', priority: 'Reihenfolge', addRule: 'Regel anlegen', editRule: 'Regel bearbeiten', deleteRule: 'Regel löschen',
     ruleEmpty: 'Noch keine Regeln. Erstelle eine Regel für neue Mails.', ruleDelay: 'Regeln laufen nach dem Abruf. Schläft die Studio-Instanz, verzögert sich die Ausführung bis zum nächsten Abruf.',

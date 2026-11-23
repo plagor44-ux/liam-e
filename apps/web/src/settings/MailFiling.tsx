@@ -105,6 +105,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   } : draft
   const execute = async (action: 'save' | 'preview' | 'apply' | 'delete') => {
     if (executing.current) return
+    if (action === 'save' && !(draft.folder_id || draft.label_id)) return
     if (action === 'save' && sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable)) return
     executing.current = true; setBusy(true); setError(false)
     try {
@@ -178,9 +179,10 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
         return <Button key={key} type="button" variant={checked ? 'primary' : 'secondary'} role="switch" aria-checked={checked} onClick={() => update(key === 'mark_read' ? { mark_read: !checked, mark_unread: false } : key === 'mark_unread' ? { mark_unread: !checked, mark_read: false } : { [key]: !checked })}>{label} · {checked ? t.on : t.off}</Button>
       })}</div>
       <TextField type="number" label={t.priority} value={draft.position ?? 0} onChange={event => update({ position: Number(event.target.value) })} />
-      <div className="le-prompt-actions"><Button type="submit" variant="primary" disabled={busy || !draft.name.trim() || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
+      <div className="le-prompt-actions"><Button type="submit" variant="primary" disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_id) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
       {(editing || sourceActive) && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
+      {!draft.folder_id && !draft.label_id && <p className="le-hint">{t.ruleTargetRequired}</p>}
       {matched !== undefined && <p role="status">{t.matches(matched)}</p>}
     </form>
     {queued !== undefined && <p role="status">{t.queued(queued)}</p>}
