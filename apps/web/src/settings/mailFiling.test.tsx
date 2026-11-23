@@ -107,5 +107,6 @@ test('an IMAP rebuild notice names the account and offers manual application', a
   render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
   fireEvent.click(await screen.findByRole('button', { name: 'Letzte Ausführungen' }))
   expect(await screen.findByText(/Nach dem Neuaufbau dieses IMAP-Postfachs.*Konto: Work/)).toBeTruthy()
+  expect(screen.getByText(/Zusammenfassungen für ungelesene Mails werden wie gewohnt erstellt/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' })).toBeTruthy()
 })

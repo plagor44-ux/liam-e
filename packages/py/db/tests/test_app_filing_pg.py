@@ -248,13 +248,18 @@ def test_full_rebuild_keeps_same_verified_message_filing(pg_db, provider, auth, 
     asyncio.run(run())
 
 
-def test_imap_generation_change_does_not_transfer_filing(pg_db):
+def test_imap_generation_change_does_not_transfer_filing(pg_db, monkeypatch):
     async def run():
+        import json
+        from datetime import timedelta
+        from unittest.mock import AsyncMock
         from sqlalchemy import select
+        from api.mail import actions, jobs
         from api.mail.sync import _apply_changes
         from api.mail.sync_types import SyncChanges
         from db.accessors import mail_filing, mail_message, mail_sync_state, mail_rule, mail_rule_run
         from db.engine import get_session_maker
+        from db.models._common import utcnow
         from db.models.mail_account import MailAccount
         from db.models.mail_job import MailJob
 
@@ -266,7 +271,7 @@ def test_imap_generation_change_does_not_transfer_filing(pg_db):
         folder = await mail_filing.create_destination('Projects', 'folder')
         await mail_filing.assign([original.id], folder_id=folder.id)
         rule = await mail_rule.create(name='File', folder_id=folder.id, mark_read=True)
-        changes = SyncChanges(full_rebuild=True, cursor='8:10', upserts=[{'folder': 'INBOX', 'provider_uid': '1', 'imap_uidvalidity': '8'}])
+        changes = SyncChanges(full_rebuild=True, cursor='8:10', upserts=[{'folder': 'INBOX', 'provider_uid': '1', 'imap_uidvalidity': '8', 'internal_date': utcnow()}])
         async with get_session_maker().begin() as session:
             ids, _ = await _apply_changes(account, changes, session, False, {})
         rows = await mail_message.list_page()
@@ -277,15 +282,30 @@ def test_imap_generation_change_does_not_transfer_filing(pg_db):
         notices = await mail_rule_run.list_for_rule(rule.id)
         assert len(notices) == 1 and notices[0].status == 'skipped_imap_rebuild'
         assert notices[0].message_id != rows[0].id
+        rebuilt_id = rows[0].id
         assert (await mail_filing.for_message(rows[0].id)).folder_id is None
         assert (await mail_filing.for_message(original.id)).folder_id is None
         await mail_sync_state.save_state(account_id=account.id, cursor='8:10')
-        later = SyncChanges(full_rebuild=False, cursor='8:11', upserts=[{'folder': 'INBOX', 'provider_uid': '2', 'imap_uidvalidity': '8'}])
+        later = SyncChanges(full_rebuild=False, cursor='8:11', upserts=[
+            {'folder': 'INBOX', 'provider_uid': '1', 'imap_uidvalidity': '8', 'internal_date': utcnow()},
+            {'folder': 'INBOX', 'provider_uid': '2', 'imap_uidvalidity': '8', 'internal_date': utcnow()},
+        ])
         async with get_session_maker().begin() as session:
             later_ids, _ = await _apply_changes(account, later, session, False, {})
         assert len(later_ids) == 1 and (await mail_message.get_message(later_ids[0])).provider_uid == '2'
         async with get_session_maker()() as session:
-            assert len((await session.scalars(select(MailJob).where(MailJob.kind == 'mail_rule_apply'))).all()) == 1
+            queued = (await session.scalars(select(MailJob).where(MailJob.kind == 'mail_rule_apply'))).all()
+            assert len(queued) == 1 and json.loads(queued[0].payload_json)['message_id'] == later_ids[0]
+        write = AsyncMock()
+        monkeypatch.setattr(actions, 'apply_action', write)
+        assert await jobs.run_once()
+        write.assert_awaited_once_with(later_ids[0], 'mark_read')
+        runs = await mail_rule_run.list_for_rule(rule.id)
+        assert {run.message_id for run in runs} == {notices[0].message_id, later_ids[0]}
+        assert (await mail_filing.for_message(rebuilt_id)).folder_id is None
+        # Normal account-wide insight filling still finds recent unread rebuilt mail.
+        candidates = await mail_message.unread_without_insight(since=utcnow() - timedelta(days=14), limit=100, account_id=account.id)
+        assert rebuilt_id in {message.id for message in candidates}
 
     asyncio.run(run())
 

@@ -265,9 +265,11 @@ dispatch becomes unknown without being resent. Verified duplicate merges retain 
 deduplication; conflicting uncertain dispatches become unknown. Run outcomes identify a folder
 assignment overridden by a higher-priority match using the reserved `_folder: overridden` entry in
 the run results (not a provider action). On an IMAP UIDVALIDITY change, the rebuilt page
-has no reliable old/new delivery identity, so it is conservatively excluded from new-mail rule and
-insight scheduling; later incremental deliveries continue normally. Active matching rules receive
-a durable rebuild notice suggesting manual apply. Message dates cannot prove delivery freshness.
+has no reliable old/new delivery identity, so it is conservatively excluded from new-mail rule
+scheduling; later incremental deliveries continue normally. Active matching rules receive a durable
+rebuild notice suggesting manual apply. Normal background insight filling can still summarize recent
+unread rebuilt mail within its existing limits, including on a later sync. Message dates cannot prove
+delivery freshness.
 Chat proposals require
 confirmation, recheck the saved account grant and commit the card with the local mutation. Rule
 proposals require a direct request in the current stored user message. Folder and rule management
