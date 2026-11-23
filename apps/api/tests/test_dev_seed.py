@@ -52,6 +52,7 @@ async def test_filing_seed_includes_unsupported_studio_action(monkeypatch):
     assert any(row.message_id == runs[0].message_id and row.label_id == rule.label_id for row in labels)
     assert {row.destination_id for row in usage} == {row.id for row in destinations}
     assert all(row.use_count > 0 for row in usage)
+    assert {row.color for row in destinations} == {'moss', 'teal'}
 
 
 @pytest.mark.anyio

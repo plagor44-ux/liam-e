@@ -15,6 +15,11 @@ const pairs: [string, string[], number][] = [
   ['control-border', ['surface', 'surface-soft'], 3],
   ['focus-ring', ['surface', 'surface-soft', 'surface-ground', 'accent-soft'], 3],
 ]
+const destinationColors = ['moss', 'olive', 'teal', 'lake', 'denim', 'indigo', 'plum', 'berry']
+for (const color of destinationColors) {
+  pairs.push(['ink', [`filing-${color}-background`], 4.5])
+  pairs.push([`filing-${color}-border`, ['surface', 'surface-soft'], 3])
+}
 function declarations(selector: RegExp): Record<string, string> {
   const block = css.match(selector)?.[1]
   if (!block) throw new Error(`Missing theme: ${selector}`)
@@ -39,6 +44,9 @@ for (const [name, selector] of [
       if (!value) throw new Error(`Missing ${key}`)
       const reference = value.match(/^var\(--([\w-]+)\)$/)
       return reference ? resolve(reference[1]!) : value
+    }
+    for (const color of destinationColors) for (const reserved of ['acc-1', 'acc-2', 'acc-3', 'acc-4', 'warm', 'danger']) {
+      expect(resolve(`filing-${color}-border`), `${color} must not reuse ${reserved}`).not.toBe(resolve(reserved))
     }
     for (const [foreground, backgrounds, minimum] of pairs) for (const background of backgrounds) {
       const a = luminance(resolve(foreground)), b = luminance(resolve(background))

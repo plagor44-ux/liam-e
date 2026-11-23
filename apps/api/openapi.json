@@ -2097,6 +2097,22 @@
       "CreateAndAssignIn": {
         "additionalProperties": false,
         "properties": {
+          "color": {
+            "default": "none",
+            "enum": [
+              "none",
+              "moss",
+              "olive",
+              "teal",
+              "lake",
+              "denim",
+              "indigo",
+              "plum",
+              "berry"
+            ],
+            "title": "Color",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "folder",
@@ -2197,6 +2213,22 @@
       "DestinationIn": {
         "additionalProperties": false,
         "properties": {
+          "color": {
+            "default": "none",
+            "enum": [
+              "none",
+              "moss",
+              "olive",
+              "teal",
+              "lake",
+              "denim",
+              "indigo",
+              "plum",
+              "berry"
+            ],
+            "title": "Color",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "folder",
@@ -3400,6 +3432,22 @@
       },
       "MailFolder": {
         "properties": {
+          "color": {
+            "default": "none",
+            "enum": [
+              "none",
+              "moss",
+              "olive",
+              "teal",
+              "lake",
+              "denim",
+              "indigo",
+              "plum",
+              "berry"
+            ],
+            "title": "Color",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -5467,6 +5515,28 @@
       "RenameIn": {
         "additionalProperties": false,
         "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "moss",
+                  "olive",
+                  "teal",
+                  "lake",
+                  "denim",
+                  "indigo",
+                  "plum",
+                  "berry"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
           "name": {
             "maxLength": 120,
             "minLength": 1,

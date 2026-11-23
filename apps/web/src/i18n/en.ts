@@ -24,6 +24,7 @@ export const en = {
   },
   mailFiling: {
     folders: 'Folders and labels', rules: 'Mail rules', folder: 'Folder', label: 'Label', name: 'Name', kind: 'Type',
+    color: 'Colour', colors: { none: 'No colour', moss: 'Moss', olive: 'Olive', teal: 'Teal', lake: 'Lake', denim: 'Denim', indigo: 'Indigo', plum: 'Plum', berry: 'Berry' },
     add: 'Add', rename: 'Rename', remove: 'Delete', save: 'Save', cancel: 'Cancel',
     removeName: name => `Delete ${name}`, removeTitle: 'Delete folder or label?',
     removeDescription: 'Assignments are removed from emails. Nothing changes at the provider. First change any rules that use this item.',

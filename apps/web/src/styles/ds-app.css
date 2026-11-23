@@ -196,6 +196,15 @@
 .le-filing-tags { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
 .le-filing-tags .le-tag { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .le-filing-tags .le-tag svg { flex-shrink: 0; }
+.le-filing-swatch { display: inline-block; width: 16px; height: 12px; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--surface); }
+.le-destination-moss { background: var(--filing-moss-background); border: 1px solid var(--filing-moss-border); color: var(--ink); }
+.le-destination-olive { background: var(--filing-olive-background); border: 1px solid var(--filing-olive-border); color: var(--ink); }
+.le-destination-teal { background: var(--filing-teal-background); border: 1px solid var(--filing-teal-border); color: var(--ink); }
+.le-destination-lake { background: var(--filing-lake-background); border: 1px solid var(--filing-lake-border); color: var(--ink); }
+.le-destination-denim { background: var(--filing-denim-background); border: 1px solid var(--filing-denim-border); color: var(--ink); }
+.le-destination-indigo { background: var(--filing-indigo-background); border: 1px solid var(--filing-indigo-border); color: var(--ink); }
+.le-destination-plum { background: var(--filing-plum-background); border: 1px solid var(--filing-plum-border); color: var(--ink); }
+.le-destination-berry { background: var(--filing-berry-background); border: 1px solid var(--filing-berry-border); color: var(--ink); }
 .le-quick-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; margin-top: var(--space-1); }
 .le-quick-actions .le-btn { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--font-size-small); }
 .le-shortcut-list { display: grid; gap: var(--space-2); padding: 0; list-style: none; }

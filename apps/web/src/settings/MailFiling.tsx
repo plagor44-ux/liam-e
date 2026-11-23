@@ -12,10 +12,13 @@ import { PreferenceDialog } from './Preferences'
 import { SettingsSaveScope, useSettingsSlice } from './SettingsSave'
 import { sortDestinations, sortNamed } from '../mail/filingOrder'
 
+const destinationColors = ['none', 'moss', 'olive', 'teal', 'lake', 'denim', 'indigo', 'plum', 'berry'] as const satisfies readonly NonNullable<MailFolder['color']>[]
+
 export function FolderSettings() {
   const { texts, locale } = useI18n(), t = texts.mailFiling
   const client = useQueryClient(), query = useQuery(folderInventoryQuery())
   const [name, setName] = useState(''), [kind, setKind] = useState<'folder' | 'label'>('folder')
+  const [color, setColor] = useState<NonNullable<MailFolder['color']>>('none')
   const [search, setSearch] = useState(''), [filter, setFilter] = useState<'all' | 'folder' | 'label'>('all'), [page, setPage] = useState(0)
   const [editing, setEditing] = useState<MailFolder>(), [deleting, setDeleting] = useState<MailFolder>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
@@ -24,9 +27,9 @@ export function FolderSettings() {
     if (busy || !name.trim()) return
     setBusy(true); setError(false)
     try {
-      if (editing?.id) await unwrap(mailFolderUpdate({ path: { destination_id: editing.id }, body: { name }, throwOnError: true }))
-      else await unwrap(mailFolderCreate({ body: { name, kind }, throwOnError: true }))
-      setName(''); setEditing(undefined); refresh()
+      if (editing?.id) await unwrap(mailFolderUpdate({ path: { destination_id: editing.id }, body: { name, color }, throwOnError: true }))
+      else await unwrap(mailFolderCreate({ body: { name, kind, color }, throwOnError: true }))
+      setName(''); setColor('none'); setEditing(undefined); refresh()
     } catch { setError(true) } finally { setBusy(false) }
   }
   const remove = async () => {
@@ -45,8 +48,9 @@ export function FolderSettings() {
     <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void save() }}>
       <TextField label={t.name} value={name} maxLength={120} onChange={event => setName(event.target.value)} required />
       {!editing && <div className="le-field"><span className="le-label">{t.kind}</span><Menu trigger={props => <Chip {...props} quiet aria-label={`${t.kind}: ${kind === 'folder' ? t.folder : t.label}`}>{kind === 'folder' ? t.folder : t.label}<Icon name="chevron-down" size="sm" /></Chip>} items={(['folder', 'label'] as const).map(value => ({ label: value === 'folder' ? t.folder : t.label, checked: kind === value, onSelect: () => setKind(value) }))} /></div>}
+      <div className="le-field"><span className="le-label">{t.color}</span><Menu trigger={props => <Chip {...props} quiet aria-label={`${t.color}: ${t.colors[color]}`}><span aria-hidden="true" className={`le-filing-swatch${color === 'none' ? '' : ` le-destination-${color}`}`} />{t.colors[color]}<Icon name="chevron-down" size="sm" /></Chip>} items={destinationColors.map(value => ({ label: t.colors[value], checked: color === value, onSelect: () => setColor(value) }))} /></div>
       <div className="le-prompt-actions"><Button type="submit" variant="primary" disabled={busy || !name.trim()}>{editing ? t.save : t.add}</Button>
-      {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setName('') }}>{t.cancel}</Button>}</div>
+      {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setName(''); setColor('none') }}>{t.cancel}</Button>}</div>
     </form>
     {query.isPending && <p role="status">{t.loading}</p>}
     {(query.isError || error) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { setError(false); void query.refetch() } }}>{t.error}</Notice>}
@@ -57,8 +61,8 @@ export function FolderSettings() {
         ['all', t.allKinds], ['folder', t.foldersOnly], ['label', t.labelsOnly],
       ] as const).map(([value, label]) => ({ label, checked: filter === value, onSelect: () => { setFilter(value); setPage(0) } }))} /></div>
       {!matches.length && <p>{t.noMatches}</p>}</>}
-    {visible.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label}</small>
-      <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name) }}>{t.rename}</Button>
+    {visible.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label} · {t.colors[row.color ?? 'none']}</small>
+      <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name); setColor(row.color ?? 'none') }}>{t.rename}</Button>
       <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div>)}
     {matches.length > 0 && <div className="le-prompt-actions"><Button variant="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t.previousPage}</Button><span aria-live="polite">{t.page(currentPage + 1, totalPages)}</span><Button variant="secondary" disabled={currentPage + 1 >= totalPages} onClick={() => setPage(currentPage + 1)}>{t.nextPage}</Button></div>}
     {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}

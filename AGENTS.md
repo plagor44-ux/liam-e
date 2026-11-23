@@ -274,6 +274,10 @@ transaction; a missing source or duplicate name leaves no partial destination. T
 prefill account, sender, domain and subject from that mail. Only selected conditions are saved, and
 the source and its account are rechecked under lock during creation, including verified aliases.
 List-header conditions are not supported. Unsaved rule edits use the settings leave guard.
+Each destination has a validated named colour or `none`; existing rows default to `none` on upgrade.
+The fixed palette is local to liam-e and appears in filing tags in the inbox and reader, with kind
+icons and text retained. Rules inherit a label's appearance through assignment; they have no colour
+action. Account colours, urgency and error tokens keep their separate roles.
 
 Folders and labels are global app data, never provider folders or labels. Each indexed message has
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label

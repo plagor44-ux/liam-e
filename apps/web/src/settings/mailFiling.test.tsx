@@ -12,7 +12,7 @@ const original = globalThis.fetch, config = api.getConfig()
 let requests: { method: string; url: string; body?: unknown }[] = []
 afterEach(() => { cleanup(); mock.restore(); globalThis.fetch = original; api.setConfig(config) })
 
-function inventoryPage(rows: { id: string; name: string; kind: string }[], request: Request) {
+function inventoryPage(rows: { id: string; name: string; kind: string; color?: string }[], request: Request) {
   const params = new URL(request.url).searchParams
   const cursor = params.get('cursor'), limit = Number(params.get('limit') ?? '100')
   const ordered = [...rows].sort((a, b) => a.id.localeCompare(b.id)).filter(row => !cursor || row.id > cursor)
@@ -84,6 +84,43 @@ test('deleting the last item on a later page returns to a valid page', async () 
   await waitFor(() => expect(screen.queryByText('Folder 20') === null).toBe(true))
   expect(screen.getByText('Seite 1 von 1')).toBeTruthy()
   expect(screen.getByText('Folder 00')).toBeTruthy()
+})
+
+test('folder settings save a named palette colour with a destination', async () => {
+  requests = []
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    requests.push({ method: req.method, url: req.url, body: req.method === 'POST' ? await req.clone().json() : undefined })
+    if (req.method === 'POST') return Response.json({ id: 'new', name: 'Projects', kind: 'folder', color: 'moss' })
+    return inventoryPage([], req)
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Projects' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Farbe: Keine Farbe' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Moos' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Anlegen' }))
+  await waitFor(() => expect(requests.find(request => request.method === 'POST')?.body).toEqual({ name: 'Projects', kind: 'folder', color: 'moss' }))
+})
+
+test('editing a destination changes its colour without changing its kind', async () => {
+  requests = []
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    requests.push({ method: req.method, url: req.url, body: req.method === 'PATCH' ? await req.clone().json() : undefined })
+    if (req.method === 'PATCH') return Response.json({ id: 'folder', name: 'Projects', kind: 'folder', color: 'moss' })
+    return inventoryPage([{ id: 'folder', name: 'Projects', kind: 'folder', color: 'teal' }], req)
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><FolderSettings /></QueryClientProvider>)
+  await screen.findByText('Projects')
+  fireEvent.click(screen.getByRole('button', { name: 'Umbenennen' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Farbe: Petrol' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Moos' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await waitFor(() => expect(requests.find(request => request.method === 'PATCH')?.body).toEqual({ name: 'Projects', color: 'moss' }))
 })
 
 test('rules display alphabetically with their stored priority and do not mutate it', async () => {

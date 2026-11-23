@@ -127,8 +127,8 @@ async def seed_filing() -> None:
     from db.models.mail_filing_usage import MailFilingUsage
 
     require_local_database()
-    folder = MailFolder(id=seed_id("folder", "projects"), name="Projekte (Beispiel)", kind="folder")
-    label = MailFolder(id=seed_id("label", "important"), name="Wichtig (Beispiel)", kind="label")
+    folder = MailFolder(id=seed_id("folder", "projects"), name="Projekte (Beispiel)", kind="folder", color="moss")
+    label = MailFolder(id=seed_id("label", "important"), name="Wichtig (Beispiel)", kind="label", color="teal")
     messages = [seed_id("mail", "meyer-angebot-4471"), seed_id("mail", "kita-elternabend")]
     filings = [MailFiling(message_id=message_id, folder_id=folder.id) for message_id in messages]
     labels = [MailLabelAssignment(message_id=message_id, label_id=label.id)

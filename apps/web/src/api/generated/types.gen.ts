@@ -1124,6 +1124,10 @@ export type ConversationOut = {
  */
 export type CreateAndAssignIn = {
     /**
+     * Color
+     */
+    color?: 'none' | 'moss' | 'olive' | 'teal' | 'lake' | 'denim' | 'indigo' | 'plum' | 'berry';
+    /**
      * Kind
      */
     kind: 'folder' | 'label';
@@ -1183,6 +1187,10 @@ export type DependencyStatus = {
  * DestinationIn
  */
 export type DestinationIn = {
+    /**
+     * Color
+     */
+    color?: 'none' | 'moss' | 'olive' | 'teal' | 'lake' | 'denim' | 'indigo' | 'plum' | 'berry';
     /**
      * Kind
      */
@@ -1856,6 +1864,10 @@ export type MailActionCapabilities = {
  * MailFolder
  */
 export type MailFolder = {
+    /**
+     * Color
+     */
+    color?: 'none' | 'moss' | 'olive' | 'teal' | 'lake' | 'denim' | 'indigo' | 'plum' | 'berry';
     /**
      * Created At
      */
@@ -3051,6 +3063,10 @@ export type RegisteredToolOut = {
  * RenameIn
  */
 export type RenameIn = {
+    /**
+     * Color
+     */
+    color?: 'none' | 'moss' | 'olive' | 'teal' | 'lake' | 'denim' | 'indigo' | 'plum' | 'berry' | null;
     /**
      * Name
      */

@@ -17,6 +17,7 @@ export const de = {
   },
   mailFiling: {
     folders: 'Ordner und Labels', rules: 'Mailregeln', folder: 'Ordner', label: 'Label', name: 'Name', kind: 'Art',
+    color: 'Farbe', colors: { none: 'Keine Farbe', moss: 'Moos', olive: 'Olive', teal: 'Petrol', lake: 'See', denim: 'Jeansblau', indigo: 'Indigo', plum: 'Pflaume', berry: 'Beere' },
     add: 'Anlegen', rename: 'Umbenennen', remove: 'Löschen', save: 'Speichern', cancel: 'Abbrechen',
     removeName: (name: string) => `${name} löschen`, removeTitle: 'Ordner oder Label löschen?',
     removeDescription: 'Die Zuordnung zu Mails wird entfernt. Beim Anbieter bleibt alles unverändert. Regeln, die diesen Eintrag verwenden, müssen zuerst geändert werden.',

@@ -2,13 +2,14 @@
 
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
+from typing import get_args
 
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from db.engine import get_session_maker
 from db.models.mail_filing import MailFiling
-from db.models.mail_folder import MailFolder
+from db.models.mail_folder import DestinationColor, MailFolder
 from db.models.mail_label_assignment import MailLabelAssignment
 from db.models.mail_message import MailMessage
 from db.models.mail_rule import MailRule
@@ -21,19 +22,19 @@ class Filing:
     label_ids: list[str]
 
 
-async def create_destination(name: str, kind: str) -> MailFolder:
+async def create_destination(name: str, kind: str, color: DestinationColor = 'none') -> MailFolder:
     name = name.strip()
-    if not name or len(name) > 120 or kind not in ("folder", "label"):
+    if not name or len(name) > 120 or kind not in ("folder", "label") or color not in get_args(DestinationColor):
         raise ValueError("Invalid folder or label")
-    row = MailFolder(name=name, kind=kind)
+    row = MailFolder(name=name, kind=kind, color=color)
     async with get_session_maker().begin() as session:
         session.add(row)
     return row
 
 
-async def create_and_assign(message_id: str, name: str, kind: str) -> MailFolder:
+async def create_and_assign(message_id: str, name: str, kind: str, color: DestinationColor = 'none') -> MailFolder:
     name = name.strip()
-    if not name or len(name) > 120 or kind not in ('folder', 'label'):
+    if not name or len(name) > 120 or kind not in ('folder', 'label') or color not in get_args(DestinationColor):
         raise ValueError('Invalid folder or label')
     async with get_session_maker().begin() as session:
         from db.accessors import mail_message, user_preference
@@ -43,7 +44,7 @@ async def create_and_assign(message_id: str, name: str, kind: str) -> MailFolder
         source = next((row for row in candidates if row.id == message_id), None) or (candidates[0] if len(candidates) == 1 else None)
         if source is None or await session.get(MailAccount, source.account_id) is None:
             raise LookupError('Source mail not found')
-        row = MailFolder(name=name, kind=kind)
+        row = MailFolder(name=name, kind=kind, color=color)
         session.add(row)
         await session.flush()
         await assign([message_id], session=session, **({'folder_id': row.id} if kind == 'folder' else {'add_labels': [row.id]}))
@@ -65,15 +66,17 @@ async def destination_page(cursor: str | None, limit: int) -> tuple[list[MailFol
     return rows[:limit], rows[limit - 1].id if len(rows) > limit else None
 
 
-async def rename_destination(destination_id: str, name: str) -> MailFolder:
+async def rename_destination(destination_id: str, name: str, color: DestinationColor | None = None) -> MailFolder:
     name = name.strip()
-    if not name or len(name) > 120:
+    if not name or len(name) > 120 or (color is not None and color not in get_args(DestinationColor)):
         raise ValueError("Invalid name")
     async with get_session_maker().begin() as session:
         row = (await session.scalars(select(MailFolder).where(MailFolder.id == destination_id).with_for_update())).one_or_none()
         if row is None:
             raise LookupError("Destination not found")
         row.name = name
+        if color is not None:
+            row.color = color
         return row
 
 

@@ -40,6 +40,17 @@ test('same-named folder and label remain identifiable and deleted assignments st
   expect(screen.queryByText(/deleted/u)).toBeNull()
 })
 
+test('assigned destinations retain type text and show their individual palette colours', () => {
+  render(<FilingTags folderId="f" labelIds={['l', 'n']} destinations={[
+    { id: 'f', name: 'Projects', kind: 'folder', color: 'moss' },
+    { id: 'l', name: 'Important', kind: 'label', color: 'teal' },
+    { id: 'n', name: 'Neutral', kind: 'label', color: 'none' },
+  ]} />)
+  expect(screen.getByText('Ordner: Projects').parentElement?.classList.contains('le-destination-moss')).toBe(true)
+  expect(screen.getByText('Label: Important').parentElement?.classList.contains('le-destination-teal')).toBe(true)
+  expect(screen.getByText('Label: Neutral').parentElement?.className).not.toContain('le-destination-')
+})
+
 test('filing choices identify same-named destinations by kind', async () => {
   const folders = spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [
     { id: 'f', name: 'Projects', kind: 'folder' }, { id: 'l', name: 'Projects', kind: 'label' },
