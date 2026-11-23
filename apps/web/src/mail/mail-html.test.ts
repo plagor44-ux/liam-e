@@ -39,7 +39,7 @@ test('dark appearance adapts light colors and preserves dark surfaces', () => {
 test('dark media rules keep safe colours, strip remote CSS and do not affect light mode', () => {
   const raw = '<style>@media (prefers-color-scheme: dark) {.panel { background-color:#123456; color:#ffffff; background:url(https://evil.test/a) }}</style><div class="panel">Test</div>'
   const dark = prepareMailDocument(raw, false, 'Image unavailable', true).document
-  expect(dark).toContain('.panel{background-color:#123456 !important;color:#ffffff !important}')
+  expect(dark).toContain('background-color: rgb(18, 52, 86); color: rgb(255, 255, 255)')
   expect(dark).not.toContain('evil.test')
   expect(prepareMailDocument(raw, false, 'Image unavailable').document).not.toContain('.panel{')
 })
@@ -47,8 +47,48 @@ test('dark media rules keep safe colours, strip remote CSS and do not affect lig
 test('dark styles repair low contrast and reject unsupported CSS', () => {
   const raw = '<style>@media (prefers-color-scheme:dark){.panel{background:#777777;color:#777777;background-image:url(https://evil.test/x)}} @import url(https://evil.test/y)</style><div class="panel">Test</div>'
   const result = prepareMailDocument(raw, false, 'Image unavailable', true).document
-  expect(result).toContain('background-color:#777777 !important;color:#000000 !important')
+  expect(result).toContain('background-color: rgb(119, 119, 119); color: rgb(0, 0, 0)')
   expect(result).not.toContain('evil.test')
+})
+
+test('separate sender rules use the effective inherited background for contrast', () => {
+  const raw = '<style>@media(prefers-color-scheme:dark){.panel{background:#fff}.panel p{color:#000}}</style><div class="panel"><p>Visible</p></div>'
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(result).toContain('background-color: rgb(255, 255, 255)')
+  expect(result).toContain('color: rgb(0, 0, 0)')
+})
+
+test('more specific sender colour wins independently of declaration order', () => {
+  const raw = '<style>@media(prefers-color-scheme:dark){.panel p{color:#000}.other{color:#fff}.panel{background:#fff}}</style><div class="panel"><p class="other">Visible</p></div>'
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(result).toContain('color: rgb(0, 0, 0)')
+})
+
+test('sender body rules apply to the message root and descendants', () => {
+  const raw = '<style>@media(prefers-color-scheme:dark){body{background:#fff}body p{color:#000}}</style><p>Visible</p>'
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(result).toContain('background-color: rgb(255, 255, 255)')
+  expect(result).toContain('color: rgb(0, 0, 0)')
+})
+
+test.each([
+  '/* synthetic comment */ ',
+  '@charset "UTF-8"; ',
+  '@import url(https://evil.test/css); ',
+  '<!-- ',
+])('dark media rules survive a safe style prelude: %s', prelude => {
+  const suffix = prelude === '<!-- ' ? ' -->' : ''
+  const raw = `<style>${prelude}@media(prefers-color-scheme:dark){.panel{background:#123456;color:#fff}}${suffix}</style><div class="panel">Synthetic</div>`
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(result).toContain('background-color: rgb(18, 52, 86)')
+  expect(result).not.toContain('evil.test')
+})
+
+test('important sender light background is resolved before inline descendant text', () => {
+  const raw = '<style>@media(prefers-color-scheme:dark){.panel{background:#fff!important}}</style><div class="panel"><p style="color:#000">Visible</p></div>'
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(result).toContain('background-color: rgb(255, 255, 255)')
+  expect(result).toContain('color:#000')
 })
 
 test('unterminated and nested CSS cannot cause backtracking or introduce rules', () => {
