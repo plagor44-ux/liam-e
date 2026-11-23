@@ -401,6 +401,8 @@ test.each([
   ['action_unsupported', 'Das geht bei dieser Mail nicht.'],
   ['credentials_invalid', 'Die Mail wurde nicht gesendet, weil die Anmeldung für dieses Konto nicht mehr gilt. Melde dich unter Konten erneut an.'],
   ['send_failed', 'Die Mail wurde nicht gesendet. Der Anbieter hat sie nicht angenommen. Versuch es gleich noch mal.'],
+  ['provider_permission_missing', 'Für diese Aktion fehlt dem Connector die Berechtigung.'],
+  ['send_unconfirmed', 'Der Anbieter hat den Versand nicht bestätigt. Schau unter Gesendet nach, bevor du die Mail erneut sendest.'],
   ['account_gone', 'Die Mail wurde nicht gesendet, weil das Konto nicht mehr verbunden ist.'],
   ...['unsubscribe_rejected', 'unsubscribe_blocked', 'unsubscribe_unreachable', 'unsubscribe_invalid', 'unsubscribe_send_failed'].map(code => [code, 'Der Newsletter ließ sich nicht abbestellen. Öffne die Abmeldeseite im Newsletter.']),
   ['proposal_not_pending', 'Dieser Vorschlag ist schon erledigt oder abgebrochen.'],

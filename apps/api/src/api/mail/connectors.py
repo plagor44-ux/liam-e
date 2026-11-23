@@ -23,7 +23,7 @@ from urllib.parse import quote
 import httpx
 from utils.mistral import mistral_api_url, mistral_app_token
 
-from api.mail import action_capabilities
+from api.mail import action_capabilities, connector_write_results as write_result
 
 
 logger = logging.getLogger(__name__)
@@ -111,16 +111,25 @@ async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeo
     credential = mailbox_credential.get()
     if credential is not None:
         path += f"?credentials_name={quote(credential, safe='')}"
-    data = await _post(
-        path,
-        {"arguments": arguments},
-        **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {}),
-    )
-    if tool in {"label_message", "unlabel_message"} and (data.get("isError") or data.get("is_error")):
-        raise ValueError("Connector refused the label change")
-    return "\n".join(
-        part.get("text", "") for part in data.get("content", []) if part.get("text")
-    )
+    writing = tool in WRITE_TOOLS or tool in write_result.LABEL_TOOLS
+    try:
+        data = await _post(
+            path,
+            {"arguments": arguments},
+            **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {}),
+        )
+        if writing:
+            write_result.confirm(tool, arguments, data)
+    except httpx.HTTPStatusError as error:
+        if not writing or error.response.status_code != 403:
+            raise
+        logger.warning("%s", write_result.PERMISSION_MISSING)
+        raise write_result.PermissionMissing() from None
+    except write_result.WriteRefused as error:
+        if not isinstance(error, write_result.WriteUnconfirmed):
+            logger.warning("%s", error.code)
+        raise
+    return "\n".join(write_result.text_parts(data))
 
 
 async def call_read_tool(connector: str, tool: str, arguments: dict[str, Any]) -> str:
@@ -177,6 +186,9 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
             binding = selected
             try:
                 await _call_tool(account.provider, tool, {"messageId": message.provider_uid, "labelIds": change})
+            except write_result.WriteUnconfirmed:
+                # The current point read can prove a write with an incomplete receipt.
+                pass
             except (ValueError, httpx.HTTPError) as error:
                 if not (present or absent):
                     raise
@@ -186,6 +198,8 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
                     labels = await thread_labels(account.provider, message.thread_id, {message.provider_uid}, minimal_only=True)
                 except (ValueError, httpx.HTTPError):
                     raise error from None
+                if isinstance(error, write_result.PermissionMissing):
+                    raise write_result.PermissionMissing(labels.get(message.provider_uid)) from None
                 raise LabelChangeUnconfirmed(labels.get(message.provider_uid)) from None
             # HTTP 200 can contain a text diagnostic. Confirm TRASH before removing INBOX.
             expected.update(change)

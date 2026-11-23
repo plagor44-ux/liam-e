@@ -65,7 +65,7 @@ async def test_named_mailbox_is_pinned_for_reads_and_writes(monkeypatch):
             result = visible
         else:
             sent.append(tool)
-            result = {}
+            result = {'id': 'sent-copy', 'threadId': 'sent-thread'}
         return {'content': [{'text': json.dumps(result)}]}
 
     invalidated = AsyncMock()
@@ -188,3 +188,60 @@ async def test_named_legacy_account_keeps_its_index_when_identity_is_unprovable(
     assert result.status == 'error'
     assert (await fake_store.get_state(account.id)).cursor == '19'
     fetch.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('tool,target_key', [
+    ('label_message', 'messageId'), ('unlabel_message', 'messageId'),
+    ('label_thread', 'threadId'), ('unlabel_thread', 'threadId'),
+    ('send_email', 'replyToMessageId'),
+])
+async def test_connector_write_rejects_unflagged_permission_diagnostic(monkeypatch, caplog, tool, target_key):
+    import httpx
+
+    requests = []
+    reply = {'content': [{'type': 'text', 'text': 'Request had insufficient authentication scopes. Permission denied. Synthetic private detail.'}]}
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json=reply)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(connectors, '_headers', lambda: {})
+    monkeypatch.setattr(connectors, 'mistral_api_url', lambda: 'https://studio.example.test')
+    monkeypatch.setattr(connectors.httpx, 'AsyncClient', lambda **kwargs: client)
+    with pytest.raises(ValueError, match='^provider_permission_missing$'):
+        await connectors._call_tool('gmail', tool, {target_key: 'selected', 'labelIds': ['UNREAD']})
+    assert [request.url.path for request in requests] == [f'/v1/connectors/gmail/tools/{tool}/call']
+    assert 'provider_permission_missing' in caplog.text
+    assert 'Synthetic private detail' not in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('tool,args,payload', [
+    ('label_message', {'messageId': 'selected', 'labelIds': ['UNREAD']}, {'id': 'selected', 'labelIds': ['UNREAD']}),
+    ('unlabel_message', {'messageId': 'selected', 'labelIds': ['UNREAD']}, {'id': 'selected', 'labelIds': []}),
+    ('label_thread', {'threadId': 'thread', 'labelIds': ['UNREAD']}, {'id': 'thread', 'messages': [{'id': 'selected', 'labelIds': ['UNREAD']}]}),
+    ('unlabel_thread', {'threadId': 'thread', 'labelIds': ['UNREAD']}, {'id': 'thread', 'messages': [{'id': 'selected', 'labelIds': []}]}),
+    ('send_email', {'replyToMessageId': 'original'}, {'messageId': 'sent-copy', 'threadId': 'thread'}),
+])
+async def test_connector_write_accepts_a_structured_receipt(monkeypatch, tool, args, payload):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(connectors, '_post', AsyncMock(return_value={'structuredContent': payload}))
+    await connectors._call_tool('gmail', tool, args)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('tool,args,payload', [
+    ('label_message', {'messageId': 'selected', 'labelIds': ['UNREAD']}, {'id': 'other', 'labelIds': ['UNREAD']}),
+    ('unlabel_thread', {'threadId': 'thread', 'labelIds': ['UNREAD']}, {'id': 'thread', 'messages': [{'id': 'selected', 'labelIds': ['UNREAD']}]}),
+    ('send_email', {'replyToMessageId': 'original'}, {'id': 'original', 'threadId': 'thread'}),
+    ('send_email', {}, {'success': True}),
+])
+async def test_connector_write_needs_evidence_for_the_intended_change(monkeypatch, tool, args, payload):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(connectors, '_post', AsyncMock(return_value={'structuredContent': payload}))
+    with pytest.raises(ValueError, match='^connector_write_unconfirmed$'):
+        await connectors._call_tool('gmail', tool, args)

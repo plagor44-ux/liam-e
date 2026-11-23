@@ -305,6 +305,10 @@ export type BulkMessageActionResult = {
      */
     action_id?: string | null;
     /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
      * Folder
      */
     folder?: 'INBOX' | 'TRASH' | 'ARCHIVE' | 'SPAM' | null;
@@ -4077,6 +4081,10 @@ export type UndoIn = {
  * UndoOut
  */
 export type UndoOut = {
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
     /**
      * Expired
      */

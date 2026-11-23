@@ -99,6 +99,7 @@ class BulkMessageActionResult(BaseModel):
     folder: Literal["INBOX", "TRASH", "ARCHIVE", "SPAM"] | None = None
     action_id: str | None = None
     message: MessageListItemOut | None = None
+    error_code: str | None = Field(default=None, exclude_if=lambda code: code is None)
 
 
 class BulkMessageActionOut(BaseModel):
@@ -114,3 +115,4 @@ class UndoOut(BaseModel):
     expired: list[str]
     skipped: list[str]
     failed: list[str]
+    error_code: str | None = Field(default=None, exclude_if=lambda code: code is None)

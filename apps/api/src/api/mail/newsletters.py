@@ -12,7 +12,7 @@ import httpx
 from db.accessors import mail_account, mail_message
 from db.models.mail_account import MailAccount
 
-from api.mail import actions, connectors, headers, netguard, send
+from api.mail import actions, connector_write_results as write_result, connectors, headers, netguard, send
 from api.mail.seed_ids import is_seed_account
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,8 @@ async def unsubscribe(sender: NewsletterSender, account: MailAccount) -> Unsubsc
         try:
             await send.send_message(account, to=[target.recipient], subject=target.subject, body=target.body)
             outcome.status = 'done'
+        except write_result.PermissionMissing as error:
+            outcome.error_code = error.code
         except Exception as error:
             logger.warning('%s', type(error).__name__)
             outcome.error_code = 'unsubscribe_send_failed'

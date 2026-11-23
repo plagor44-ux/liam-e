@@ -10,9 +10,8 @@ from api.errors import refuse
 
 WriteAction = Literal["archive", "trash", "restore", "spam", "mark_read", "mark_unread", "move", "label"]
 ERROR_CODE = "provider_action_unsupported"
-AGENT_NOTE = ("The Gmail connector in Mistral Studio does not support changing labels or folders. "
-              "The requested action cannot be performed. Reading, searching, summarizing and sending "
-              "after confirmation remain available.")
+AGENT_NOTE = ("The Gmail connector in Mistral Studio lacks permission to change email. "
+              "Reading, searching, summarizing and sending after confirmation remain available.")
 
 
 class MailActionCapabilities(BaseModel):
@@ -32,7 +31,7 @@ def for_account(account: mail_account.MailAccount) -> MailActionCapabilities:
 
 
 def unsupported() -> HTTPException:
-    return refuse(409, ERROR_CODE, "Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.")
+    return refuse(409, ERROR_CODE, "Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern.")
 
 
 def require_action(account: mail_account.MailAccount, action: WriteAction) -> None:

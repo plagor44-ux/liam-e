@@ -362,7 +362,7 @@ def test_due_today_prompt_enforces_separation_and_no_false_empty_claims():
     from api.skills.registry import TOOL_REGISTRY
 
     prompt = system_prompt(today=date(2026, 11, 21), account_scope=None, locale="de")
-    assert APP_PROMPT_VERSION == "22"
+    assert APP_PROMPT_VERSION == "23"
     assert "Aktiver Skill:" in prompt
     for phrase in (
         "streng getrennt",

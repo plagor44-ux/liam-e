@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from api.mail import action_capabilities
-from api.mail import actions, netguard, newsletters, send, service, transport
+from api.mail import actions, connector_write_results as write_result, netguard, newsletters, send, service, transport
 from api.errors import refuse
 from api.tasks import patch as task_patch
 from api.tasks import proposals as task_proposals
@@ -203,6 +203,11 @@ async def _send(draft: SendDraft, result: ProposalResult) -> None:
         fail("host_not_allowed")
     except service.CredentialError:
         fail("credentials_invalid")
+    except write_result.PermissionMissing as error:
+        fail(error.code)
+    except write_result.WriteUnconfirmed as error:
+        logger.warning("%s", error.code)
+        fail("send_unconfirmed")
     except send.SeedAccountError:
         fail("send_failed")
     except Exception as error:
@@ -251,6 +256,10 @@ async def _apply(item: ProposalItem, kind: ProposalKind, result: ProposalResult,
         result.done += 1
     except actions.ActionUnsupportedError:
         fail("action_unsupported")
+    except write_result.PermissionMissing as error:
+        fail(error.code)
+    except actions.ActionPartialError as error:
+        fail(error.error_code or "action_failed")
     except HTTPException as error:
         if error.status_code != 404:
             logger.warning("%s", type(error).__name__)

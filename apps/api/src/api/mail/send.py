@@ -150,8 +150,8 @@ async def send_message(
             payload["cc"] = list(cc)
         if reply_to:
             payload["replyToMessageId"] = reply_to.provider_uid
-        result = await connectors.call_write_tool(account, "send_email", payload)
-        return {"status": "sent", "via": f"connector:{account.provider}", "result": result[:500]}
+        await connectors.call_write_tool(account, "send_email", payload)
+        return {"status": "sent", "via": f"connector:{account.provider}"}
     credentials = credentials if credentials is not None else await service.load_credentials(account)
     if account.provider == providers.IMAP:
         await transport.check_mail_host(credentials["smtp_host"])

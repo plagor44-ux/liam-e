@@ -1114,3 +1114,45 @@ def test_open_trash_token_keeps_previous_api_snapshot(pg_db, monkeypatch, provid
             # The previous API passes the entire snapshot as keyword arguments to set_state.
             assert set(json.loads(record.previous_json)) == {"folder", "is_read", "provider_uid", "labels_json"}
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('path', ['single', 'bulk', 'partial', 'undo'])
+def test_studio_permission_denial_never_confirms_a_write(pg_db, monkeypatch, path):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch)
+        target = ids['target']
+        endpoint = f'{MAIL}/messages/{target}/actions'
+        refusal = {'content': [{'type': 'text', 'text': 'Insufficient authentication scopes. Private synthetic diagnostic.'}]}
+        async with client() as browser:
+            if path == 'undo':
+                moved = await browser.post(endpoint, json={'kind': 'trash'})
+                assert moved.status_code == 200
+                token = moved.json()['action_id']
+                provider.reject = refusal
+                refused = await browser.post(MAIL + '/actions/undo', json={'action_ids': [token]})
+                assert refused.status_code == 200
+                assert refused.json()['failed'] == [token]
+                assert refused.json()['restored'] == []
+                assert refused.json()['error_code'] == 'provider_permission_missing'
+                assert (await mail_action.latest_open(target)).id == token
+            else:
+                provider.reject = refusal
+                if path == 'partial':
+                    provider.reject_tool = 'unlabel_message'
+                if path == 'bulk':
+                    refused = await browser.post(MAIL + '/messages/actions', json={'kind': 'trash', 'message_ids': [target]})
+                    assert refused.status_code == 200
+                    result, = refused.json()['results']
+                    assert (result['status'], result['error_code'], result['action_id']) == ('failed', 'provider_permission_missing', None)
+                else:
+                    refused = await browser.post(endpoint, json={'kind': 'trash'})
+                    assert refused.status_code == (409 if path == 'partial' else 403)
+                    assert refused.json()['detail']['code'] == 'provider_permission_missing'
+                    if path == 'partial':
+                        assert refused.json()['detail']['folder'] == 'TRASH'
+                assert await mail_action.latest_open(target) is None
+            assert 'Private synthetic diagnostic' not in refused.text
+            assert await listed(browser, 'TRASH') == ({target} if path in ('partial', 'undo') else set())
+            assert await listed(browser, 'INBOX') == ({ids['sibling']} if path in ('partial', 'undo') else set(ids.values()))
+    asyncio.run(run())

@@ -66,6 +66,15 @@ eigenen Test-App `liam-e-probe` (ohne Datenbank, aus dem Scratchpad mit
   `unlabel_message`, `create_label`, `update_label`, `delete_label`.
 - `outlook`: `GET /v1/connectors/outlook/tools` antwortet mit HTTP 401.
 
+#### Follow-up on 23 November 2026
+
+The tool catalog still listed 14 tools. Its system label examples describe input values and do not
+prove the connected grant permits changes. Ten trash requests failed confirmation. In the first
+probe, four writes returned HTTP 200 and produced zero observed changes. In the second probe,
+seven writes returned HTTP 200 with a missing-scope diagnostic in text and no tool error flag.
+MINIMAL and FULL_CONTENT both confirmed zero changes. The tested grant lacks permission to modify
+mail. No send was tested in these two probes.
+
 ### Fixture-Vorlage für Task 8 (ausgedachte Werte)
 
 ```json

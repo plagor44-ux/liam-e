@@ -5,11 +5,11 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "22"
+APP_PROMPT_VERSION = "23"
 MAIL_PROVIDER_ACTION_RULE = (
     "\nIf a mail action tool returns provider_action_unsupported, explain the provider limit in the user's language. "
     "Gmail in Mistral Studio supports reading, searching, summarizing and sending after confirmation. "
-    "Label and folder changes are unavailable. Do not suggest a confirmation card or say the change happened."
+    "The Gmail connector lacks permission to change email. Do not suggest a confirmation card or say the change happened."
 )
 
 VOICE_INSTRUCTIONS = (

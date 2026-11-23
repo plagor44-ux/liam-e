@@ -63,8 +63,10 @@ function failureText(code: string | undefined, kind: Proposal['kind'], texts: Ca
     case 'item_changed': return texts.proposalErrors.item_changed
     case 'action_unsupported': return texts.proposalErrors.action_unsupported
     case 'provider_action_unsupported': return texts.errors.provider_action_unsupported
+    case 'provider_permission_missing': return texts.errors.provider_permission_missing
     case 'credentials_invalid': return texts.proposalErrors.credentials_invalid
     case 'send_failed': return texts.proposalErrors.send_failed
+    case 'send_unconfirmed': return texts.proposalErrors.send_unconfirmed
     case 'account_gone': return texts.proposalErrors.account_gone
     case 'unsubscribe_rejected': case 'unsubscribe_blocked': case 'unsubscribe_unreachable': case 'unsubscribe_invalid': case 'unsubscribe_send_failed': return texts.proposalErrors.unsubscribe_failed
     case 'proposal_not_pending': return texts.proposalErrors.proposal_not_pending

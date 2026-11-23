@@ -392,7 +392,7 @@ test('a Gmail Studio row explains unavailable actions on hover and focus', async
   const action = spyOn(sdk, 'mailMessageAction')
   setup('rows', '/mail', false, false, true)
   const row = (await screen.findByText('Zweite')).closest<HTMLElement>('.le-mailrow')!
-  const hint = 'Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.'
+  const hint = 'Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern.'
   expect(within(row).queryByText(hint)).toBeNull()
   const archive = within(row).getByRole('button', { name: 'Archivieren' })
   expect(archive.getAttribute('aria-disabled')).toBe('true')
@@ -424,7 +424,7 @@ test('a swipe on Gmail Studio explains the restriction without an action', async
     fireEvent(element, event)
   }
   pointer('pointerdown', 200); pointer('pointermove', 300); pointer('pointerup', 300)
-  const hint = 'Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.'
+  const hint = 'Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern.'
   expect((await screen.findByRole('alert')).textContent).toBe(hint)
   expect(screen.getAllByText(hint)).toHaveLength(1)
   expect(action).not.toHaveBeenCalled()

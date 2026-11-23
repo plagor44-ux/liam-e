@@ -343,3 +343,48 @@ async def test_gmail_studio_tool_explains_why_no_proposal_is_created(store, fake
     detail = json.loads(outcome.content)
     assert detail["error"] == "provider_action_unsupported"
     assert "Gmail" in detail["note"] and "Mistral Studio" in detail["note"]
+    assert "lacks permission" in detail["note"]
+
+
+@pytest.mark.parametrize('mode', ['new', 'reply'])
+@pytest.mark.parametrize('outcome', ['permission', 'unknown', 'confirmed'])
+async def test_confirm_connector_send_requires_positive_receipt(store, fake_store, monkeypatch, mode, outcome):
+    from api.mail import connector_mailbox
+
+    proof = ('named', 'anchor', 'sent-proof')
+    await fake_store.save_state(account_id=store.id, connector_verified=True, connector_cursor=connector_mailbox.encode(proof, '42'))
+    original = MailMessage(id='original', account_id=store.id, provider_uid='original-provider', thread_id='thread')
+    fake_store.messages[original.id] = original
+    proposal = draft(store)
+    proposal.draft.mode = mode
+    if mode == 'reply':
+        proposal.draft.reply_to_message_id = original.id
+    receipt = {'id': 'new-copy', 'threadId': 'thread', 'labelIds': ['SENT']}
+    response_text = {
+        'permission': 'Insufficient authentication scopes. Permission denied. Synthetic private detail.',
+        'unknown': '{}',
+        'confirmed': json.dumps(receipt),
+    }
+    payload = {'content': [{'type': 'text', 'text': response_text[outcome]}]}
+    writes = []
+
+    async def dispatch(path, request):
+        assert path.endswith('?credentials_name=named')
+        if '/get_thread/' in path:
+            return {'content': [{'text': json.dumps({'id': 'anchor', 'messages': [{'id': 'sent-proof', 'sender': store.email_address, 'labelIds': ['SENT']}]})}]}
+        assert '/send_email/' in path
+        writes.append(request['arguments'])
+        return payload
+
+    monkeypatch.setattr(connectors, '_post', dispatch)
+    row = await proposals.create_proposal('chat', proposal)
+    await proposals.confirm(row.id, selected_ids=[])
+    assert len(writes) == 1
+    assert writes[0].get('replyToMessageId') == (original.provider_uid if mode == 'reply' else None)
+    confirmed = outcome == 'confirmed'
+    assert row.proposal_status == ('done' if confirmed else 'failed')
+    result = proposals.proposal_view(row).result
+    assert result.done == int(confirmed)
+    expected = {'permission': ['provider_permission_missing'], 'unknown': ['send_unconfirmed'], 'confirmed': []}
+    assert [problem.code for problem in result.failed] == expected[outcome]
+    assert 'Synthetic private detail' not in row.proposal_json

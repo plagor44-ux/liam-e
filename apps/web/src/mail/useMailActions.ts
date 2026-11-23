@@ -145,16 +145,18 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       }
       update(id, kind)
       const result = await mailMessageAction({ path: { message_id: id }, body: { kind } })
+      const code = errorCode(result.error)
       if (result.response?.status === 404) {
         update(id, 'remove')
         if (!options?.silent) notify(texts.proposalErrors.item_gone)
-      } else if (result.response?.status === 409 && errorCode(result.error) === 'provider_partial') {
+      } else if (result.response?.status === 409 && (code === 'provider_partial' || code === 'provider_permission_missing')) {
         const parsed = partialFolder.safeParse(result.error)
         const folder = parsed.success ? parsed.data.detail.folder : undefined
         const retained = folder && changes.filter(change => inFolder(change, folder))
         if (retained) restore(retained, removal)
         reconcile.current = true
-        if (!options?.silent) notify(folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial)
+        const partial = folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial
+        if (!options?.silent) notify(code === 'provider_permission_missing' ? `${partial} ${texts.errors.provider_permission_missing}` : partial)
         void client.invalidateQueries({ queryKey: ['summary'] })
         void client.invalidateQueries({ queryKey: ['message', id] })
         return Boolean(retained?.length)
@@ -164,7 +166,9 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         return changes.length > 0
       } else if (!result.data || result.response?.status !== 200) {
         rollback()
-        if (!options?.silent) notify(result.response?.status === 502 && errorCode(result.error) === 'provider_failed' ? texts.errors.provider_failed : texts.errors.action_uncertain)
+        const notice = code === 'provider_permission_missing' ? texts.errors.provider_permission_missing
+          : result.response?.status === 502 && code === 'provider_failed' ? texts.errors.provider_failed : texts.errors.action_uncertain
+        if (!options?.silent) notify(notice)
         return changes.length > 0
       } else {
         if (removal) reconcile.current = true
@@ -237,7 +241,8 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         })
         restore(retained.sort((a, b) => a.page - b.page || a.index - b.index), removes(kind))
         const base = texts.inbox.bulkResult(kind, group.length, ids.length)
-        const text = partial.length ? base + ' ' + texts.inbox.bulkProviderPartial(partial.length) : base
+        const text = [base, partial.length ? texts.inbox.bulkProviderPartial(partial.length) : '',
+          result.data.results.some(row => row.error_code === 'provider_permission_missing') ? texts.errors.provider_permission_missing : ''].filter(Boolean).join(' ')
         if (group.length) {
           setNotice(null)
           publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
@@ -282,14 +287,16 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           const restored = group.filter(item => result.data!.restored.includes(item.actionId))
           restore(restored.flatMap(item => item.changes).sort((a, b) => a.page - b.page || a.index - b.index), removes(selected.kind))
           for (const item of restored) if (!removes(selected.kind) && item.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', item.messageId], data => data && { ...data, is_read: item.previousRead! })
-          if (restored.length !== group.length) notify(texts.inbox.bulkUndoFailed(group.length - restored.length))
+          if (restored.length !== group.length) notify(result.data.error_code === 'provider_permission_missing'
+            ? texts.errors.provider_permission_missing : texts.inbox.bulkUndoFailed(group.length - restored.length))
         } else if (result.data?.restored.includes(selected.actionId)) {
           restore(selected.changes, removes(selected.kind))
           if (!removes(selected.kind) && selected.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', selected.messageId], data => data && { ...data, is_read: selected.previousRead! })
         } else if (result.data?.skipped.includes(selected.actionId)) notify(texts.inbox.undoSkipped)
         else if (result.data?.expired.includes(selected.actionId)) notify(texts.inbox.undoExpired)
         else if (errorCode(result.error) === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported)
-        else if (result.data?.failed.includes(selected.actionId)) notify(texts.inbox.undoFailed)
+        else if (result.data?.failed.includes(selected.actionId)) notify(result.data.error_code === 'provider_permission_missing'
+          ? texts.errors.provider_permission_missing : texts.inbox.undoFailed)
         else notify(texts.inbox.undoUncertain)
       } catch { notify(timedOut ? texts.inbox.undoTimeout : texts.inbox.undoUncertain) }
       finally {

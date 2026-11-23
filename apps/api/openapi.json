@@ -487,6 +487,17 @@
             ],
             "title": "Action Id"
           },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "folder": {
             "anyOf": [
               {
@@ -7498,6 +7509,17 @@
       },
       "UndoOut": {
         "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "expired": {
             "items": {
               "type": "string"

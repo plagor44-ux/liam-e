@@ -14,7 +14,7 @@ from db.models.mail_message import IMAP_RETIRED, MailMessage
 from sqlalchemy.exc import IntegrityError
 
 from api.errors import refuse
-from api.mail import action_capabilities, connectors
+from api.mail import action_capabilities, connector_write_results as write_result, connectors
 
 ActionKind = Literal["archive", "trash", "spam", "mark_read", "mark_unread", "restore"]
 logger = logging.getLogger(__name__)
@@ -27,9 +27,10 @@ class ActionFailedError(RuntimeError):
 class ActionPartialError(ActionFailedError):
     """The provider changed the folder labels but did not complete the action."""
 
-    def __init__(self, folder: str):
+    def __init__(self, folder: str, error_code: str | None = None):
         super().__init__("The provider only partly applied the action")
         self.folder = folder
+        self.error_code = error_code
 
 
 class ActionUnsupportedError(RuntimeError):
@@ -42,6 +43,7 @@ class UndoResult:
     expired: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
+    error_code: str | None = None
 
 
 async def write_connector_labels(account, message: MailMessage, *, added: list[str], removed: list[str]) -> None:
@@ -120,6 +122,11 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
             updates = await backend.apply(message, kind)
         except ActionUnsupportedError:
             raise
+        except write_result.PermissionMissing as error:
+            folder = await _reconcile_connector_labels(message, error.labels)
+            if folder is not None:
+                raise ActionPartialError(folder, error.code) from None
+            raise
         except connectors.LabelChangeUnconfirmed as error:
             folder = await _reconcile_connector_labels(message, error.labels)
             if folder is not None:
@@ -140,9 +147,9 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
     except Exception as error:
         if optimistic_written:
             await message_access.set_state(message_id, **previous)
+        if isinstance(error, (ActionUnsupportedError, write_result.PermissionMissing)):
+            raise
         logger.warning("%s", type(error).__name__)
-        if isinstance(error, ActionUnsupportedError):
-            raise ActionUnsupportedError() from None
         raise ActionFailedError() from None
     await _write_provider_state(message, updates, folder=changes.get("folder", message.folder))
     try:
@@ -192,7 +199,9 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
             previous.pop("trash_inbox_uid", None)
             previous.pop("imap_source_uidvalidity", None)
             updates = await action_backends.backend_for(account).revert(message, previous)
-        except connectors.LabelChangeUnconfirmed as error:
+        except (connectors.LabelChangeUnconfirmed, write_result.PermissionMissing) as error:
+            if isinstance(error, write_result.PermissionMissing):
+                result.error_code = error.code
             try:
                 await _reconcile_connector_labels(message, error.labels)
             finally:

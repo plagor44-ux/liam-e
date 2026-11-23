@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from api.errors import refuse
 from api.locales import Locale
-from api.mail import actions, insights, original
+from api.mail import actions, connector_write_results as write_result, insights, original
 from api.mail.headers import sender_name
 from api.mail.state import color_indexes
 from api.routers.api.v1.mail.schemas import BulkMessageActionIn, BulkMessageActionOut, BulkMessageActionResult, InsightOut, MessageActionIn, MessageActionOut, MessageDetailOut, MessageHtmlOut, MessageListItemOut, MessageOriginalOut, MessagePageOut
@@ -102,7 +102,9 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
             try:
                 action = await actions.apply_action(message_id, body.kind)
             except actions.ActionPartialError as error:
-                return BulkMessageActionResult(message_id=message_id, status="partial", folder=error.folder)
+                return BulkMessageActionResult(message_id=message_id, status="partial", folder=error.folder, error_code=error.error_code)
+            except write_result.PermissionMissing as error:
+                return BulkMessageActionResult(message_id=message_id, status="failed", error_code=error.code)
             except actions.ActionUnsupportedError:
                 return BulkMessageActionResult(message_id=message_id, status="unsupported")
             except HTTPException as error:
@@ -140,10 +142,12 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
         raise refuse(409, "action_unsupported", "Das geht bei dieser Mail nicht.") from None
     except actions.ActionPartialError as error:
         raise HTTPException(status_code=409, detail={
-            "code": "provider_partial",
+            "code": error.error_code or "provider_partial",
             "message": "Der Anbieter hat nur einen Teil der Änderung ausgeführt.",
             "folder": error.folder,
         }) from None
+    except write_result.PermissionMissing as error:
+        raise refuse(403, error.code, "Für diese Aktion fehlt dem Connector die Berechtigung.") from None
     except actions.ActionFailedError:
         raise refuse(502, "provider_failed", "Der Anbieter hat die Änderung nicht bestätigt. Prüfe die Mail nach dem nächsten Abruf.") from None
     message = await message_access.get_message(message_id)

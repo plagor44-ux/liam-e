@@ -938,11 +938,13 @@ the gateway before the stream ended, with one short pause in the first measureme
 connector does not return complete headers in `get_thread`; newsletter detection therefore also
 uses the label `CATEGORY_PROMOTIONS` for connector accounts (`CATEGORY_UPDATES` does not count,
 as it also contains order confirmations and account notices). On 23.11.2026, ten Gmail Studio trash
-requests failed confirmation after a label write returned HTTP 200. The follow-up probe made four
-label or unlabel writes. All four returned HTTP 200 without a folder change in MINIMAL or
-FULL_CONTENT reads. The Gmail Studio connector therefore exposes reads and confirmed sending,
-with all label and folder writes disabled. `send_email` takes `replyToMessageId`; the Outlook
-connector returned HTTP 401 in the earlier probe.
+requests failed confirmation after a label write returned HTTP 200. A first probe made four
+label writes with HTTP 200 and no observed change. A second probe made seven writes. All seven
+returned HTTP 200 with a missing-scope diagnostic in text and no tool error flag. Both read formats
+confirmed zero changes. The tested Gmail binding lacks permission to modify mail. liam-e allows
+reads and confirmed sending through that binding and blocks label and folder actions. Connector
+writes require a positive receipt or a current matching label read before success is recorded.
+`send_email` takes `replyToMessageId`. The Outlook connector returned HTTP 401 in the earlier probe.
 
 ## Stack & commands
 
