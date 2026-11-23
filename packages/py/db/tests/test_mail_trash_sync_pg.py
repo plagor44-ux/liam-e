@@ -366,6 +366,25 @@ def test_native_provider_move_overlapping_rebuild_keeps_action_id(pg_db, monkeyp
     asyncio.run(run())
 
 
+def test_rebuilt_native_move_requeues_unloaded_html(pg_db):
+    from sqlalchemy import delete, inspect
+
+    async def run():
+        account = await service.upsert_account(provider="google", auth_type="oauth2", email_address="synthetic@example.test")
+        created = await mail_message.upsert_message(account_id=account.id, folder="INBOX", provider_uid="synthetic",
+            body_html="<p>Synthetic</p>", html_status="available", html_version=1)
+        source = await mail_message.get_message(created.id)
+        assert "body_html" in inspect(source).unloaded and source.html_status == "available"
+        async with get_session_maker().begin() as session:
+            await session.execute(delete(MailMessage).where(MailMessage.id == source.id))
+        await mail_message.commit_trash_move(source, {"folder": "TRASH"})
+        rebuilt = await mail_message.get_message(source.id, include_html=True)
+        assert (rebuilt.body_html, rebuilt.html_status, rebuilt.html_version) == (None, "pending", 0)
+        await mail_message.commit_trash_move(rebuilt, {"folder": "INBOX"})
+        assert source.id in {row.id for row in await mail_message.stale_html_bodies(account.id, 1, limit=10)}
+    asyncio.run(run())
+
+
 def test_incremental_flags_heal_a_legacy_inbox_copy_of_a_trashed_mail(pg_db, monkeypatch):
     async def run():
         provider = StudioMailbox()

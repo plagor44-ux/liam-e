@@ -604,6 +604,8 @@ async def commit_trash_move(message: MailMessage, updates: dict, *, action: Mail
             # A native full rebuild can remove this row between dispatch and success.
             # Carry its public ID and undo history into the confirmed destination.
             keep = MailMessage(**message.model_dump(exclude={"search_tsv"}))
+            # HTML is deferred on the dispatched row; reread it after an inbox restore.
+            keep.body_html, keep.html_status, keep.html_version = None, "pending", 0
         if account.provider == "imap" and updates["folder"] == "INBOX" and updates.get("imap_uidvalidity"):
             updates = await _imap_restore_state(session, message, keep, updates)
         else:
