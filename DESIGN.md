@@ -236,24 +236,24 @@ Text at least 4,5:1, edges, focus ring and other meaningful indicators at least 
 | `tip-ink` | `tip-bg` | 4,5:1 | 15,88:1 |
 | `control-border` | `surface`, `surface-soft` | 3:1 | 3,19:1 |
 | `focus-ring` | `surface`, `surface-soft`, `surface-ground`, `accent-soft` | 3:1 | 5,36:1 |
-| `ink` | destination backgrounds | 4,5:1 | 9,68:1 |
-| destination border | `surface`, `surface-soft` | 3:1 | 5,72:1 |
+| `ink` | destination backgrounds | 4,5:1 | 6,38:1 |
+| destination border | `surface`, `surface-soft` | 3:1 | 4,56:1 |
 
 Destination colours use a filled tag with a border, distinct from the account's coloured dot and
 the urgency and danger treatments. Folder and label icons and names remain visible in grayscale.
 The fixed palette below gives background / border in each theme; text uses `ink`. `none` uses the
-neutral on-surface tag. Settings show names and a rectangular swatch, with no free colour picker.
+neutral on-surface tag. Settings show names and filled rectangular swatches in both themes, with no free colour picker.
 
 | Name | Light | Dark |
 |---|---|---|
-| Moss | `#e5f0e3` / `#496845` | `#263e2b` / `#9bbe9b` |
-| Olive | `#eff1d8` / `#5c6631` | `#3b3c24` / `#b8bc7c` |
-| Teal | `#dcefea` / `#2f6861` | `#193d39` / `#80bdad` |
-| Lake | `#dbf0f3` / `#316771` | `#1b3a40` / `#83bac5` |
-| Denim | `#e1ecf9` / `#425e88` | `#25374d` / `#95b5e0` |
-| Indigo | `#e7e9fa` / `#555b8e` | `#30334b` / `#aaaee0` |
-| Plum | `#f1e6f4` / `#76537e` | `#402e42` / `#c3a6c8` |
-| Berry | `#f4e5ee` / `#80526c` | `#402b38` / `#c8a3ba` |
+| Moss | `#cbf1ce` / `#227729` | `#1b5a20` / `#90e096` |
+| Olive | `#ebf1cb` / `#697722` | `#505a1b` / `#d2e090` |
+| Teal | `#cbf1e7` / `#227762` | `#1b5a4a` / `#90e0cc` |
+| Lake | `#cbe4f1` / `#225b77` | `#1b455a` / `#90c5e0` |
+| Denim | `#cbd4f1` / `#223777` | `#1b2b5a` / `#90a4e0` |
+| Indigo | `#d4cbf1` / `#372277` | `#2b1b5a` / `#a490e0` |
+| Plum | `#eecbf1` / `#702277` | `#551b5a` / `#d990e0` |
+| Berry | `#f1cbdb` / `#772245` | `#5a1b35` / `#e090b1` |
 
 Anyone changing a color value remeasures this table. `apps/web/src/styles/contrast.test.ts`
 checks each pair in both themes against the target, not the values in the last column.

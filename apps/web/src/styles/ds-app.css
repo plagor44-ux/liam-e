@@ -200,14 +200,15 @@
 .le-filing-tags .le-tag { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .le-filing-tags .le-tag svg { flex-shrink: 0; }
 .le-filing-swatch { display: inline-block; vertical-align: middle; margin-inline-end: var(--space-1); width: 16px; height: 12px; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--surface); }
-.le-destination-moss { background: var(--filing-moss-background); border: 1px solid var(--filing-moss-border); color: var(--ink); }
-.le-destination-olive { background: var(--filing-olive-background); border: 1px solid var(--filing-olive-border); color: var(--ink); }
-.le-destination-teal { background: var(--filing-teal-background); border: 1px solid var(--filing-teal-border); color: var(--ink); }
-.le-destination-lake { background: var(--filing-lake-background); border: 1px solid var(--filing-lake-border); color: var(--ink); }
-.le-destination-denim { background: var(--filing-denim-background); border: 1px solid var(--filing-denim-border); color: var(--ink); }
-.le-destination-indigo { background: var(--filing-indigo-background); border: 1px solid var(--filing-indigo-border); color: var(--ink); }
-.le-destination-plum { background: var(--filing-plum-background); border: 1px solid var(--filing-plum-border); color: var(--ink); }
-.le-destination-berry { background: var(--filing-berry-background); border: 1px solid var(--filing-berry-border); color: var(--ink); }
+.le-destination-moss { --filing-swatch-fill: var(--filing-moss-border); background: var(--filing-moss-background); border: 1px solid var(--filing-moss-border); color: var(--ink); }
+.le-destination-olive { --filing-swatch-fill: var(--filing-olive-border); background: var(--filing-olive-background); border: 1px solid var(--filing-olive-border); color: var(--ink); }
+.le-destination-teal { --filing-swatch-fill: var(--filing-teal-border); background: var(--filing-teal-background); border: 1px solid var(--filing-teal-border); color: var(--ink); }
+.le-destination-lake { --filing-swatch-fill: var(--filing-lake-border); background: var(--filing-lake-background); border: 1px solid var(--filing-lake-border); color: var(--ink); }
+.le-destination-denim { --filing-swatch-fill: var(--filing-denim-border); background: var(--filing-denim-background); border: 1px solid var(--filing-denim-border); color: var(--ink); }
+.le-destination-indigo { --filing-swatch-fill: var(--filing-indigo-border); background: var(--filing-indigo-background); border: 1px solid var(--filing-indigo-border); color: var(--ink); }
+.le-destination-plum { --filing-swatch-fill: var(--filing-plum-border); background: var(--filing-plum-background); border: 1px solid var(--filing-plum-border); color: var(--ink); }
+.le-destination-berry { --filing-swatch-fill: var(--filing-berry-border); background: var(--filing-berry-background); border: 1px solid var(--filing-berry-border); color: var(--ink); }
+.le-filing-swatch[class*="le-destination-"] { background: var(--filing-swatch-fill); }
 .le-quick-actions { display: flex; flex-wrap: nowrap; gap: var(--space-1); min-width: 0; overflow: auto; }
 .le-quick-actions .le-btn { flex: 0 1 auto; max-width: 11rem; min-width: 0; white-space: nowrap; font-size: var(--font-size-small); }
 .le-quick-actions .le-btn span { overflow: hidden; text-overflow: ellipsis; }
