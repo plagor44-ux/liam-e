@@ -222,7 +222,11 @@ small { font-size: var(--font-size-small); }
 .le-mailrow-actions .le-icon-btn { width: 24px; height: 24px; }
 .le-mailrow-actions .le-quick-actions { flex: 0 1 auto; min-width: 0; }
 .le-mailrow-actions .le-quick-actions .le-btn { min-height: 24px; height: 24px; min-width: calc(10ch + 24px); max-width: 9rem; padding: 0 var(--space-2); }
+.le-mailrow-actions .le-quick-actions .le-btn:focus-visible { outline-offset: -2px; }
 .le-mailrow:hover .le-mailrow-actions, .le-mailrow:focus-within .le-mailrow-actions, .le-mailrow.is-hover .le-mailrow-actions, .le-mailrow[aria-current="true"] .le-mailrow-actions { display: flex; }
+@media (min-width: 640px) {
+  .le-mailrow:hover .le-mailrow-snippet-slot:has(.le-mailrow-actions) .le-mailrow-snippet, .le-mailrow:focus-within .le-mailrow-snippet-slot:has(.le-mailrow-actions) .le-mailrow-snippet, .le-mailrow.is-hover .le-mailrow-snippet-slot:has(.le-mailrow-actions) .le-mailrow-snippet, .le-mailrow[aria-current="true"] .le-mailrow-snippet-slot:has(.le-mailrow-actions) .le-mailrow-snippet { opacity: 0; }
+}
 
 /* Confirm card */
 .le-confirm { border-radius: var(--radius-lg); background: var(--surface-soft); padding: var(--space-2); }

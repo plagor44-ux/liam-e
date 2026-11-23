@@ -276,7 +276,8 @@ mobile rows expose them in the more menu. The selection bar and reader also offe
 From an opened mail, create-and-assign creates the destination and files the verified source in one
 transaction; a missing source or duplicate name leaves no partial destination. The rule editor can
 prefill account, sender, domain and subject from that mail, proposing a rule name from the sender.
-The form waits for source initialization before edits and falls back to an empty manual draft on failure.
+The form waits for source initialization before edits, permits cancellation during loading and
+falls back to an empty manual draft on failure.
 The form has one explicit save action; it explains the required folder or label before enabling
 save, and unsaved changes retain the leave confirmation. Only selected conditions are saved, and
 the source and its account are rechecked under lock during creation, including verified aliases.

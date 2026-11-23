@@ -262,3 +262,20 @@ test('the snippet toolbar uses each row state background with a soft fade', asyn
   expect(app).toMatch(/\.le-mailrow-swipe \.le-mailrow\.is-checked \{ --le-row-bg: var\(--accent-soft\);/u)
   expect(css).toMatch(/\.le-mailrow-actions \{[^}]*linear-gradient\(to right, transparent, var\(--le-row-bg\) 12px\)/u)
 })
+
+
+test('row filing tags expose names without adding tab stops', () => {
+  render(<MailRow mail={{ ...mail, app_label_ids: ['label'] }} filingDestinations={[{ id: 'label', name: 'Example', kind: 'label' }]} selected={false} coarse={false} onOpen={() => {}} onArchive={() => {}} onToggleRead={() => {}} onTrash={() => {}} />)
+  const tag = screen.getByRole('img', { name: 'Label: Example' })
+  expect(tag.tabIndex).toBe(-1)
+  expect(tag.hasAttribute('aria-label')).toBe(true)
+})
+
+test('the row quick-action focus ring is inset and the snippet stays accessible', async () => {
+  const css = await Bun.file(new URL('../styles/ds.css', import.meta.url)).text()
+  expect(css).toMatch(/\.le-mailrow-actions \.le-quick-actions \.le-btn:focus-visible \{[^}]*outline-offset: -2px;/u)
+  expect(css).toMatch(/\.le-mailrow:hover[^\n]*\.le-mailrow-snippet[^\n]*opacity: 0;/u)
+  const { container } = render(<MailRow mail={{ ...mail, snippet: 'Synthetic snippet' }} selected coarse={false} onOpen={() => {}} onArchive={() => {}} onToggleRead={() => {}} onTrash={() => {}} />)
+  expect(container.querySelector('.le-mailrow-snippet')?.textContent).toBe('Synthetic snippet')
+  expect(container.querySelector('.le-mailrow-snippet')?.hasAttribute('aria-hidden')).toBe(false)
+})
