@@ -273,7 +273,8 @@ Already-applied destinations are excluded. Desktop rows show quick actions on ho
 mobile rows expose them in the more menu. The selection bar and reader also offer compact actions.
 From an opened mail, create-and-assign creates the destination and files the verified source in one
 transaction; a missing source or duplicate name leaves no partial destination. The rule editor can
-prefill account, sender, domain and subject from that mail. Only selected conditions are saved, and
+prefill account, sender, domain and subject from that mail, proposing a rule name from the sender.
+The form has one explicit save action; its unsaved changes retain the leave confirmation. Only selected conditions are saved, and
 the source and its account are rechecked under lock during creation, including verified aliases.
 List-header conditions are not supported. Unsaved rule edits use the settings leave guard.
 Each destination has a validated named colour or `none`; existing rows default to `none` on upgrade.
