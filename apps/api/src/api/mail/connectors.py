@@ -13,7 +13,6 @@ directly: ``GET /v1/connectors``, ``GET /v1/connectors/{name}/tools``,
 from __future__ import annotations
 
 import json
-from collections.abc import Set as AbstractSet
 from contextvars import ContextVar
 from typing import Any
 from urllib.parse import quote
@@ -159,20 +158,26 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
             await _call_tool(account.provider, tool, {"messageId": message.provider_uid, "labelIds": change})
             # HTTP 200 can contain a text diagnostic. Confirm TRASH before removing INBOX.
             expected.update(change)
-            labels = await thread_labels(
-                account.provider, message.thread_id, {message.provider_uid}, required=present, forbidden=absent,
-            )
-            if message.provider_uid not in labels:
+            # A full read may replay old labels. If the point read disagrees, recheck
+            # it once without allowing a full read to supply confirmation.
+            for minimal_only in (False, True):
+                observed = await thread_labels(
+                    account.provider, message.thread_id, {message.provider_uid}, minimal_only=minimal_only,
+                )
+                labels = observed.get(message.provider_uid)
+                if labels is not None and present.issubset(labels) and absent.isdisjoint(labels):
+                    break
+            else:
                 raise ValueError("Connector label change not confirmed")
 
 
 async def thread_labels(
-    provider: str, thread_id: str, uids: set[str], *,
-    required: AbstractSet[str] = frozenset(), forbidden: AbstractSet[str] = frozenset(),
+    provider: str, thread_id: str, uids: set[str], *, minimal_only: bool = False,
 ) -> dict[str, list[str]]:
-    """Read exact thread members, falling back if MINIMAL lacks the required evidence."""
+    """Point-read exact thread members, with a full read for missing labels."""
     found = {}
-    for fmt in ("MINIMAL", "FULL_CONTENT"):
+    formats = ("MINIMAL",) if minimal_only else ("MINIMAL", "FULL_CONTENT")
+    for fmt in formats:
         thread = await call_read_tool_json(provider, "get_thread", {"threadId": thread_id, "messageFormat": fmt})
         if not isinstance(thread, dict) or thread.get("id") != thread_id or not isinstance(thread.get("messages"), list):
             return found
@@ -180,8 +185,7 @@ async def thread_labels(
             if isinstance(item, dict) and isinstance(uid := item.get("id"), str) and uid in uids:
                 labels = item.get("labelIds")
                 if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
-                    if required <= set(labels) and forbidden.isdisjoint(labels):
-                        found[uid] = labels
+                    found[uid] = labels
         if uids <= found.keys():
             break
     return found
