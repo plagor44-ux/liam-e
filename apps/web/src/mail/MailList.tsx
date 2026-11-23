@@ -194,14 +194,16 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   const time = summary.data?.last_sync_at ? formatTime(new Date(summary.data.last_sync_at), undefined, locale) : undefined
   const selectedAccount = accounts.find(account => account.id === search.account?.[0])
   const accountLabel = selectedAccount ? selectedAccount.display_name || selectedAccount.email_address : texts.controls.allAccounts
+  const destinationName = (row: { kind: string; name: string }) => `${row.kind === 'folder' ? texts.mailFiling.folder : texts.mailFiling.label}: ${row.name}`
+  const selectedDestination = destinations.data?.find(row => row.id === (search.app_folder ?? search.app_label))
   const labels = new Map(accounts.map(account => [account.id, providerLabel(account)]))
   const groups = groupByDay(items, new Date(), undefined, locale)
   return <>
     {breakpoint !== 'mobile' && (selectionMode ? selectionBar : <div className="le-topbar"><h1 className="le-crumb">{texts.inbox.title}</h1>{time && <small className="le-muted le-num">{texts.inbox.stand(time)}</small>}<span className="le-grow" />{buttons}</div>)}
     <div className="le-inbox-filters"><Menu trigger={props => <Chip {...props} quiet>{accountLabel}<Icon name="chevron-down" size="sm" /></Chip>} items={[{ label: texts.controls.allAccounts, onSelect: () => changeSearch({ account: undefined }) }, ...accounts.map(account => ({ label: account.display_name || account.email_address, onSelect: () => changeSearch({ account: [account.id] }) }))]} />
-      <Menu trigger={props => <Chip {...props} quiet>{destinations.data?.find(row => row.id === (search.app_folder ?? search.app_label))?.name ?? texts.mailFiling.filters}<Icon name="chevron-down" size="sm" /></Chip>} items={[
+      <Menu trigger={props => <Chip {...props} quiet>{selectedDestination ? destinationName(selectedDestination) : texts.mailFiling.filters}<Icon name="chevron-down" size="sm" /></Chip>} items={[
         { label: texts.mailFiling.inbox, onSelect: () => changeSearch({ app_folder: undefined, app_label: undefined }) },
-        ...(destinations.data ?? []).filter(row => row.id).map(row => ({ label: row.name, onSelect: () => changeSearch(row.kind === 'folder' ? { app_folder: row.id, app_label: undefined } : { app_folder: undefined, app_label: row.id }) })),
+        ...(destinations.data ?? []).filter(row => row.id).map(row => ({ label: destinationName(row), onSelect: () => changeSearch(row.kind === 'folder' ? { app_folder: row.id, app_label: undefined } : { app_folder: undefined, app_label: row.id }) })),
       ]} />
       {(['unread', 'important', 'attachments'] as const).map(key => <Chip key={key} pressed={Boolean(search[key])} quiet={!search[key]} onClick={() => changeSearch({ [key]: search[key] ? undefined : true })}>{texts.inbox[key]}</Chip>)}
     </div>
