@@ -28,8 +28,8 @@ class RuleIn(BaseModel):
         self.recipient = self.recipient.strip().casefold()
         if not self.name or not any((self.account_id, self.sender_address, self.sender_domain, self.subject_contains, self.recipient)):
             raise ValueError("A name and at least one condition are required")
-        if not any((self.folder_id, self.label_id, self.mark_read, self.mark_unread, self.archive)):
-            raise ValueError("At least one action is required")
+        if not (self.folder_id or self.label_id):
+            raise ValueError("A folder or label is required")
         if self.mark_read and self.mark_unread:
             raise ValueError("Choose one read action")
         if self.sender_address and ("@" not in self.sender_address or any(c.isspace() for c in self.sender_address)):

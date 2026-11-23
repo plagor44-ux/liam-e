@@ -3,6 +3,14 @@
 from db.models.mail_message import MailMessage
 from db.models.mail_rule import MailRule
 from api.mail.rules import select_assignments
+from api.mail.rule_schemas import RuleIn
+from pydantic import ValidationError
+import pytest
+
+
+def test_rule_requires_app_side_destination_even_with_provider_action():
+    with pytest.raises(ValidationError):
+        RuleIn(name="Read", sender_domain="example.test", mark_read=True)
 
 
 def test_first_folder_wins_but_labels_accumulate_across_all_matches():
