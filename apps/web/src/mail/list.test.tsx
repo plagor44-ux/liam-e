@@ -438,5 +438,6 @@ test('folder filter selects the global app-side folder', async () => {
   expect(await screen.findByRole('menuitem', { name: 'Label: Projects' })).toBeTruthy()
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Ordner: Projects' }))
   await waitFor(() => expect(router.state.location.searchStr).toContain('app_folder='))
+  expect(await screen.findByRole('heading', { name: 'Ordner: Projects' })).toBeTruthy()
   await waitFor(() => expect(list.mock.calls.some(([options]) => options?.query?.app_folder_id === 'folder')).toBe(true))
 })
