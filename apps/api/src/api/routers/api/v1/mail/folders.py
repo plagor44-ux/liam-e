@@ -33,6 +33,10 @@ class FilingIn(BaseModel):
     remove_labels: list[str] = Field(default_factory=list, max_length=100)
 
 
+class CreateAndAssignIn(DestinationIn):
+    message_id: str = Field(min_length=1, max_length=100)
+
+
 class DestinationPage(BaseModel):
     items: list[MailFolder]
     next_cursor: str | None
@@ -84,6 +88,18 @@ async def assign(body: FilingIn) -> dict[str, bool]:
     except ValueError:
         raise refuse(422, "filing_invalid", "Diese Zuordnung ist nicht möglich.") from None
     return {"ok": True}
+
+
+@router.post('/create-and-assign', operation_id='mail_folder_create_and_assign')
+async def create_and_assign(body: CreateAndAssignIn) -> MailFolder:
+    try:
+        return await mail_filing.create_and_assign(body.message_id, body.name, body.kind)
+    except LookupError:
+        raise refuse(404, 'message_not_found', 'Die Mail ist nicht mehr da.') from None
+    except ValueError:
+        raise refuse(422, 'folder_invalid', 'Der Name ist ungültig.') from None
+    except IntegrityError:
+        raise refuse(409, 'folder_exists', 'Diesen Namen gibt es schon.') from None
 
 
 @router.patch("/{destination_id}", operation_id="mail_folder_update")

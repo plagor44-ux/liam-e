@@ -1,13 +1,16 @@
 // i18n-exempt: synthetic API responses and test labels.
 import { afterEach, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from '@tanstack/react-router'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { client as api } from '../api/generated/client.gen'
+import * as sdk from '../api/generated/sdk.gen'
+import { spyOn, mock } from 'bun:test'
 import { FolderSettings } from './MailFiling'
 
 const original = globalThis.fetch, config = api.getConfig()
 let requests: { method: string; url: string; body?: unknown }[] = []
-afterEach(() => { cleanup(); globalThis.fetch = original; api.setConfig(config) })
+afterEach(() => { cleanup(); mock.restore(); globalThis.fetch = original; api.setConfig(config) })
 
 function inventoryPage(rows: { id: string; name: string; kind: string }[], request: Request) {
   const params = new URL(request.url).searchParams
@@ -102,6 +105,99 @@ test('rules display alphabetically with their stored priority and do not mutate 
   expect(within(rows[0] as HTMLElement).getByText('Reihenfolge: 9')).toBeTruthy()
   expect(within(rows[1] as HTMLElement).getByText('Reihenfolge: 1')).toBeTruthy()
   expect(requests.every(request => request.method === 'GET')).toBe(true)
+})
+
+test('a mail offers editable rule conditions and saves only the selected ones', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { id: 'canonical', account_id: 'account', sender_address: 'person@example.org', subject: 'Example subject' } } as never)
+  const create = spyOn(sdk, 'mailRuleCreateFromMessage').mockResolvedValue({ data: { id: 'rule', name: 'Example' } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Projects', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([{ id: 'account', display_name: 'Work', email_address: 'work@example.org' }])
+    return Response.json([])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="old-id" /></QueryClientProvider>)
+  await waitFor(() => expect((screen.getByLabelText('Absenderadresse') as HTMLInputElement).value).toBe('person@example.org'))
+  expect((screen.getByLabelText('Absenderdomain') as HTMLInputElement).value).toBe('example.org')
+  expect((screen.getByLabelText('Betreff enthält') as HTMLInputElement).value).toBe('Example subject')
+  expect(screen.getByRole('switch', { name: 'Absenderdomain verwenden' }).getAttribute('aria-checked')).toBe('false')
+  expect(create).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Konto: Work' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Alle Konten' }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Absenderadresse verwenden' }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Absenderdomain verwenden' }))
+  fireEvent.change(screen.getByLabelText('Betreff enthält'), { target: { value: 'Edited subject' } })
+  fireEvent.click(screen.getByRole('switch', { name: 'Betreff enthält verwenden' }))
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Ordner: Keine Auswahl' }))
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Projects' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Regel anlegen' }))
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+  expect(create.mock.calls[0]?.[0]?.body).toMatchObject({ source_message_id: 'old-id', source_account_id: 'account', account_id: null, sender_address: '', sender_domain: 'example.org', subject_contains: 'Edited subject', folder_id: 'folder' })
+})
+
+test('a removed source blocks rule creation and remains visible to the owner', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { id: 'mail', account_id: 'account', sender_address: 'person@example.org', subject: 'Example' } } as never)
+  const create = spyOn(sdk, 'mailRuleCreateFromMessage').mockRejectedValue({ detail: { code: 'message_not_found' } })
+  const ordinaryCreate = spyOn(sdk, 'mailRuleCreate')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Projects', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([{ id: 'account', display_name: 'Work', email_address: 'work@example.org' }])
+    return Response.json([])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="mail" /></QueryClientProvider>)
+  await waitFor(() => expect((screen.getByLabelText('Absenderadresse') as HTMLInputElement).value).toBe('person@example.org'))
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Ordner: Keine Auswahl' }))
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Projects' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Regel anlegen' }))
+  expect(await screen.findByText('Diese Mail ist nicht mehr verfügbar. Es wurde nichts gespeichert.')).toBeTruthy()
+  expect(create).toHaveBeenCalledTimes(1)
+  expect(ordinaryCreate).not.toHaveBeenCalled()
+  expect((screen.getByRole('button', { name: 'Regel anlegen' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('a missing source account is not silently presented as all accounts', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { id: 'mail', account_id: 'removed', sender_address: 'person@example.org', subject: 'Example' } } as never)
+  const create = spyOn(sdk, 'mailRuleCreateFromMessage')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async () => Response.json([])) as unknown as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="mail" /></QueryClientProvider>)
+  expect(await screen.findByText('Das Konto dieser Mail ist nicht mehr verfügbar. Erstelle bei Bedarf eine neue Regel ohne diesen Bezug.')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
+  expect((screen.getByRole('button', { name: 'Regel anlegen' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(create).not.toHaveBeenCalled()
+})
+
+test('leaving a prefilled rule warns and keeps edits when the owner stays', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { id: 'mail', account_id: 'account', sender_address: 'person@example.org', subject: 'Example' } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async () => Response.json([])) as unknown as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const root = createRootRoute({ component: () => <QueryClientProvider client={client}><Link to="/accounts">Leave</Link><Outlet /></QueryClientProvider> })
+  const rules = createRoute({ getParentRoute: () => root, path: '/rules', component: () => <RuleSettings sourceMessageId="mail" /> })
+  const other = createRoute({ getParentRoute: () => root, path: '/accounts', component: () => <p>Other</p> })
+  const router = createRouter({ routeTree: root.addChildren([rules, other]), history: createMemoryHistory({ initialEntries: ['/rules'] }) })
+  render(<RouterProvider router={router} />)
+  await waitFor(() => expect((screen.getByLabelText('Absenderadresse') as HTMLInputElement).value).toBe('person@example.org'))
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Draft' } })
+  fireEvent.click(screen.getByRole('link', { name: 'Leave' }))
+  const dialog = await screen.findByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Weiter bearbeiten' }))
+  expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('Draft')
+  expect(router.state.location.pathname).toBe('/rules')
 })
 
 test('applying a rule to existing mail requires confirmation', async () => {

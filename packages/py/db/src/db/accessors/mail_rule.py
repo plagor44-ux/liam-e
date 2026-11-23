@@ -43,6 +43,20 @@ async def create(*, session=None, **values) -> MailRule:
     return rule
 
 
+async def create_from_message(source_message_id: str, source_account_id: str, **values) -> MailRule:
+    from db.accessors import mail_message, user_preference
+    from db.models.mail_message import MailMessage
+    async with get_session_maker().begin() as session:
+        await user_preference.lock(session)  # Serialize with account removal.
+        account = (await session.scalars(select(MailAccount).where(MailAccount.id == source_account_id).with_for_update())).one_or_none()
+        candidates = list((await session.scalars(select(MailMessage).where(
+            mail_message.matches_ids([source_message_id])).order_by(MailMessage.id).with_for_update())).all())
+        source = next((row for row in candidates if row.id == source_message_id), None) or (candidates[0] if len(candidates) == 1 else None)
+        if account is None or source is None or source.account_id != source_account_id:
+            raise LookupError('Source mail not found')
+        return await create(session=session, **values)
+
+
 async def scope_allows_rule(session, account_id: str | None, permitted: list[str]) -> bool:
     if account_id is not None:
         return account_id in permitted

@@ -31,6 +31,25 @@ async def create_destination(name: str, kind: str) -> MailFolder:
     return row
 
 
+async def create_and_assign(message_id: str, name: str, kind: str) -> MailFolder:
+    name = name.strip()
+    if not name or len(name) > 120 or kind not in ('folder', 'label'):
+        raise ValueError('Invalid folder or label')
+    async with get_session_maker().begin() as session:
+        from db.accessors import mail_message, user_preference
+        from db.models.mail_account import MailAccount
+        await user_preference.lock(session)  # Serialize with account removal.
+        candidates = list((await session.scalars(select(MailMessage).where(mail_message.matches_ids([message_id])).order_by(MailMessage.id).with_for_update())).all())
+        source = next((row for row in candidates if row.id == message_id), None) or (candidates[0] if len(candidates) == 1 else None)
+        if source is None or await session.get(MailAccount, source.account_id) is None:
+            raise LookupError('Source mail not found')
+        row = MailFolder(name=name, kind=kind)
+        session.add(row)
+        await session.flush()
+        await assign([message_id], session=session, **({'folder_id': row.id} if kind == 'folder' else {'add_labels': [row.id]}))
+        return row
+
+
 async def list_destinations() -> list[MailFolder]:
     async with get_session_maker()() as session:
         return list((await session.scalars(select(MailFolder).order_by(MailFolder.kind, MailFolder.name, MailFolder.id))).all())

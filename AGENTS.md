@@ -218,8 +218,10 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Mail / filing | PATCH | `/api/v1/mail/folders/{destination_id}` | `mail_folder_update` |
 | Mail / filing | DELETE | `/api/v1/mail/folders/{destination_id}` | `mail_folder_delete` |
 | Mail / filing | POST | `/api/v1/mail/folders/assign` | `mail_filing_assign` |
+| Mail / filing | POST | `/api/v1/mail/folders/create-and-assign` | `mail_folder_create_and_assign` |
 | Mail / rules | GET | `/api/v1/mail/rules` | `mail_rules_list` |
 | Mail / rules | POST | `/api/v1/mail/rules` | `mail_rule_create` |
+| Mail / rules | POST | `/api/v1/mail/rules/from-message` | `mail_rule_create_from_message` |
 | Mail / rules | POST | `/api/v1/mail/rules/preview` | `mail_rules_preview` |
 | Mail / rules | PATCH | `/api/v1/mail/rules/{rule_id}` | `mail_rule_update` |
 | Mail / rules | DELETE | `/api/v1/mail/rules/{rule_id}` | `mail_rule_delete` |
@@ -267,6 +269,11 @@ request. The installation-scoped history is capped at 200 destinations and 90 da
 deleting a destination removes its history. Expired entries are removed on reads and writes and
 hourly while the worker runs. The browser-only quick-action read ranks frequency with a 30-day age
 weight; the UI applies locale order to ties and shows at most five actions, fewer on narrow screens.
+From an opened mail, create-and-assign creates the destination and files the verified source in one
+transaction; a missing source or duplicate name leaves no partial destination. The rule editor can
+prefill account, sender, domain and subject from that mail. Only selected conditions are saved, and
+the source and its account are rechecked under lock during creation, including verified aliases.
+List-header conditions are not supported. Unsaved rule edits use the settings leave guard.
 
 Folders and labels are global app data, never provider folders or labels. Each indexed message has
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label

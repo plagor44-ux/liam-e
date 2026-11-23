@@ -21,6 +21,11 @@ class ApplyIn(BaseModel):
     confirm_apply: bool = False
 
 
+class RuleFromMessageIn(RuleIn):
+    source_message_id: str = Field(min_length=1, max_length=100)
+    source_account_id: str = Field(min_length=1, max_length=100)
+
+
 @router.get("", operation_id="mail_rules_list")
 async def list_rules() -> list[MailRule]:
     return await mail_rule.list_rules()
@@ -32,6 +37,17 @@ async def create_rule(body: RuleIn) -> MailRule:
         return await mail_rule.create(**body.model_dump())
     except ValueError:
         raise refuse(422, "rule_invalid", "Diese Regel ist nicht gültig.") from None
+
+
+@router.post('/from-message', operation_id='mail_rule_create_from_message')
+async def create_rule_from_message(body: RuleFromMessageIn) -> MailRule:
+    try:
+        return await mail_rule.create_from_message(body.source_message_id, body.source_account_id,
+            **body.model_dump(exclude={'source_message_id', 'source_account_id'}))
+    except LookupError:
+        raise refuse(404, 'message_not_found', 'Die Mail ist nicht mehr da.') from None
+    except ValueError:
+        raise refuse(422, 'rule_invalid', 'Diese Regel ist nicht gültig.') from None
 
 
 @router.patch("/{rule_id}", operation_id="mail_rule_update")

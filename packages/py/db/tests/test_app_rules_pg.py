@@ -8,6 +8,42 @@ import pytest
 pytestmark = pytest.mark.skipif(not os.getenv("RUN_PG_CONTRACT"), reason="RUN_PG_CONTRACT is not set")
 
 
+def test_create_rule_from_message_checks_source_and_verified_alias_in_same_transaction(pg_db):
+    async def run():
+        import httpx
+        from fastapi import FastAPI
+        from api.routers.api.v1.mail import rules
+        from db.accessors import mail_account, mail_filing, mail_message, mail_rule
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        from db.models.mail_message import MailMessage
+
+        account = MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        message = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='one')
+        async with get_session_maker().begin() as session:
+            row = await session.get(MailMessage, message.id)
+            row.connector_alias_ids = ['old-local-id']; row.unverified_connector = False
+        app = FastAPI(); app.include_router(rules.router, prefix='/rules')
+        body = {'source_message_id': 'old-local-id', 'source_account_id': account.id, 'name': 'Example',
+                'account_id': account.id, 'sender_domain': 'example.org', 'folder_id': folder.id}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            assert (await client.post('/rules/from-message', json=body | {'source_account_id': 'wrong'})).status_code == 404
+            assert (await client.post('/rules/from-message', json=body | {'source_message_id': 'missing'})).status_code == 404
+            assert await mail_rule.list_rules() == []
+            created = await client.post('/rules/from-message', json=body)
+            assert created.status_code == 200
+            assert created.json()['account_id'] == account.id
+            assert len(await mail_rule.list_rules()) == 1
+            await mail_account.delete_account(account.id)
+            assert (await client.post('/rules/from-message', json=body | {'account_id': None})).status_code == 404
+            assert await mail_rule.list_rules() == []
+
+    asyncio.run(run())
+
+
 def test_first_import_skips_rules_but_later_delivery_runs_and_reconnect_notifies(pg_db, monkeypatch):
     async def run():
         from unittest.mock import AsyncMock

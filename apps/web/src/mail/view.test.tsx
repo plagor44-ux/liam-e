@@ -44,8 +44,9 @@ function setup({ mobile = false, unread = false, referenceOnly = false, missing 
   const index = createRoute({ getParentRoute: () => inbox, path: '/', component: () => <div>Inbox index</div> })
   const detail = createRoute({ getParentRoute: () => inbox, path: '$messageId', component: () => { const { messageId } = useParams({ strict: false }) as { messageId: string }; return <MailView id={messageId} /> } })
   const home = createRoute({ getParentRoute: () => root, path: '/', validateSearch: (s: Record<string, unknown>) => s, component: () => <div>Home</div> })
+  const rules = createRoute({ getParentRoute: () => root, path: '/settings/rules', validateSearch: (s: Record<string, unknown>) => s, component: () => <div>Rule editor</div> })
   const chat = createRoute({ getParentRoute: () => root, path: '/chat/$conversationId', component: () => <div>Chat</div> })
-  const router = createRouter({ routeTree: root.addChildren([home, inbox.addChildren([index, detail]), chat]), history: createMemoryHistory({ initialEntries: [path] }) })
+  const router = createRouter({ routeTree: root.addChildren([home, inbox.addChildren([index, detail]), chat, rules]), history: createMemoryHistory({ initialEntries: [path] }) })
   const view = render(<RouterProvider router={router} />)
   return { client, router, view, action, get, getInsight, request: () => request, requests }
 }
@@ -62,6 +63,22 @@ test('mobile reader offers direct label filing without provider actions', async 
   fireEvent.click(await screen.findByRole('button', { name: 'Label: Important' }))
   await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['m1'], add_labels: ['label'] }))
   expect(action).not.toHaveBeenCalled()
+})
+
+test('opened mail creates a label only after save and opens a source-bound rule editor', async () => {
+  const create = spyOn(sdk, 'mailFolderCreateAndAssign').mockResolvedValue({ data: { id: 'new', name: 'Important', kind: 'label' } } as never)
+  const { router, action } = setup({ mobile: true })
+  fireEvent.click(await screen.findByRole('button', { name: 'Weitere Aktionen' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Neues Label anlegen und zuordnen' }))
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Important' } })
+  expect(create).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await waitFor(() => expect(create.mock.calls[0]?.[0]?.body).toEqual({ message_id: 'm1', name: 'Important', kind: 'label' }))
+  expect(action).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Regel aus dieser Mail erstellen' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/settings/rules'))
+  expect(router.state.location.search).toMatchObject({ source_mail: 'm1' })
 })
 
 test('task proposal starts a fresh chat with explicit mail and task account scope', async () => {

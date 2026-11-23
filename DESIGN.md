@@ -663,6 +663,10 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   same type cues and success or failure feedback. Show at most five on desktop, three on tablet and
   two on mobile; their buttons wrap, retain touch targets, and never trigger row navigation. The
   reader explains an empty history and the ordinary filing menu remains available.
+  The opened mail's action menu can create a folder or label and assign that mail in one explicit
+  save, or open a new rule with editable account, sender, domain and subject suggestions. The owner
+  chooses which suggested conditions to use; the rule is never created before Save. A missing source
+  or duplicate name is explained, and unsaved rule edits use the settings leave guard.
   Destination choices and tags use locale-aware name order within each kind, ignoring case and
   accents; fixed commands stay first. Rule rows sort by name and display the stored execution
   priority, which is independent of their visual order.
