@@ -78,6 +78,10 @@ async def fetch_changes(account: MailAccount, *, cursor: str, folders: list[str]
         logger.warning("Connector history page deferred: %s", type(error).__name__)
         current.cursor = "initial:" + json.dumps([current.cursor, previous_token])
         return current
+    # A UID seen in the historical page remains ambiguous even if the overlapping delta also lists it.
+    current.initial_history_uids.update(row['provider_uid'] for row in history.upserts)
+    current.initial_deferred_threads.update(history.deferred_threads)
+    current.initial_deferred_threads.update(history.restored_members)
     merge_observations(current, history)
     if history.cursor.startswith("initial:"):
         _, token = json.loads(history.cursor.removeprefix("initial:"))

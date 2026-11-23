@@ -34,6 +34,7 @@ export const de = {
     outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', localDone: 'App-Zuordnung gespeichert', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
     folderOverridden: 'Ordner nicht zugeordnet: Eine höher priorisierte Regel hat Vorrang.',
     imapRebuild: 'Nach dem Neuaufbau dieses IMAP-Postfachs wurden Regeln für diese Mails nicht automatisch angewendet. Du kannst sie manuell anwenden. Zusammenfassungen für ungelesene Mails werden wie gewohnt erstellt.',
+    initialImport: 'Beim Import dieses Kontos ohne gespeicherten Synchronisationsstand wurden Regeln für diese Mails nicht automatisch angewendet. Du kannst sie manuell anwenden. Zusammenfassungen für ungelesene Mails werden wie gewohnt erstellt.',
     ruleConfirm: 'Regel erstellen?', filingConfirm: 'Mails zuordnen?', filingPending: 'Vorgeschlagene Zuordnung — wartet auf Bestätigung.', ruleDone: 'Regel erstellt.', filingDone: 'Mails zugeordnet.',
   },
   preferences: {

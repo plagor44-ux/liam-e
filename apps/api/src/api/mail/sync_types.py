@@ -23,6 +23,9 @@ class SyncChanges:
     moved_out: list[str] = field(default_factory=list)
     cursor: str = ""
     full_rebuild: bool = False
+    initial_pending: bool = False
+    initial_history_uids: set[str] = field(default_factory=set)
+    initial_deferred_threads: set[str] = field(default_factory=set)
     deferred_threads: list[str] = field(default_factory=list)
     unconfirmed_uids: set[str] = field(default_factory=set)
     restored_members: dict[str, dict[str, list[str]]] = field(default_factory=dict)

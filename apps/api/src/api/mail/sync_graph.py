@@ -50,6 +50,7 @@ async def fetch_changes(account: MailAccount, *, cursor: str, folders: list[str]
                 if not _safe_delta_url(url):
                     raise ValueError("Invalid Graph next link")
                 changes.cursor = url
+                changes.initial_pending = True
                 break
             if not url:
                 changes.cursor = page.get("@odata.deltaLink", "")

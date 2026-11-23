@@ -56,6 +56,8 @@ async def save_state(
         if connector_cursor is not None:
             state.connector_cursor = connector_cursor
         if cursor is not None:
+            if not cursor and state.cursor:
+                state.rules_initial_import = ""
             state.cursor = cursor
         state.status = status
         state.last_error = last_error

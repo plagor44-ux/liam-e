@@ -25,6 +25,18 @@ def account(provider="imap", auth_type="imap_password"):
     return SimpleNamespace(id="a", provider=provider, auth_type=auth_type, email_address="a@example.org")
 
 
+@pytest.mark.anyio
+async def test_connector_initial_history_is_distinct_from_incremental_deliveries(monkeypatch):
+    delta = sync_types.SyncChanges(cursor='101', upserts=[{'provider_uid': 'new', 'labels_json': None}, {'provider_uid': 'overlap', 'labels_json': None}])
+    history = sync_types.SyncChanges(cursor='101', upserts=[{'provider_uid': 'old', 'labels_json': None}, {'provider_uid': 'overlap', 'labels_json': None}], deferred_threads=['old-thread'], restored_members={'restored-thread': {}})
+    monkeypatch.setattr(sync_connector, '_fetch_page', AsyncMock(return_value=delta))
+    monkeypatch.setattr(sync_connector, '_history_page', AsyncMock(return_value=history))
+    result = await sync_connector.fetch_changes(account('gmail', 'mistral_connector'), cursor='initial:[100,"next"]', folders=['INBOX'], limit=10, max_body_chars=100)
+    assert {row['provider_uid'] for row in result.upserts} == {'new', 'old', 'overlap'}
+    assert result.initial_history_uids == {'old', 'overlap'}
+    assert result.initial_deferred_threads == {'old-thread', 'restored-thread'}
+
+
 async def imap_run(monkeypatch, server, cursor="", known=None, limit=3):
     async def credentials(_):
         return {"imap_host": "example.org", "password": "secret"}
@@ -312,6 +324,7 @@ async def test_graph_stops_at_page_boundary(monkeypatch):
     mock_client(monkeypatch, sync_graph, handler)
     result = await sync_graph.fetch_changes(account("microsoft", "oauth2"), cursor="https://graph.microsoft.com/v1.0/delta", folders=["INBOX"], limit=1, max_body_chars=100)
     assert result.cursor.endswith("/next") and result.moved_out == ["a", "b"]
+    assert result.initial_pending
     assert len(calls) == 1 and calls[0].headers["Prefer"] == "odata.maxpagesize=1"
 
 

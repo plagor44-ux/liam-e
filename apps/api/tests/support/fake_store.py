@@ -52,6 +52,9 @@ class FakeStore:
         async def no_rebuild_notice(session, account_id, generation):
             return None
         monkeypatch.setattr(mail_rule_run, "record_imap_rebuild", no_rebuild_notice)
+        async def no_import_notice(session, account_id, notice_id, status):
+            return None
+        monkeypatch.setattr(mail_rule_run, "record_import_notice", no_import_notice)
         monkeypatch.setattr(mail_message, "count_unread", self.count_unread)
         monkeypatch.setattr(mail_message, "count_for_account", self.count_for_account)
         async def newsletter_senders(*, account_ids=None, chat_only=False):
@@ -282,7 +285,7 @@ class FakeStore:
     async def save_state(self, *, account_id, **kwargs):
         claim_poll = kwargs.pop("claim_poll", False)
         previous = self.states.get(account_id)
-        for key in ("connector_verified", "connector_cursor", "connector_generation", "connector_proof_revision", "connector_deferred_threads", "cursor"):
+        for key in ("connector_verified", "connector_cursor", "connector_generation", "connector_proof_revision", "connector_deferred_threads", "rules_initial_import", "cursor"):
             if kwargs.get(key) is None:
                 kwargs.pop(key, None)
                 if previous:

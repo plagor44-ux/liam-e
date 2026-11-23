@@ -1,6 +1,7 @@
 """Apply incremental provider changes to the local inbox index."""
 
 import imaplib
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -60,6 +61,8 @@ async def sync_account(account_id: str) -> SyncResult:
     previous = await sync_state_access.save_state(account_id=account_id, cursor=None, status="syncing", claim_poll=True)
     cursor = previous.cursor
     try:
+        import_state = json.loads(previous.rules_initial_import) if previous.rules_initial_import else {}
+        initial_deferred = set(import_state.get('threads', []))
         if account.auth_type == connectors.CONNECTOR:
             provider = sync_connector
         elif account.provider == providers.IMAP:
@@ -78,19 +81,32 @@ async def sync_account(account_id: str) -> SyncResult:
             verified_cursor = previous.connector_cursor if previous and previous.connector_verified else ""
             generation = previous.connector_generation if previous else 0
             async with connector_mailbox.bound_mailbox(account, cursor=verified_cursor, generation=generation, observed=previous, bootstrap=True, check_after=True) as (binding, progress):
+                first_import = not progress
                 changes, deferred = await _connector_changes(account, progress,
-                    previous.connector_deferred_threads if previous.connector_verified else [], options)
+                    previous.connector_deferred_threads if previous.connector_verified else [], options,
+                    initial_deferred=set() if first_import else initial_deferred, first_import=first_import)
             stored_progress = connector_mailbox.encode(binding, changes.cursor)
         elif is_connector:
-            changes, deferred = await _connector_changes(account, previous.connector_cursor or cursor,
-                previous.connector_deferred_threads, options)
+            progress = previous.connector_cursor or cursor
+            first_import = not progress
+            changes, deferred = await _connector_changes(account, progress,
+                previous.connector_deferred_threads, options, initial_deferred=set() if first_import else initial_deferred, first_import=first_import)
             stored_progress = changes.cursor
         else:
+            first_import = not cursor
             changes = await provider.fetch_changes(account, cursor=cursor, **options)
             stored_progress = changes.cursor
             native_moves = await _check_native_returns(account, changes)
         async with sync_state_access.sync_transaction(account_id, previous, verified=verified, connector=is_connector) as (session, state):
-            new_ids, invalidated = await _apply_changes(account, changes, session, verified, native_moves)
+            import_id = import_state.get('id', '')
+            if not import_id and (first_import or (is_connector and progress.startswith('initial:'))):
+                import_id = str(previous.connector_generation)
+            continuing_connector = is_connector and bool(import_id) and not first_import
+            new_ids, invalidated = await _apply_changes(account, changes, session, verified, native_moves,
+                initial_import_id=import_id, suppress_import_page=bool(import_id) and not continuing_connector)
+            pending_import = changes.cursor.startswith('initial:') if is_connector else changes.initial_pending
+            tracked_threads = changes.initial_deferred_threads if is_connector else set()
+            state.rules_initial_import = json.dumps({'id': import_id, 'threads': sorted(tracked_threads)}) if import_id and (pending_import or tracked_threads or not changes.cursor) else ''
             if is_connector:
                 state.connector_deferred_threads = deferred
                 if verified:
@@ -156,13 +172,21 @@ async def _check_native_returns(account, changes):
     return {uid: (original, uid in confirmed) for uid, original in origins.items() if original is not None}
 
 
-async def _connector_changes(account, progress, deferred, options):
+async def _connector_changes(account, progress, deferred, options, *, initial_deferred=frozenset(), first_import=False):
     changes = await sync_connector.fetch_changes(account, cursor=progress, **options)
     pending = list(dict.fromkeys([*deferred, *changes.restored_members]))
     retry_count = min(5, len(pending))
+    initial_threads = set(initial_deferred) | changes.initial_deferred_threads
+    if first_import:
+        initial_threads.update(pending)
+        initial_threads.update(changes.deferred_threads)
+    changes.initial_history_uids.update(row['provider_uid'] for row in changes.upserts
+        if row.get('thread_id') in initial_threads)
     if retry_count:
         recovered = await sync_connector.retry_threads(account, pending[:retry_count], options["max_body_chars"],
                                                        restored_members=changes.restored_members)
+        changes.initial_history_uids.update(row['provider_uid'] for row in recovered.upserts
+            if row.get('thread_id') in initial_threads)
         sync_connector.merge_observations(changes, recovered)
     excluded = set(changes.moved_out) | changes.unconfirmed_uids
     changes.upserts = [row for row in changes.upserts if row["provider_uid"] not in excluded]
@@ -171,10 +195,12 @@ async def _connector_changes(account, progress, deferred, options):
     candidates = await message_access.trash_conflicts(account.id, possible, changes.moved_out, check_unlisted=True)
     if candidates:
         await sync_connector.confirm_trash_conflicts(account, changes, candidates)
-    return changes, list(dict.fromkeys([*pending[retry_count:], *changes.deferred_threads]))
+    remaining = list(dict.fromkeys([*pending[retry_count:], *changes.deferred_threads]))
+    changes.initial_deferred_threads = initial_threads.intersection(remaining)
+    return changes, remaining
 
 
-async def _apply_changes(account, changes, session, verified, native_moves):
+async def _apply_changes(account, changes, session, verified, native_moves, *, initial_import_id='', suppress_import_page=False):
     account_id = account.id
     connector = account.auth_type == connectors.CONNECTOR
     label_folders = connector or account.provider == providers.GOOGLE
@@ -224,6 +250,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
     # Rows this run rewrites that still hold text from an older extraction.
     old_texts = await message_access.stale_body_texts(account_id, "INBOX", BODY_VERSION, [parsed["provider_uid"] for parsed in changes.upserts], session=session)
     new_ids = []
+    rule_ids = []
     for parsed in changes.upserts:
         uid = parsed["provider_uid"]
         if uid not in known and (local_id := changes.imap_undeleted.get(uid)):
@@ -239,6 +266,8 @@ async def _apply_changes(account, changes, session, verified, native_moves):
                                                   unverified_connector=unverified, invalidated_insights=invalidated, session=session)
         if uid not in known and not imap_reset:
             new_ids.append(row.id)
+            if not suppress_import_page and uid not in changes.initial_history_uids:
+                rule_ids.append(row.id)
         if changes.full_rebuild or label_folders:
             known[parsed["provider_uid"]] = row.id
     known.update(restored_ids)
@@ -262,7 +291,10 @@ async def _apply_changes(account, changes, session, verified, native_moves):
             await message_access.set_state(known[uid], **updates, session=session)
     if imap_reset and changes.upserts:
         await mail_rule_run.record_imap_rebuild(session, account_id, imap_validity)
-    await mail_job.queue_mail_rules(session, account_id, new_ids)
+    if initial_import_id:
+        await mail_rule_run.record_import_notice(session, account_id,
+            f'first-import:{account_id}:{initial_import_id}', 'skipped_initial_import')
+    await mail_job.queue_mail_rules(session, account_id, rule_ids)
     return new_ids, invalidated
 
 

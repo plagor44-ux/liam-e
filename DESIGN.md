@@ -643,7 +643,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   Show unsupported provider actions as skipped and uncertain provider outcomes as unknown. Explain
   that a sleeping Studio instance delays rule execution until the next fetch. After an IMAP mailbox
   rebuild, the run notice explains that rules were not applied automatically, can be applied manually,
-  and unread mail remains eligible for normal summaries.
+  and unread mail remains eligible for normal summaries. The same notice is shown for an account's
+  initial import and its deferred historical messages, with the account identified.
 - The inbox filters global folders and labels across accounts. A selected mail or bulk selection
   can be filed without requiring provider write capabilities. Chat filing and rule cards show the
   target and conditions and require explicit confirmation before local changes.

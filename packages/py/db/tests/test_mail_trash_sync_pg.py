@@ -195,8 +195,8 @@ def test_trash_during_inflight_inbox_snapshot_then_undo(pg_db, monkeypatch):
             connector_mailbox.decode(state.connector_cursor)[0], progress))
         fetched, publish = asyncio.Event(), asyncio.Event()
         fetch = sync._connector_changes
-        async def delayed(*args):
-            batch = await fetch(*args)
+        async def delayed(*args, **kwargs):
+            batch = await fetch(*args, **kwargs)
             assert any(row["provider_uid"] == "target" for row in batch[0].upserts)
             fetched.set()
             await publish.wait()

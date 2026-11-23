@@ -9,14 +9,23 @@ from db.models.mail_rule_run import MailRuleRun
 
 async def record_imap_rebuild(session, account_id: str, generation: str) -> None:
     """Record a rule-level notice without creating runs for ambiguous messages."""
+    await record_import_notice(session, account_id, f'imap-rebuild:{account_id}:{generation}', 'skipped_imap_rebuild')
+
+
+async def record_import_notice(session, account_id: str, notice_id: str, status: str) -> None:
+    """Record one notice per applicable rule and import identity."""
     from sqlalchemy import or_
     from db.models.mail_rule import MailRule
 
     rules = (await session.execute(select(MailRule.id, MailRule.version).where(
         MailRule.is_active.is_(True), or_(MailRule.account_id.is_(None), MailRule.account_id == account_id)))).all()
     for rule_id, version in rules:
+        existing = await session.scalar(select(MailRuleRun.id).where(
+            MailRuleRun.rule_id == rule_id, MailRuleRun.message_id == notice_id))
+        if existing is not None:
+            continue
         row = MailRuleRun(rule_id=rule_id, rule_version=version, account_id=account_id,
-                          message_id=f'imap-rebuild:{account_id}:{generation}', status='skipped_imap_rebuild')
+                          message_id=notice_id, status=status)
         await session.execute(insert(MailRuleRun).values(**row.model_dump()).on_conflict_do_nothing(
             constraint='uq_mail_rule_run_version_message'))
 

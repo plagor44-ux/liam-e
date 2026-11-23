@@ -25,6 +25,8 @@ class MailSyncState(SQLModel, table=True):
     account_id: str = Field(index=True)
     cursor: str = ""
     connector_cursor: str = Field(default="", sa_column_kwargs={"server_default": ""})
+    # Stable identity of an initial import while a provider has historical pages left.
+    rules_initial_import: str = Field(default="", sa_column_kwargs={"server_default": ""})
     # This existing generation also fences native polls against confirmed folder changes.
     connector_generation: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     connector_proof_revision: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
