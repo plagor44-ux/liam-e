@@ -28,7 +28,7 @@ export const de = {
     ruleEmpty: 'Noch keine Regeln. Erstelle eine Regel für neue Mails.', ruleDelay: 'Regeln laufen nach dem Abruf. Schläft die Studio-Instanz, verzögert sich die Ausführung bis zum nächsten Abruf.',
     preview: 'Vorschau', matches: (n: number) => `${n} passende ${n === 1 ? 'Mail' : 'Mails'}`, apply: 'Auf vorhandene Mails anwenden', applyTitle: 'Regel auf vorhandene Mails anwenden?',
     applyDescription: 'Die Regel wird auf passende Mails im Posteingang angewendet. Änderungen beim Anbieter erfolgen nur, wenn das Konto sie unterstützt.',
-    outcomes: 'Letzte Ausführungen', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
+    outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
     ruleConfirm: 'Regel erstellen?', filingConfirm: 'Mails zuordnen?', ruleDone: 'Regel erstellt.', filingDone: 'Mails zugeordnet.',
   },
   preferences: {

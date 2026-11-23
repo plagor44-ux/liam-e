@@ -35,7 +35,7 @@ export const en = {
     ruleEmpty: 'No rules yet. Create a rule for new emails.', ruleDelay: 'Rules run after fetching mail. A sleeping Studio instance delays them until the next fetch.',
     preview: 'Preview', matches: n => plural(n, { one: '# matching email', other: '# matching emails' }), apply: 'Apply to existing emails', applyTitle: 'Apply rule to existing emails?',
     applyDescription: 'The rule applies to matching inbox emails. Provider actions run only when the account supports them.',
-    outcomes: 'Recent runs', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
+    outcomes: 'Recent runs', noRuns: 'No runs yet.', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
     ruleConfirm: 'Create rule?', filingConfirm: 'File emails?', ruleDone: 'Rule created.', filingDone: 'Emails filed.',
   },
   preferences: {

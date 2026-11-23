@@ -45,6 +45,8 @@ test('applying a rule to existing mail requires confirmation', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
   await screen.findByText('Projects')
+  fireEvent.click(screen.getByRole('button', { name: 'Letzte Ausführungen' }))
+  expect(await screen.findByText('Noch keine Ausführungen.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
   expect(requests.some(request => request.url.includes('/apply'))).toBe(false)
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
