@@ -26,7 +26,7 @@ test('provider labels cover known providers and IMAP domains', () => {
 
 test('mobile row places the account and deadline beneath the snippet', async () => {
   const css = await Bun.file(new URL('../styles/ds.css', import.meta.url)).text()
-  expect(css).toMatch(/\.le-mailrow-snippet \{ grid-row: 3; \}/u)
+  expect(css).toMatch(/\.le-mailrow-snippet-slot \{ grid-row: 3; height: auto; \}/u)
   expect(css).toMatch(/\.le-mailrow-top \.le-tag \{ grid-row: 4; grid-column: 1; \}/u)
   expect(css).toMatch(/\.le-mailrow-deadline \{ grid-row: 4; grid-column: 2; \}/u)
 })

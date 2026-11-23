@@ -199,14 +199,15 @@ small { font-size: var(--font-size-small); }
 .le-mailrow-from { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .le-mailrow-subject { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .le-mailrow.is-unread .le-mailrow-from, .le-mailrow.is-unread .le-mailrow-subject { font-weight: 700; }
-.le-mailrow-snippet { font-size: var(--font-size-small); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-mailrow-snippet-slot { position: relative; min-width: 0; height: 24px; display: flex; align-items: center; }
+.le-mailrow-snippet { min-width: 0; font-size: var(--font-size-small); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 639px) {
   .le-mailrow-main { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 8px; align-items: center; }
   .le-mailrow-top { display: contents; }
-  .le-mailrow-from, .le-mailrow-subject, .le-mailrow-snippet { grid-column: 1 / -1; }
+  .le-mailrow-from, .le-mailrow-subject, .le-mailrow-snippet-slot { grid-column: 1 / -1; }
   .le-mailrow-from { grid-row: 1; }
   .le-mailrow-subject { grid-row: 2; }
-  .le-mailrow-snippet { grid-row: 3; }
+  .le-mailrow-snippet-slot { grid-row: 3; height: auto; }
   .le-mailrow-top .le-tag { grid-row: 4; grid-column: 1; }
   .le-mailrow-deadline { grid-row: 4; grid-column: 2; }
   .le-mailrow-main > .le-filing-tags { grid-row: 5; grid-column: 1 / -1; }
@@ -215,9 +216,12 @@ small { font-size: var(--font-size-small); }
 .le-mailrow-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
 .le-mailrow-time { font-size: var(--font-size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .le-mailrow.is-unread .le-mailrow-time { color: var(--accent); font-weight: 600; }
-/* The single-line overlay sits above the filing-tag line and never changes row height. */
-.le-mailrow-actions { position: absolute; z-index: 2; top: 0; right: 0; max-width: calc(100% - var(--space-7)); display: none; flex-wrap: nowrap; align-items: center; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-pill); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); }
+/* The toolbar overlays only the snippet slot; its height is reserved in every row. */
+.le-mailrow-actions { position: absolute; z-index: 2; inset: 0; display: none; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: var(--space-1); background: var(--surface-overlay); }
 .le-mailrow-actions > .le-tooltip-anchor { flex: none; }
+.le-mailrow-actions .le-icon-btn { width: 24px; height: 24px; }
+.le-mailrow-actions .le-quick-actions { flex: 0 1 auto; min-width: 0; }
+.le-mailrow-actions .le-quick-actions .le-btn { min-height: 24px; height: 24px; max-width: 9rem; padding: 0 var(--space-2); }
 .le-mailrow:hover .le-mailrow-actions, .le-mailrow:focus-within .le-mailrow-actions, .le-mailrow.is-hover .le-mailrow-actions, .le-mailrow[aria-current="true"] .le-mailrow-actions { display: flex; }
 
 /* Confirm card */

@@ -107,9 +107,14 @@ test('the urgency dot stays visible and reachable while the row shows its action
     expect(getComputedStyle(actions).display).toBe('flex')
     expect(getComputedStyle(screen.getByRole('img', { name: 'Dringend' })).visibility).toBe('visible')
     expect(getComputedStyle(container.querySelector('time')!).visibility).toBe('visible')
-    // The toolbar is out of flow and cannot add height on hover or focus.
-    expect(style.textContent).toMatch(/^\.le-mailrow-actions \{ position: absolute;[^}]*flex-wrap: nowrap;/mu)
-    expect(style.textContent).toMatch(/\.le-mailrow-actions \{[^}]*top: 0;[^}]*right: 0;/u)
+    // A fixed-height snippet slot contains the absolute toolbar, leaving subject, tags and side outside it.
+    const slot = container.querySelector('.le-mailrow-snippet-slot')!
+    expect(slot.contains(actions)).toBe(true)
+    expect(slot.contains(container.querySelector('.le-mailrow-subject'))).toBe(false)
+    expect(slot.contains(container.querySelector('.le-mailrow-side'))).toBe(false)
+    expect(style.textContent).toMatch(/\.le-mailrow-snippet-slot \{ position: relative;[^}]*height: 24px;/u)
+    expect(style.textContent).toMatch(/^\.le-mailrow-actions \{ position: absolute;[^}]*inset: 0;[^}]*flex-wrap: nowrap;/mu)
+    expect(style.textContent).toMatch(/\.le-mailrow-actions \.le-icon-btn \{ width: 24px; height: 24px; \}/u)
     fireEvent.mouseEnter(screen.getByRole('img', { name: 'Dringend' }))
     expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', 'Dringend')
   } finally {
@@ -234,4 +239,15 @@ test('mobile single-line composer centers its 20 px line box inside the 54 px he
 test('mobile rows hide the desktop action bar in every active state', async () => {
   const css = await Bun.file(new URL('../styles/ds-app.css', import.meta.url)).text()
   expect(css).toMatch(/@media \(max-width: 639px\), \(pointer: coarse\) \{[^\n]*\.le-mailrow:hover \.le-mailrow-actions[^\n]*\.le-mailrow:focus-within \.le-mailrow-actions[^\n]*\.le-mailrow\.is-hover \.le-mailrow-actions[^\n]*\.le-mailrow\[aria-current="true"\] \.le-mailrow-actions \{ display: none; \}/u)
+})
+
+
+test('the empty snippet still has the stable toolbar slot', async () => {
+  const { container } = render(<MailRow mail={{ ...mail, snippet: '' }} selected coarse={false} onOpen={() => {}} onArchive={() => {}} onToggleRead={() => {}} onTrash={() => {}} />)
+  const slot = container.querySelector('.le-mailrow-snippet-slot')!
+  expect(slot.querySelector('.le-mailrow-actions')).toBeTruthy()
+  expect(slot.querySelector('.le-mailrow-snippet')?.textContent).toBe('')
+  const css = await Bun.file(new URL('../styles/ds.css', import.meta.url)).text()
+  expect(css).toMatch(/\.le-mailrow-snippet-slot \{[^}]*height: 24px;/u)
+  expect(css).toMatch(/\.le-mailrow-actions \{ position: absolute;[^}]*inset: 0;/u)
 })

@@ -679,9 +679,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   choices. Tags wrap within a mail row rather than clipping the names on narrow screens; kind is
   never communicated by colour alone.
   Recent and frequent destinations are compact one-click actions in the hovered, focused or selected
-  desktop row, the selection bar and the reader. The desktop row overlay stays out of layout and
-  above the filing tags. Mobile rows offer them in the more menu; mobile
-  controls retain 44 px touch targets. Already-assigned destinations are excluded. Names truncate
+  desktop row, the selection bar and the reader. The desktop overlay replaces the fixed-height
+  snippet line without changing row height or covering sender, subject, metadata or filing tags.
+  Mobile rows offer them in the more menu; mobile controls retain 44 px touch targets. Already-assigned destinations are excluded. Names truncate
   with their full text available to assistive technology and in a tooltip. Show at most five on
   desktop, three on tablet and two on mobile; actions never trigger row navigation. The reader
   explains an empty history and the ordinary filing menu remains available.
