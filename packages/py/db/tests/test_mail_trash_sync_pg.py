@@ -866,20 +866,87 @@ def test_graph_undo_restore_rejects_intermediate_inbox_id(pg_db, monkeypatch):
     asyncio.run(run())
 
 
-def test_partial_label_failure_reports_error_then_syncs_actual_trash(pg_db, monkeypatch):
+@pytest.mark.parametrize("verified", [True, False], ids=["bound", "inbox-only"])
+@pytest.mark.parametrize("reject", [
+    {"isError": True, "content": [{"text": "Refused"}]},
+    {"content": [{"text": "{}"}]},
+], ids=["refused", "unconfirmed-noop"])
+def test_partial_label_failure_publishes_observed_trash(pg_db, monkeypatch, verified, reject):
     async def run():
         provider = StudioMailbox()
-        ids = await provider.connect(monkeypatch)
-        provider.reject = {"isError": True, "content": [{"text": "Refused"}]}
+        ids = await provider.connect(monkeypatch, verified=verified)
+
+        async def retry_without_delay(_):
+            pass
+
+        monkeypatch.setattr(connectors, "sleep", retry_without_delay)
+        provider.reject = reject
         provider.reject_tool = "unlabel_message"
         async with client() as browser:
             result = await browser.post(f"{MAIL}/messages/{ids['target']}/actions", json={"kind": "trash"})
-            assert result.status_code == 502 and await mail_action.latest_open(ids["target"]) is None
             assert provider.labels["target"] == {"INBOX", "TRASH"}
-            assert await listed(browser, "INBOX") == set(ids.values())
+            assert await mail_action.latest_open(ids["target"]) is None
+            assert (result.status_code, result.json()["detail"]["code"]) == (409, "provider_partial")
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await listed(browser, "TRASH") == {ids["target"]}
+            provider.replay = True
             assert (await sync.sync_account(provider.account.id)).status == "ok"
             assert await listed(browser, "TRASH") == {ids["target"]}
             assert await listed(browser, "INBOX") == {ids["sibling"]}
+    asyncio.run(run())
+
+
+def test_bulk_trash_reports_partial_and_preserves_successful_undo(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch)
+        async def refuse_target_inbox_removal(path, payload):
+            args = payload["arguments"]
+            if "/unlabel_message/" in path and args["messageId"] == "target":
+                return {"isError": True, "content": [{"text": "Refused"}]}
+            return await provider.dispatch(path, payload)
+        monkeypatch.setattr(connectors, "_post", refuse_target_inbox_removal)
+        target, sibling = ids["target"], ids["sibling"]
+        async with client() as browser:
+            response = await browser.post(MAIL + "/messages/actions", json={"kind": "trash", "message_ids": [target, sibling]})
+            assert response.status_code == 200
+            partial, done = response.json()["results"]
+            assert (partial["message_id"], partial["status"], partial.get("folder"), partial["action_id"]) == (target, "partial", "TRASH", None)
+            assert done["message_id"] == sibling and done["status"] == "done"
+            assert await listed(browser, "TRASH") == {target, sibling}
+            undone = await browser.post(MAIL + "/actions/undo", json={"action_ids": [done["action_id"]]})
+            assert undone.json()["restored"] == [done["action_id"]]
+            assert await listed(browser, "INBOX") == {sibling}
+            assert await listed(browser, "TRASH") == {target}
+
+    asyncio.run(run())
+
+
+def test_partial_connector_undo_keeps_real_labels_and_releases_the_token(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch)
+        target, sibling = ids["target"], ids["sibling"]
+        async with client() as browser:
+            moved = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert moved.status_code == 200
+            action = moved.json()["action_id"]
+            provider.reject = {"isError": True, "content": [{"text": "Refused"}]}
+            provider.reject_tool = "unlabel_message"
+            refused = await browser.post(MAIL + "/actions/undo", json={"action_ids": [action]})
+            assert refused.status_code == 200 and refused.json()["failed"] == [action]
+            assert refused.json()["restored"] == []
+            assert (await mail_action.latest_open(target)).id == action
+            assert await listed(browser, "INBOX") == {sibling}
+            assert await listed(browser, "TRASH") == {target}
+            actual = await mail_message.get_message(target)
+            assert set(json.loads(actual.labels_json)) == {"TRASH", "INBOX"}
+            provider.reject = None
+            retried = await browser.post(MAIL + "/actions/undo", json={"action_ids": [action]})
+            assert retried.json()["restored"] == [action]
+            assert await listed(browser, "INBOX") == {target, sibling}
+            assert await listed(browser, "TRASH") == set()
+
     asyncio.run(run())
 
 

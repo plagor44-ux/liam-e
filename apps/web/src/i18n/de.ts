@@ -477,6 +477,7 @@ export const de = {
     unreachable: 'Das Konto ist gerade nicht erreichbar. Versuch es gleich noch mal.',
     host_not_allowed: 'liam-e darf diesen Server nicht ansprechen. Prüfe die Serveradresse oder trag den Server in Mistral Studio unter MAIL_IMAP_ALLOWED_HOSTS ein.',
     provider_error: 'Der Anbieter antwortet gerade nicht. Versuch es gleich noch mal.',
+    provider_partial: 'Gmail hat nur einen Teil der Änderung ausgeführt. Prüfe den Ordner der Mail.',
     provider_failed: 'Der Anbieter hat die Änderung nicht bestätigt. Prüfe die Mail nach dem nächsten Abruf.',
     action_uncertain: 'Das hat nicht geklappt. Lade den Posteingang neu, um zu sehen, wo die Mail jetzt liegt.',
     account_exists: 'Diese Adresse ist schon über einen anderen Weg verbunden. Entferne das Konto zuerst, wenn du die Verbindung wechseln willst.',
@@ -582,6 +583,13 @@ export const de = {
       if (kind === 'trash') return `${result} Für ${plural(total - done, { one: '# Mail', other: '# Mails' })} fehlt die Bestätigung.`
       const failure = { archive: 'archivieren', spam: 'als Spam markieren', mark_read: 'als gelesen markieren', mark_unread: 'als ungelesen markieren' }[kind]
       return `${result} ${plural(total - done, { one: '# ließ sich nicht', other: '# ließen sich nicht' })} ${failure}.`
+    },
+    bulkProviderPartial: (n: number) => plural(n, { one: 'Gmail hat # Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.', other: 'Gmail hat # Mails teilweise geändert. Die Liste zeigt die gemeldeten Ordner.' }),
+    providerPartial: {
+      INBOX: 'Gmail hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Posteingang.',
+      TRASH: 'Gmail hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Papierkorb.',
+      ARCHIVE: 'Gmail hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Archiv.',
+      SPAM: 'Gmail hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Spam.',
     },
     bulkUndoFailed: (n: number) => plural(n, { one: '# Aktion ließ sich nicht rückgängig machen.', other: '# Aktionen ließen sich nicht rückgängig machen.' }),
     title: 'Posteingang', groups: { today: 'Heute', yesterday: 'Gestern', week: 'Diese Woche', older: 'Älter' },

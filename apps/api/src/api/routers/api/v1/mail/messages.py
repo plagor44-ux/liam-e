@@ -101,6 +101,8 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
         async with semaphore:
             try:
                 action = await actions.apply_action(message_id, body.kind)
+            except actions.ActionPartialError as error:
+                return BulkMessageActionResult(message_id=message_id, status="partial", folder=error.folder)
             except actions.ActionUnsupportedError:
                 return BulkMessageActionResult(message_id=message_id, status="unsupported")
             except HTTPException as error:
@@ -135,6 +137,12 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
         action = await actions.apply_action(message_id, body.kind)
     except actions.ActionUnsupportedError:
         raise refuse(409, "action_unsupported", "Das geht bei dieser Mail nicht.") from None
+    except actions.ActionPartialError as error:
+        raise HTTPException(status_code=409, detail={
+            "code": "provider_partial",
+            "message": "Gmail hat nur einen Teil der Änderung ausgeführt.",
+            "folder": error.folder,
+        }) from None
     except actions.ActionFailedError:
         raise refuse(502, "provider_failed", "Der Anbieter hat die Änderung nicht bestätigt. Prüfe die Mail nach dem nächsten Abruf.") from None
     message = await message_access.get_message(message_id)

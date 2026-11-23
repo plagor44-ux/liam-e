@@ -95,7 +95,8 @@ class BulkMessageActionIn(BaseModel):
 
 class BulkMessageActionResult(BaseModel):
     message_id: str
-    status: Literal["done", "not_found", "unsupported", "failed"]
+    status: Literal["done", "not_found", "unsupported", "failed", "partial"]
+    folder: Literal["INBOX", "TRASH", "ARCHIVE", "SPAM"] | None = None
     action_id: str | None = None
     message: MessageListItemOut | None = None
 

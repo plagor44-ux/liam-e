@@ -487,6 +487,7 @@ export const en = {
     unreachable: 'The account can’t be reached. Try again in a moment.',
     host_not_allowed: 'liam-e can’t connect to this server. Check its address or add it to MAIL_IMAP_ALLOWED_HOSTS in Mistral Studio.',
     provider_error: 'The provider isn’t responding. Try again in a moment.',
+    provider_partial: 'Gmail only applied part of the change. Check the email’s folder.',
     provider_failed: 'The provider didn’t confirm the change. Check the email after the next sync.',
     action_uncertain: 'The result is uncertain. Reload the inbox to see where the email is now.',
     account_exists: 'This address is already connected another way. Remove the account before changing how it connects.',
@@ -596,6 +597,13 @@ export const en = {
       if (done === total) return action[0] + ' ' + emails(total) + action[1] + '.'
       const result = action[0] + ' ' + numberFormat.format(done) + ' of ' + emails(total) + action[1] + '.'
       return kind === 'trash' ? result + ' The move is unconfirmed for ' + emails(total - done) + '.' : result
+    },
+    bulkProviderPartial: (n: number) => plural(n, { one: 'Gmail partly changed # email. The list shows its reported folder.', other: 'Gmail partly changed # emails. The list shows their reported folders.' }),
+    providerPartial: {
+      INBOX: 'Gmail only applied part of the change. The email is in the inbox.',
+      TRASH: 'Gmail only applied part of the change. The email is in the trash.',
+      ARCHIVE: 'Gmail only applied part of the change. The email is in the archive.',
+      SPAM: 'Gmail only applied part of the change. The email is in spam.',
     },
     bulkUndoFailed: n => plural(n, { one: 'Couldn’t undo # action.', other: 'Couldn’t undo # actions.' }),
     title: 'Inbox', groups: { today: 'Today', yesterday: 'Yesterday', week: 'This week', older: 'Older' },

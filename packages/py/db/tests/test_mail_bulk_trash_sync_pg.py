@@ -168,15 +168,16 @@ def test_toolbar_bulk_trash_sync_and_group_undo(pg_db, monkeypatch, record_prope
         submitted = outcome["request"]["message_ids"]
         assert sorted(submitted) == sorted(ids[s] for s in selected)
         assert [r["message_id"] for r in outcome["results"]] == submitted
-        assert statuses == {s: "failed" if s in failed else "done" for s in selected}
+        assert statuses == {s: "partial" if s in part_moved else "failed" if s in failed else "done" for s in selected}
         for row in outcome["results"]:
             assert bool(row["action_id"]) == (row["status"] == "done")
+            assert row["folder"] == ("TRASH" if row["status"] == "partial" else None)
         expected = {subject: ["INBOX"] for subject in all_subjects}
         expected.update({subject: ["INBOX", "TRASH"] for subject in both_folders})
         assert upstream["immediate"] == expected | {subject: ["TRASH"] for subject in confirmed}
         assert upstream["undone"] == upstream["restored"] == expected
-        for stage, trashed in (("immediate", confirmed), ("delayed", confirmed), ("replay", confirmed | part_moved),
-                               ("fresh", confirmed | part_moved), ("undone", part_moved), ("restored", part_moved)):
+        for stage in ("immediate", "delayed", "replay", "fresh", "undone", "restored"):
+            trashed = part_moved if stage in ("undone", "restored") else confirmed | part_moved
             assert states[stage] == {"INBOX": sorted(set(all_subjects) - trashed), "TRASH": sorted(trashed)}, stage
         assert outcome["undo_status"] == 200
         tokens = sorted(r["action_id"] for r in outcome["results"] if r["status"] == "done")
@@ -186,6 +187,7 @@ def test_toolbar_bulk_trash_sync_and_group_undo(pg_db, monkeypatch, record_prope
             if partial:
                 assert f"{len(confirmed)} von {len(selected)} Mails in den Papierkorb gelegt" in outcome["toast"]
                 assert "fehlt die Bestätigung" in outcome["toast"]
+                assert ("teilweise geändert" in outcome["toast"]) == bool(part_moved)
                 assert outcome["tone"] == "alert"
             else:
                 assert f"{len(selected)} Mails in den Papierkorb gelegt" in outcome["toast"]

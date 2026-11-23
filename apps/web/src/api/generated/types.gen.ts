@@ -302,6 +302,10 @@ export type BulkMessageActionResult = {
      * Action Id
      */
     action_id?: string | null;
+    /**
+     * Folder
+     */
+    folder?: 'INBOX' | 'TRASH' | 'ARCHIVE' | 'SPAM' | null;
     message?: MessageListItemOut | null;
     /**
      * Message Id
@@ -310,7 +314,7 @@ export type BulkMessageActionResult = {
     /**
      * Status
      */
-    status: 'done' | 'not_found' | 'unsupported' | 'failed';
+    status: 'done' | 'not_found' | 'unsupported' | 'failed' | 'partial';
 };
 
 /**

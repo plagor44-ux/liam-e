@@ -479,6 +479,23 @@
             ],
             "title": "Action Id"
           },
+          "folder": {
+            "anyOf": [
+              {
+                "enum": [
+                  "INBOX",
+                  "TRASH",
+                  "ARCHIVE",
+                  "SPAM"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
+          },
           "message": {
             "anyOf": [
               {
@@ -498,7 +515,8 @@
               "done",
               "not_found",
               "unsupported",
-              "failed"
+              "failed",
+              "partial"
             ],
             "title": "Status",
             "type": "string"

@@ -5,6 +5,7 @@ import type { MessageDetailOut, MessageListItemOut, MessagePageOut } from '../ap
 import { useI18n } from '../i18n/I18n'
 import { errorCode } from '../api/unwrap'
 import { useBreakpoint } from '../shell/useBreakpoint'
+import { z } from 'zod'
 
 export type Clock = { now(): number; setTimeout(fn: () => void, ms: number): ReturnType<typeof setTimeout>; clearTimeout(id: ReturnType<typeof setTimeout>): void }
 const systemClock: Clock = { now: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: id => clearTimeout(id) }
@@ -16,6 +17,12 @@ type Change = { key: QueryKey; page: number; index: number; row: MessageListItem
 type GroupItem = { actionId: string; messageId: string; changes: Change[]; previousRead?: boolean }
 export type UndoEntry = { actionId: string; messageId: string; kind: Kind; changes: Change[]; previousRead?: boolean; group?: GroupItem[]; partial?: boolean; text: string; label: string; deadline: number; pending: boolean }
 const LIMIT = 20
+const partialFolder = z.object({ detail: z.object({ folder: z.enum(['INBOX', 'TRASH', 'ARCHIVE', 'SPAM']) }) })
+const inFolder = ({ key }: Change, folder: string) => {
+  const filters = key[1]
+  const listedFolder = filters && typeof filters === 'object' && 'folder' in filters ? filters.folder : 'INBOX'
+  return (listedFolder ?? 'INBOX') === folder
+}
 // A provider can stop responding; release the queue after fifteen seconds.
 const UNDO_TIMEOUT_MS = 15_000
 
@@ -141,6 +148,16 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       if (result.response?.status === 404) {
         update(id, 'remove')
         if (!options?.silent) notify(texts.proposalErrors.item_gone)
+      } else if (result.response?.status === 409 && errorCode(result.error) === 'provider_partial') {
+        const parsed = partialFolder.safeParse(result.error)
+        const folder = parsed.success ? parsed.data.detail.folder : undefined
+        const retained = folder && changes.filter(change => inFolder(change, folder))
+        if (retained) restore(retained, removal)
+        reconcile.current = true
+        if (!options?.silent) notify(folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial)
+        void client.invalidateQueries({ queryKey: ['summary'] })
+        void client.invalidateQueries({ queryKey: ['message', id] })
+        return Boolean(retained?.length)
       } else if (result.response?.status === 409) {
         rollback()
         if (!options?.silent) notify(texts.proposalErrors.action_unsupported)
@@ -206,7 +223,15 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         rollback(failed)
         for (const row of result.data.results) if (row.status === 'not_found') { update(row.message_id, 'remove'); void client.invalidateQueries({ queryKey: ['message', row.message_id], exact: true }) }
         const group = result.data.results.filter(row => row.status === 'done' && row.action_id).map(row => ({ actionId: row.action_id!, messageId: row.message_id, changes: changes.filter(change => change.row.id === row.message_id), previousRead: reads.get(row.message_id) }))
-        const text = texts.inbox.bulkResult(kind, group.length, ids.length)
+        const partial = result.data.results.filter(row => row.status === 'partial')
+        const partialFolders = new Map(partial.map(row => [row.message_id, row.folder]))
+        const retained = changes.filter(change => {
+          const folder = partialFolders.get(change.row.id)
+          return folder ? inFolder(change, folder) : false
+        })
+        restore(retained.sort((a, b) => a.page - b.page || a.index - b.index), removes(kind))
+        const base = texts.inbox.bulkResult(kind, group.length, ids.length)
+        const text = partial.length ? base + ' ' + texts.inbox.bulkProviderPartial(partial.length) : base
         if (group.length) {
           setNotice(null)
           publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
