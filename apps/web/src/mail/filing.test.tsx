@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import * as sdk from '../api/generated/sdk.gen'
 import { FilingMenu } from './FilingMenu'
 import { FilingTags } from './FilingTags'
+import { shortcutHint } from './inboxShortcuts'
 import type { MessageListItemOut } from '../api/generated/types.gen'
 import { I18nProvider } from '../i18n/I18n'
 
@@ -135,14 +136,17 @@ test('add-label shortcut never removes a label already assigned', async () => {
 })
 
 
-test('filing menu choices expose their shortcut hints', async () => {
+test('filing menu header exposes registry shortcut hints without changing destination names', async () => {
   const folders = spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', name: 'Projects', kind: 'folder' }, { id: 'l', name: 'Work', kind: 'label' }] } as never)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><FilingMenu ids={['a']} showShortcuts /></QueryClientProvider>)
   const trigger = await screen.findByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement
   await waitFor(() => expect(trigger.disabled).toBe(false))
   fireEvent.click(trigger)
-  expect(await screen.findByRole('menuitem', { name: 'Ordner: Projects (V)' })).toBeTruthy()
-  expect(screen.getByRole('menuitem', { name: 'Label: Work (L)' })).toBeTruthy()
+  expect(await screen.findByRole('menuitem', { name: 'Ordner: Projects' })).toBeTruthy()
+  expect(screen.getByRole('menuitem', { name: 'Label: Work' })).toBeTruthy()
+  const header = document.querySelector('.le-filing-shortcuts')!
+  expect(header.textContent).toContain(`Ordner zuordnen ${shortcutHint('folder', 'de')}`)
+  expect(header.textContent).toContain(`Label zuordnen ${shortcutHint('label', 'de')}`)
   folders.mockRestore()
 })

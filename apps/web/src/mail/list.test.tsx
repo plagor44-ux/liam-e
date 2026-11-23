@@ -52,12 +52,12 @@ test('filing shortcuts open the matching choices for current and selected mail',
   await screen.findByText('Termin')
   fireEvent.keyDown(document.body, { key: 'j' })
   fireEvent.keyDown(document.body, { key: 'v' })
-  expect(await screen.findByRole('menuitemradio', { name: 'Ordner: Projects (V)' })).toBeTruthy()
-  expect(screen.queryByRole('menuitemcheckbox', { name: 'Label: Projects (L)' })).toBeNull()
+  expect(await screen.findByRole('menuitemradio', { name: 'Ordner: Projects' })).toBeTruthy()
+  expect(screen.queryByRole('menuitemcheckbox', { name: 'Label: Projects' })).toBeNull()
   fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
   fireEvent.click(screen.getByRole('button', { name: 'Auswählen: Termin' }))
   fireEvent.keyDown(document.body, { key: 'l' })
-  fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Label: Projects (L)' }))
+  fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Label: Projects' }))
   await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['m1'], add_labels: ['label'] }))
 })
 
@@ -68,7 +68,7 @@ test('filing shortcut uses the opened mail even when it is outside the loaded li
   const trigger = await screen.findByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement
   await waitFor(() => expect(trigger.disabled).toBe(false))
   fireEvent.keyDown(document.body, { key: 'v' })
-  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Ordner: Projects (V)' }))
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Ordner: Projects' }))
   await waitFor(() => expect(assign.mock.calls[0]?.[0]?.body).toEqual({ message_ids: ['canonical'], folder_id: 'folder' }))
 })
 

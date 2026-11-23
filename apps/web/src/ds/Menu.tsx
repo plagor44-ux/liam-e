@@ -19,11 +19,12 @@ type MenuProps = {
   groups?: { label: string; items: MenuItem[] }[]
   placement?: Placement
   label?: string
+  header?: ReactNode
   onOpen?: () => void
   openRequest?: number
   menuClassName?: string
 }
-export function Menu({ trigger, items = [], groups, placement = 'down-start', label, onOpen, openRequest, menuClassName = '' }: MenuProps) {
+export function Menu({ trigger, items = [], groups, placement = 'down-start', label, header, onOpen, openRequest, menuClassName = '' }: MenuProps) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLSpanElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -78,5 +79,5 @@ export function Menu({ trigger, items = [], groups, placement = 'down-start', la
       const index = nodes.indexOf(document.activeElement as HTMLElement)
       nodes[(index + (event.key === 'ArrowDown' ? 1 : -1) + nodes.length) % nodes.length]?.focus()
     }
-  }}>{groups?.map(group => <div key={group.label} role="group" aria-label={group.label}><div className="le-menu-group-label" aria-hidden="true">{group.label}</div>{group.items.map(renderItem)}</div>)}{items.map(renderItem)}</div>, document.body)}</span>
+  }}>{header}{groups?.map(group => <div key={group.label} role="group" aria-label={group.label}><div className="le-menu-group-label" aria-hidden="true">{group.label}</div>{group.items.map(renderItem)}</div>)}{items.map(renderItem)}</div>, document.body)}</span>
 }
