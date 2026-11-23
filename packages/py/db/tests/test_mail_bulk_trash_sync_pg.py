@@ -70,8 +70,8 @@ async def browser_flow(app, web_origin, selected):
 @pytest.mark.parametrize(("names", "variant"), [
     pytest.param(("Yahoo",), "move", id="yahoo-imap-move"),
     pytest.param(("Yahoo",), "uidplus", id="yahoo-imap-uidplus"),
-    pytest.param(("Studio",), "bound", id="gmail-studio"),
-    pytest.param(("Studio",), "inbox-only", id="gmail-studio-inbox-only"),
+    pytest.param(("Studio",), "bound", id="studio-connector"),
+    pytest.param(("Studio",), "inbox-only", id="studio-inbox-only"),
     pytest.param(("OAuth",), "oauth", id="gmail-oauth"),
     pytest.param(("Yahoo", "Studio", "OAuth"), "mixed", id="mixed"),
 ])

@@ -104,7 +104,7 @@ async def test_all_unsubscribe_methods_blocked(seeded, method, link):
 
 async def test_archive_and_undo_are_index_only(seeded):
     store, _ = seeded
-    mail = store.messages[seed_id("mail", "hausverwaltung-nebenkosten")]
+    mail = store.messages[seed_id("mail", "meyer-angebot-4471")]
     original = mail.model_dump()
     action = await actions.apply_action(mail.id, "archive")
     assert mail.folder == "ARCHIVE"

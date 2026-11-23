@@ -62,6 +62,7 @@ function failureText(code: string | undefined, kind: Proposal['kind'], texts: Ca
     case 'item_gone': return kind === 'unsubscribe' ? texts.proposalErrors.sender_gone : texts.proposalErrors.item_gone
     case 'item_changed': return texts.proposalErrors.item_changed
     case 'action_unsupported': return texts.proposalErrors.action_unsupported
+    case 'provider_action_unsupported': return texts.errors.provider_action_unsupported
     case 'credentials_invalid': return texts.proposalErrors.credentials_invalid
     case 'send_failed': return texts.proposalErrors.send_failed
     case 'account_gone': return texts.proposalErrors.account_gone

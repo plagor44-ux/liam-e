@@ -36,7 +36,7 @@ async def listed(browser, folder, *, query=""):
 
 
 class StudioMailbox:
-    """The search replica can lag. Point reads and writes see the actual message labels."""
+    """Simulate a connector with working label writes and a lagging search replica."""
 
     def __init__(self):
         self.date = datetime.now(UTC).isoformat()
@@ -48,8 +48,8 @@ class StudioMailbox:
         self.writes = []
 
     async def connect(self, monkeypatch, *, verified=True):
-        email = "owner@example.test" if verified else "gmail@connector.mistral"
-        self.account = await service.upsert_account(provider="gmail", auth_type=connectors.CONNECTOR, email_address=email)
+        email = "owner@example.test" if verified else "outlook@connector.mistral"
+        self.account = await service.upsert_account(provider="outlook", auth_type=connectors.CONNECTOR, email_address=email)
         progress = connector_mailbox.encode(("named", "anchor", "proof"), "") if verified else ""
         await mail_sync_state.save_state(account_id=self.account.id, connector_verified=verified, connector_cursor=progress)
         async def credentials(*args):

@@ -1,3 +1,4 @@
+import { mailCapabilities } from '../test/mailCapabilities'
 // i18n-exempt: synthetic test fixtures and route paths.
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -172,9 +173,9 @@ test('start page surfaces paused, unreachable, incomplete sources and missing wr
     setup({
       locale,
       accounts: [
-        { id: 'a', display_name: 'Privat', email_address: 'a@example.org', provider: 'gmail', connection: 'connector', color_index: 0, unread: 1, state: 'ok', error_code: '', last_sync_at: '2026-11-21T08:00:00Z' },
-        { id: 'b', display_name: 'Arbeit', email_address: 'b@example.org', provider: 'imap', connection: 'imap', color_index: 1, unread: 0, state: 'auth_expired', error_code: 'auth_expired', last_sync_at: null },
-        { id: 'c', display_name: 'Familie', email_address: 'c@example.org', provider: 'imap', connection: 'imap', color_index: 2, unread: 0, state: 'never', error_code: '', last_sync_at: null },
+        { id: 'a', display_name: 'Privat', email_address: 'a@example.org', provider: 'gmail', connection: 'connector', action_capabilities: mailCapabilities(false), color_index: 0, unread: 1, state: 'ok', error_code: '', last_sync_at: '2026-11-21T08:00:00Z' },
+        { id: 'b', display_name: 'Arbeit', email_address: 'b@example.org', provider: 'imap', connection: 'imap', action_capabilities: mailCapabilities(), color_index: 1, unread: 0, state: 'auth_expired', error_code: 'auth_expired', last_sync_at: null },
+        { id: 'c', display_name: 'Familie', email_address: 'c@example.org', provider: 'imap', connection: 'imap', action_capabilities: mailCapabilities(), color_index: 2, unread: 0, state: 'never', error_code: '', last_sync_at: null },
       ],
       calendars: [
         { id: 'cal-w', name: 'Team', provider: 'google', capabilities: ['read', 'write'], is_active: true, chat_access: 'writable', stale: false, incomplete: false, last_error: 'provider_unavailable', last_success_at: new Date().toISOString() },
@@ -197,7 +198,7 @@ test('start page surfaces paused, unreachable, incomplete sources and missing wr
 
 test('all mail accounts unreachable or unavailable write default show dedicated states', async () => {
   setup({
-    accounts: [{ id: 'a', display_name: 'Arbeit', email_address: 'a@example.org', provider: 'imap', connection: 'imap', color_index: 0, unread: 0, state: 'error', error_code: 'provider_error', last_sync_at: null }],
+    accounts: [{ id: 'a', display_name: 'Arbeit', email_address: 'a@example.org', provider: 'imap', connection: 'imap', action_capabilities: mailCapabilities(), color_index: 0, unread: 0, state: 'error', error_code: 'provider_error', last_sync_at: null }],
     calendars: [{ id: 'cal-ro', name: 'Verein', provider: 'ics', capabilities: ['read'], is_active: true, chat_access: 'read_only', stale: false, incomplete: false, last_success_at: new Date().toISOString() }],
     defaultSourceId: 'cal-ro',
   })
@@ -246,7 +247,7 @@ test('chat_settings_changed on Due today reloads grants and succeeds on retry', 
   summarySpy.mockImplementation((async () => ({
     data: {
       mail_scope_version: currentScopeVersion,
-      accounts: [{ id: 'a', display_name: 'Privat', email_address: 'me@example.org', provider: 'gmail', connection: 'connector', color_index: 0, unread: 1, state: 'ok', error_code: '', last_sync_at: '2026-11-21T08:57:00Z' }],
+      accounts: [{ id: 'a', display_name: 'Privat', email_address: 'me@example.org', provider: 'gmail', connection: 'connector', action_capabilities: mailCapabilities(false), color_index: 0, unread: 1, state: 'ok', error_code: '', last_sync_at: '2026-11-21T08:57:00Z' }],
       unread_total: 1,
       newsletter_senders: 0,
       last_sync_at: '2026-11-21T08:57:00Z',

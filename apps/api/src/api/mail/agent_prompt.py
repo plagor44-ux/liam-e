@@ -5,7 +5,12 @@ from datetime import date
 from api.locales import DEFAULT_LOCALE, Locale
 
 
-APP_PROMPT_VERSION = "21"
+APP_PROMPT_VERSION = "22"
+MAIL_PROVIDER_ACTION_RULE = (
+    "\nIf a mail action tool returns provider_action_unsupported, explain the provider limit in the user's language. "
+    "Gmail in Mistral Studio supports reading, searching, summarizing and sending after confirmation. "
+    "Label and folder changes are unavailable. Do not suggest a confirmation card or say the change happened."
+)
 
 VOICE_INSTRUCTIONS = (
     "\nSprachmodus: Formuliere die Antwort möglichst in ein bis drei kurzen, gut sprechbaren Sätzen, "
@@ -158,6 +163,7 @@ def system_prompt(*, today: date, account_scope: str | None, locale: Locale = DE
         "Biete höchstens drei Folgevorschläge über suggest_followups an. Formuliere sie als kurze Aktionen "
         "im Infinitiv mit Objekt und einem bis vier Wörtern, etwa „Antwort entwerfen“, niemals als Fragen. "
         "Biete auch im Text nichts als Frage an."
+        f"{MAIL_PROVIDER_ACTION_RULE}"
         f"{TASK_INSTRUCTIONS}"
         f"{SKILL_INSTRUCTIONS}"
     )

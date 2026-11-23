@@ -101,6 +101,12 @@ executes selected entries after confirmation, `.../cancel` discards them. The ag
 sends nothing without a confirmed card. Individual inbox actions initiated by the user instead
 run directly through the mail action endpoints.
 
+Account responses expose `action_capabilities` for individual actions, including `move` and
+`label`. Gmail Studio accounts disable label and folder writes, including read/unread changes.
+The API returns `409 provider_action_unsupported` before dispatch for unsupported actions, undo
+and proposal confirmation. A mixed bulk request containing an unsupported target is rejected
+before any action runs. Read tools and explicitly confirmed sending retain their existing paths.
+
 A trash action moves the selected provider message and stores its local folder and undo record
 together after the provider confirms the move. Trash and undo invalidate older sync batches for
 that account. A later listing that repeats a trashed message needs a current, message-specific
@@ -931,8 +937,12 @@ operations into tools. App modules have no schedules (workflows do). The same in
 the gateway before the stream ended, with one short pause in the first measurement. The Gmail
 connector does not return complete headers in `get_thread`; newsletter detection therefore also
 uses the label `CATEGORY_PROMOTIONS` for connector accounts (`CATEGORY_UPDATES` does not count,
-as it also contains order confirmations and account notices). `TRASH` is supported as a system
-label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTTP 401 in the probe.
+as it also contains order confirmations and account notices). On 23.11.2026, ten Gmail Studio trash
+requests failed confirmation after a label write returned HTTP 200. The follow-up probe made four
+label or unlabel writes. All four returned HTTP 200 without a folder change in MINIMAL or
+FULL_CONTENT reads. The Gmail Studio connector therefore exposes reads and confirmed sending,
+with all label and folder writes disabled. `send_email` takes `replyToMessageId`; the Outlook
+connector returned HTTP 401 in the earlier probe.
 
 ## Stack & commands
 

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from api.mail import agent, proposals, service
 from api.routers.api.v1.chat import route, stream
@@ -413,7 +414,7 @@ def test_confirmed_mismatch_revokes_grant_while_newer_poll_has_no_proof(pg_db, m
     from db.accessors import mail_sync_state
 
     async def run():
-        account = await service.upsert_account(provider="gmail", auth_type=connectors.CONNECTOR, email_address="proof@example.test")
+        account = await service.upsert_account(provider="outlook", auth_type=connectors.CONNECTOR, email_address="proof@example.test")
         cursor = connector_mailbox.encode(("named", "anchor", "proof"), "15")
         await mail_sync_state.save_state(account_id=account.id, connector_cursor=cursor, connector_verified=True)
         await chat_settings.update(1, [account.id])
@@ -638,4 +639,39 @@ def test_long_sync_renews_its_claim_before_a_competing_poll(pg_db, monkeypatch):
             await active
         assert await mail_job.finish(job.id, job.attempts)
         assert not await original(job.id, job.attempts)
+    asyncio.run(run())
+
+
+def test_legacy_gmail_studio_proposal_is_refused_inside_claim(pg_db, monkeypatch):
+    from api.mail import action_backends, connectors, connector_mailbox
+    from api.routers.api.v1.chat.proposals import router
+    from db.accessors import mail_sync_state
+
+    async def run():
+        account = await service.upsert_account(provider="gmail", auth_type=connectors.CONNECTOR,
+                                               email_address="studio@example.test")
+        await mail_sync_state.save_state(account_id=account.id, connector_verified=True,
+            connector_cursor=connector_mailbox.encode(("synthetic", "thread", "message"), ""))
+        await chat_settings.update(1, [account.id])
+        conversation, context, _ = await resolve(account_id=account.id)
+        mail = MailMessage(account_id=account.id, provider_uid="message", subject="Synthetic title")
+        async with get_session_maker().begin() as session:
+            await session.execute(text(
+                "SELECT set_config('liam.verified_connector', :account, true)"), {"account": account.id})
+            session.add(mail)
+        card = await proposals.create_proposal(conversation.id, proposals.Proposal(kind="trash", reason="Test", items=[
+            proposals.ProposalItem(id=mail.id, kind="mail", title="Synthetic title", subtitle="")]), context_id=context.id)
+        backend = AsyncMock()
+        backend.apply.return_value = {}
+        monkeypatch.setattr(action_backends, "backend_for", lambda _: backend)
+        app = FastAPI()
+        app.include_router(router, prefix="/proposals")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as browser:
+            response = await browser.post(f"/proposals/{card.id}/confirm", json={"selected_ids": [mail.id]})
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "provider_action_unsupported"
+        assert "Synthetic title" not in response.text and mail.id not in response.text
+        assert (await chat_message.get_message(card.id)).proposal_status == "pending"
+        backend.apply.assert_not_awaited()
+
     asyncio.run(run())

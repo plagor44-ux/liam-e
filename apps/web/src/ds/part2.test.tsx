@@ -1,3 +1,4 @@
+import { mailCapabilities } from '../test/mailCapabilities'
 import { afterEach, expect, mock, test } from 'bun:test'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { AccountOut, MessageListItemOut, ProposalItem, SendDraft } from '../api/generated/types.gen'
@@ -156,7 +157,7 @@ test('composer submits on Enter and stops while busy', () => {
 })
 
 test('IMAP account reports rejected password and missing secret', () => {
-  const account: AccountOut = { id: '1', auth_type: 'imap_password', color_index: 0, connection: 'imap', created_at: '', display_name: 'Privat', email_address: 'a@example.org', error_code: 'auth_expired', is_active: true, last_sync_at: null, message_count: 1, provider: 'imap', state: 'auth_expired', unread: 0, updated_at: '' }
+  const account: AccountOut = { action_capabilities: mailCapabilities(), id: '1', auth_type: 'imap_password', color_index: 0, connection: 'imap', created_at: '', display_name: 'Privat', email_address: 'a@example.org', error_code: 'auth_expired', is_active: true, last_sync_at: null, message_count: 1, provider: 'imap', state: 'auth_expired', unread: 0, updated_at: '' }
   const props = { onSync: () => {}, onReconnect: () => {}, onRename: () => {}, onRemove: () => {} }
   const { rerender } = render(<AccountCard account={account} {...props} />)
   expect(screen.getByText('Anmeldung abgelehnt')).toBeTruthy()
@@ -167,7 +168,7 @@ test('IMAP account reports rejected password and missing secret', () => {
 })
 
 test('account status reflects syncing and login errors', () => {
-  const account: AccountOut = { id: '1', auth_type: 'oauth2', color_index: 0, connection: 'oauth', created_at: '', display_name: 'Privat', email_address: 'a@example.org', error_code: '', is_active: true, last_sync_at: null, message_count: 1, provider: 'Gmail', state: 'syncing', unread: 0, updated_at: '' }
+  const account: AccountOut = { action_capabilities: mailCapabilities(), id: '1', auth_type: 'oauth2', color_index: 0, connection: 'oauth', created_at: '', display_name: 'Privat', email_address: 'a@example.org', error_code: '', is_active: true, last_sync_at: null, message_count: 1, provider: 'Gmail', state: 'syncing', unread: 0, updated_at: '' }
   const reconnect = mock(() => {})
   const props = { onSync: () => {}, onReconnect: reconnect, onRename: () => {}, onRemove: () => {} }
   const { rerender } = render(<AccountCard account={account} {...props} />)

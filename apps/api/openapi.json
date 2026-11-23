@@ -85,6 +85,9 @@
       },
       "AccountOut": {
         "properties": {
+          "action_capabilities": {
+            "$ref": "#/components/schemas/MailActionCapabilities"
+          },
           "auth_type": {
             "title": "Auth Type",
             "type": "string"
@@ -191,6 +194,7 @@
           "email_address",
           "provider",
           "connection",
+          "action_capabilities",
           "color_index",
           "unread",
           "state",
@@ -207,6 +211,9 @@
       },
       "AccountSummaryOut": {
         "properties": {
+          "action_capabilities": {
+            "$ref": "#/components/schemas/MailActionCapabilities"
+          },
           "color_index": {
             "title": "Color Index",
             "type": "integer"
@@ -274,6 +281,7 @@
           "email_address",
           "provider",
           "connection",
+          "action_capabilities",
           "color_index",
           "unread",
           "state",
@@ -3140,6 +3148,54 @@
           "available"
         ],
         "title": "LiveStatus",
+        "type": "object"
+      },
+      "MailActionCapabilities": {
+        "properties": {
+          "archive": {
+            "title": "Archive",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "boolean"
+          },
+          "mark_read": {
+            "title": "Mark Read",
+            "type": "boolean"
+          },
+          "mark_unread": {
+            "title": "Mark Unread",
+            "type": "boolean"
+          },
+          "move": {
+            "title": "Move",
+            "type": "boolean"
+          },
+          "restore": {
+            "title": "Restore",
+            "type": "boolean"
+          },
+          "spam": {
+            "title": "Spam",
+            "type": "boolean"
+          },
+          "trash": {
+            "title": "Trash",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "archive",
+          "trash",
+          "restore",
+          "spam",
+          "mark_read",
+          "mark_unread",
+          "move",
+          "label"
+        ],
+        "title": "MailActionCapabilities",
         "type": "object"
       },
       "MailRefOut": {

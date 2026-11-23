@@ -24,7 +24,7 @@ export function MailView({ id }: { id: string }) {
   const split = breakpoint === 'desktop' || breakpoint === 'wide'
   const message = useQuery({ ...messageQuery(id), retry: (count, error) => !(error instanceof MessageNotFoundError) && count < 2 })
   const summary = useQuery(summaryQuery())
-  const { run, checkCapacity } = useMailActionsContext()
+  const { run, checkCapacity, notify } = useMailActionsContext()
   const { state, send, retry, retryWithoutPreferences } = useChatSession()
   const [started, setStarted] = useState(false)
   const [original, setOriginal] = useState<string | null>(null)
@@ -33,11 +33,15 @@ export function MailView({ id }: { id: string }) {
   const opened = useRef(new Set<string>())
   const busy = state.phase === 'working' || state.phase === 'streaming'
   const data = message.data
+  const account = summary.data?.accounts.find(item => item.id === data?.account_id)
+  const capabilities = account?.action_capabilities
+  const readKind = data?.is_read ? 'mark_unread' : 'mark_read'
+  const hint = texts.errors.provider_action_unsupported
   useEffect(() => {
-    if (!data || data.local_reference_only || opened.current.has(id)) return
+    if (!data || !summary.data || data.local_reference_only || opened.current.has(id)) return
     opened.current.add(id)
-    if (!data.is_read) void run(id, 'mark_read', { silent: true })
-  }, [id, data, run])
+    if (!data.is_read && capabilities?.mark_read !== false) void run(id, 'mark_read', { silent: true })
+  }, [id, data, summary.data, capabilities, run])
   useEffect(() => {
     if (started && state.conversationId) {
       setStarted(false)
@@ -52,6 +56,7 @@ export function MailView({ id }: { id: string }) {
     void send({ text, context_message_id: id, account_id: data.account_id, task_source: 'none' })
   }
   const remove = (kind: 'archive' | 'trash' | 'spam') => {
+    if (capabilities?.[kind] === false) { notify(hint); return }
     if (!checkCapacity()) return
     const list = client.getQueryData<InfiniteData<MessagePageOut>>(messagesInfiniteQuery(toMessageFilters(search)).queryKey)
     const items = list?.pages.flatMap(page => page.items) ?? []
@@ -73,19 +78,19 @@ export function MailView({ id }: { id: string }) {
   }
   const iconSize = !split || coarse ? 'lg' : 'md'
   const actions = data && !data.local_reference_only && <>
-    <IconButton label={texts.controls.archive} icon="archive" size={iconSize} shortcut={split ? 'E' : undefined} onClick={() => remove('archive')} />
-    <IconButton label={data.is_read ? texts.controls.markUnread : texts.controls.markRead} icon="mail-open" size={iconSize} shortcut={split ? 'U' : undefined} onClick={() => { void run(id, data.is_read ? 'mark_unread' : 'mark_read') }} />
-    <IconButton label={texts.controls.trash} icon="trash-2" size={iconSize} tone="danger" shortcut={split ? 'Entf' : undefined} onClick={() => remove('trash')} />
-    <Menu placement={split ? 'down-start' : 'down-end'} trigger={props => <IconButton {...props} label={texts.mail.more} icon="more-horizontal" size={iconSize} disabled={busy} />} items={[{ label: texts.taskChat.ask, icon: 'check', onSelect: proposeTask }, { label: texts.mail.forward, icon: 'forward', onSelect: () => start(texts.mail.forwardPrompt) }, { label: texts.mail.unsubscribe, icon: 'newspaper', disabled: !data.can_unsubscribe, hint: data.can_unsubscribe ? undefined : texts.mail.unsubscribeUnavailable, onSelect: () => start(texts.mail.unsubscribePrompt) }, { label: texts.mail.spam, icon: 'ban', onSelect: () => remove('spam') }, { label: texts.mail.original, icon: 'file-code', disabled: !data.can_show_original, hint: data.can_show_original ? undefined : texts.mail.originalUnavailable, onSelect: () => setOriginal(id) }]} />
+    <IconButton label={texts.controls.archive} icon="archive" size={iconSize} shortcut={split ? 'E' : undefined} disabled={capabilities?.archive === false} tip={capabilities?.archive === false ? hint : undefined} onClick={() => remove('archive')} />
+    <IconButton label={data.is_read ? texts.controls.markUnread : texts.controls.markRead} icon="mail-open" size={iconSize} shortcut={split ? 'U' : undefined} disabled={capabilities?.[readKind] === false} tip={capabilities?.[readKind] === false ? hint : undefined} onClick={() => { void run(id, readKind) }} />
+    <IconButton label={texts.controls.trash} icon="trash-2" size={iconSize} tone="danger" shortcut={split ? 'Entf' : undefined} disabled={capabilities?.trash === false} tip={capabilities?.trash === false ? hint : undefined} onClick={() => remove('trash')} />
+    <Menu placement={split ? 'down-start' : 'down-end'} trigger={props => <IconButton {...props} label={texts.mail.more} icon="more-horizontal" size={iconSize} disabled={busy} />} items={[{ label: texts.taskChat.ask, icon: 'check', onSelect: proposeTask }, { label: texts.mail.forward, icon: 'forward', onSelect: () => start(texts.mail.forwardPrompt) }, { label: texts.mail.unsubscribe, icon: 'newspaper', disabled: !data.can_unsubscribe, hint: data.can_unsubscribe ? undefined : texts.mail.unsubscribeUnavailable, onSelect: () => start(texts.mail.unsubscribePrompt) }, { label: texts.mail.spam, icon: 'ban', disabled: capabilities?.spam === false, hint: capabilities?.spam === false ? hint : undefined, onSelect: () => remove('spam') }, { label: texts.mail.original, icon: 'file-code', disabled: !data.can_show_original, hint: data.can_show_original ? undefined : texts.mail.originalUnavailable, onSelect: () => setOriginal(id) }]} />
   </>
   const chatButtons = data && !data.local_reference_only && <>
     <Tooltip content={texts.mail.askTip}><Button variant="secondary" icon="message-circle" className={split ? 'le-btn--sm' : ''} disabled={busy} onClick={ask}>{texts.mail.askInChat}</Button></Tooltip>
     <Tooltip content={texts.mail.draftTip}><Button variant="primary" icon="pencil" className={split ? 'le-btn--sm' : ''} disabled={busy} onClick={() => start(texts.mail.draftPrompt)}>{texts.mail.draftReply}</Button></Tooltip>
   </>
-  const account = summary.data?.accounts.find(item => item.id === data?.account_id)
   return <div className="le-mail-view">
     <div className="le-topbar le-mail-topbar">{!split && <IconButton label={texts.mail.back} icon="arrow-left" size="lg" onClick={back} />}{!split && <span className="le-grow" />}{actions}{split && <><span className="le-grow" />{data && chatButtons}</>}</div>
     <div className="le-mail-scroll">
+      {capabilities && Object.values(capabilities).some(supported => !supported) && <Notice tone="info">{hint}</Notice>}
       {started && state.phase === 'error' && !state.conversationId && <Notice tone="danger" action={state.errorCode === 'preferences_unavailable' ? { label: texts.preferences.continueWithout, onClick: () => { void retryWithoutPreferences() } } : state.errorCode === 'chat_account_not_granted' ? { label: texts.chatAccounts.section, onClick: () => { void navigate({ to: '/settings/chat' }) } } : { label: texts.chat.retry, onClick: () => { void retry() } }}>{texts.errors[state.errorCode ?? 'internal']}</Notice>}
       {message.isPending && <><span className="le-sr" role="status">{texts.mail.loading}</span><div className="le-mail-placeholder" aria-hidden="true"><div className="le-mail-placeholder-head"><span /><div><span /><span /></div></div><span /><span /><span /><span /></div></>}
       {message.isError && <div className="le-mail-error">{message.error instanceof MessageNotFoundError ? <Notice tone="danger" action={{ label: texts.mail.toInbox, onClick: back }}>{texts.proposalErrors.item_gone}</Notice> : <><Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void message.refetch() } }}>{texts.mail.loadError}</Notice><Button variant="secondary" className="le-mail-to-inbox" onClick={back}>{texts.mail.toInbox}</Button></>}</div>}

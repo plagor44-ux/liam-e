@@ -7,6 +7,7 @@ from db.accessors import chat_context, mail_account, mail_insight, mail_job, mai
 from db.models.chat_message import ChatMessage
 from api.calendar.chat_target import CalendarChoice, appointment_part, appointment_parts, pending_for_request
 from api.locales import DEFAULT_LOCALE, Locale
+from api.mail import action_capabilities
 from api.mail import headers, insights, newsletters, proposals, send, state
 from api.mail.chat_events import StatusEvent
 from api.skills.registry import TOOL_REGISTRY
@@ -296,6 +297,12 @@ async def execute_tool(name: str, arguments: dict, ctx: TurnContext) -> ToolOutc
         items = []
         mail_targets = set()
         ids = list(dict.fromkeys(arguments.get('sender_ids' if kind == 'unsubscribe' else 'message_ids', [])))
+        accounts = {}
+        if kind != 'unsubscribe':
+            targets = {verified_messages[id].account_id for id in ids if id in verified_messages}
+            accounts = {account.id: account for account in await mail_account.list_accounts() if account.id in targets}
+            if any(not getattr(action_capabilities.for_account(account), kind) for account in accounts.values()):
+                return result({'error': action_capabilities.ERROR_CODE, 'note': action_capabilities.AGENT_NOTE})
         for id in ids:
             if len(items) == 50: break
             if kind == 'unsubscribe':
@@ -307,7 +314,7 @@ async def execute_tool(name: str, arguments: dict, ctx: TurnContext) -> ToolOutc
                 m = verified_messages.get(id)
                 if not m or m.id in mail_targets or m.folder != 'INBOX' or (kind == 'mark_read' and m.is_read): continue
                 mail_targets.add(m.id)
-                account = await mail_account.get_account(m.account_id)
+                account = accounts.get(m.account_id)
                 items.append(proposals.ProposalItem(id=m.id, kind='mail', title=m.subject or ('No subject' if ctx.locale == 'en' else 'Ohne Betreff'), subtitle=f'{headers.sender_name(m.sender)} · {account.email_address if account else ""}'))
         if not items: return result({'error':'no_valid_items'})
         return await _proposal(ctx, proposals.Proposal(kind=kind, reason=arguments.get('reason',''), items=items))

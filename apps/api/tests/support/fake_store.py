@@ -28,6 +28,7 @@ class FakeStore:
         monkeypatch.setattr(mail_message, "commit_trash_move", self.commit_trash_move)
         monkeypatch.setattr(mail_sync_state, "sync_transaction", self.sync_transaction)
         monkeypatch.setattr(mail_message, "resolve_aliases", self.resolve_aliases)
+        monkeypatch.setattr(mail_message, "has_messages_from_accounts", self.has_messages_from_accounts)
         async def no_snapshot(message_id):
             return None
         monkeypatch.setattr(mail_reference_snapshot, "read", no_snapshot)
@@ -96,6 +97,13 @@ class FakeStore:
             self.messages[message.id].imap_uidvalidity = updates["imap_uidvalidity"]
         if action:
             self.actions[action.id] = action
+
+    async def has_messages_from_accounts(self, message_ids, account_ids):
+        for message_id in message_ids:
+            row = await self.get_message(message_id)
+            if row and row.account_id in account_ids:
+                return True
+        return False
 
     async def resolve_aliases(self, message_ids):
         return {alias: row.id for row in self.messages.values() if not row.unverified_connector

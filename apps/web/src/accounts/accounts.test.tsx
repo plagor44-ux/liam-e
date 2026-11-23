@@ -1,3 +1,4 @@
+import { mailCapabilities } from '../test/mailCapabilities'
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
@@ -8,7 +9,7 @@ import { AccountCard } from '../ds/AccountCard'
 import { AccountsPage } from './AccountsPage'
 import { redirect } from './redirect'
 
-const account: AccountOut = { id: 'a1', email_address: 'x@yahoo.com', display_name: 'Privat', provider: 'imap', auth_type: 'imap_password', connection: 'imap', state: 'never', error_code: '', last_sync_at: null, message_count: 0, unread: 0, color_index: 0, is_active: true, created_at: '', updated_at: '' }
+const account: AccountOut = { action_capabilities: mailCapabilities(), id: 'a1', email_address: 'x@yahoo.com', display_name: 'Privat', provider: 'imap', auth_type: 'imap_password', connection: 'imap', state: 'never', error_code: '', last_sync_at: null, message_count: 0, unread: 0, color_index: 0, is_active: true, created_at: '', updated_at: '' }
 const originalMatchMedia = window.matchMedia
 afterEach(() => { cleanup(); mock.restore(); window.matchMedia = originalMatchMedia })
 // Lets queries the page starts on mount settle inside act() before the test ends.
@@ -258,7 +259,7 @@ function fillImap() {
 test('gmail connector suppresses own Google login', async () => {
   setup('empty', '/accounts', account, [], { ...options, gmail_connector: true, google_oauth: true })
   fireEvent.click(await screen.findByRole('button', { name: /Gmail/ }))
-  expect(screen.getByText('liam-e liest und ordnet deine Mails von Gmail über den Connector in Mistral Studio. Die Anmeldung bei Google liegt dort, hier musst du nichts eingeben. Verändert oder gesendet wird nur, was du selbst auslöst oder bestätigst.')).toBeTruthy()
+  expect(screen.getByText('Melde Gmail in Mistral Studio an. Hier musst du keine Zugangsdaten eingeben.')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Bei Google anmelden' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Gmail verbinden' })).toBeTruthy()
 })
@@ -384,4 +385,13 @@ test('loading, retry and empty states', async () => {
   const loading = setup('loading'); await screen.findByText('Konten werden geladen …'); expect(loading.view.container.querySelectorAll('.le-account--placeholder')).toHaveLength(3); cleanup(); mock.restore()
   const failed = setup('error'); await screen.findByText('Die Konten konnten nicht geladen werden. Versuch es gleich noch mal.'); fireEvent.click(screen.getByRole('button', { name: 'Noch mal versuchen' })); await waitFor(() => expect(failed.list).toHaveBeenCalledTimes(2)); cleanup(); mock.restore()
   setup('empty'); await screen.findByText('Noch kein Konto verbunden. Wähle einen Anbieter, dann holt liam-e deine Mails.'); expect(screen.queryByRole('list', { name: 'Verbundene Konten' })).toBeNull()
+})
+
+test('Gmail connector limitations are visible on the account and before connecting', async () => {
+  const gmail = { ...account, provider: 'gmail', connection: 'connector' as const, auth_type: 'mistral_connector', action_capabilities: mailCapabilities(false) }
+  setup('row', '/accounts', gmail, [], { ...options, gmail_connector: true }, ['gmail'])
+  expect(await screen.findByText(/Lesen, suchen, zusammenfassen und nach Bestätigung senden/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /Gmail/ }))
+  expect(await screen.findAllByText(/Lesen, suchen, zusammenfassen und nach Bestätigung senden/)).toHaveLength(2)
+  expect(screen.getAllByText(/Papierkorb, Archivieren, Spam/)).toHaveLength(2)
 })

@@ -1,3 +1,4 @@
+import { mailCapabilities } from '../test/mailCapabilities'
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider, useParams } from '@tanstack/react-router'
@@ -19,7 +20,7 @@ function StartPageTasks({ scope }: { scope?: TaskScope }) {
   useEffect(() => { if (scope) setTaskScope('new', scope) }, [])
   return null
 }
-function setup({ mobile = false, unread = false, referenceOnly = false, missing = false, loading = false, failed = false, path = '/mail/m1', stream = false, insight, startTasks, preferencesFail = false }: { mobile?: boolean; unread?: boolean; referenceOnly?: boolean; missing?: boolean; loading?: boolean; failed?: boolean; path?: string; stream?: boolean; insight?: () => Promise<{ data: InsightOut }>; startTasks?: TaskScope; preferencesFail?: boolean } = {}) {
+function setup({ mobile = false, unread = false, referenceOnly = false, missing = false, loading = false, failed = false, path = '/mail/m1', stream = false, insight, startTasks, preferencesFail = false, limited = false }: { mobile?: boolean; unread?: boolean; referenceOnly?: boolean; missing?: boolean; loading?: boolean; failed?: boolean; path?: string; stream?: boolean; insight?: () => Promise<{ data: InsightOut }>; startTasks?: TaskScope; preferencesFail?: boolean; limited?: boolean } = {}) {
   window.matchMedia = ((q: string) => ({ matches: !mobile && (q.includes('1024px') || q.includes('640px')), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   let request: Record<string, unknown> | undefined
   const requests: Record<string, unknown>[] = []
@@ -32,7 +33,7 @@ function setup({ mobile = false, unread = false, referenceOnly = false, missing 
   const rows = [{ ...mail, is_read: !unread }, { ...mail, id: 'm2', subject: 'Zweite', is_read: !unread }]
   const getInsight = spyOn(sdk, 'mailMessageInsight').mockImplementation((insight ?? (async () => ({ data: { points: [], deadline: null, followups: [], needs_reply: false, model: '', created_at: '' } }))) as never)
   spyOn(sdk, 'chatSettingsGet').mockResolvedValue({ data: { version: 3, account_ids: ['a'] } } as never)
-  spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', color_index: 0, state: 'ok' }], unread_total: unread ? 1 : 0, last_sync_at: null } })) as never)
+  spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', action_capabilities: mailCapabilities(!limited), color_index: 0, state: 'ok' }], unread_total: unread ? 1 : 0, last_sync_at: null } })) as never)
   spyOn(sdk, 'mailMessagesList').mockImplementation((async () => ({ data: { items: rows, next_cursor: null } })) as never)
   const get = spyOn(sdk, 'mailMessageGet').mockImplementation((async (options: { path: { message_id: string } }) => { if (missing) return { error: { detail: 'Mail nicht gefunden.' }, response: new Response(null, { status: 404 }) }; if (failed) return { error: { detail: 'down' }, response: new Response(null, { status: 500 }) }; if (loading) return await new Promise(() => {}); if (referenceOnly) return { data: { ...mail, id: options.path.message_id, is_read: false, local_reference_only: true, can_unsubscribe: false, can_show_original: false } }; return { data: rows.find(row => row.id === options.path.message_id) ?? mail } }) as never)
   const action = spyOn(sdk, 'mailMessageAction').mockImplementation((async (options: { path: { message_id: string } }) => ({ data: { action_id: 'act', message: rows.find(row => row.id === options.path.message_id) }, response: { status: 200 } })) as never)
@@ -583,4 +584,14 @@ test('an excluded mail cannot start a reply from the reader', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Antwort entwerfen' }))
   expect(await screen.findByText(de.errors.chat_account_not_granted)).toBeTruthy()
   expect(requests).toHaveLength(0)
+})
+
+test('reading Gmail Studio mail leaves UNREAD untouched and disables label actions', async () => {
+  const { action } = setup({ unread: true, limited: true })
+  await screen.findAllByText('Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.')
+  await settle()
+  expect(action).not.toHaveBeenCalled()
+  const controls = screen.getByRole('button', { name: 'Weitere Aktionen' })
+  fireEvent.click(controls)
+  expect((await screen.findByRole('menuitem', { name: /Als Spam markieren/ })).getAttribute('aria-disabled')).toBe('true')
 })

@@ -477,6 +477,7 @@ export const de = {
     unreachable: 'Das Konto ist gerade nicht erreichbar. Versuch es gleich noch mal.',
     host_not_allowed: 'liam-e darf diesen Server nicht ansprechen. Prüfe die Serveradresse oder trag den Server in Mistral Studio unter MAIL_IMAP_ALLOWED_HOSTS ein.',
     provider_error: 'Der Anbieter antwortet gerade nicht. Versuch es gleich noch mal.',
+    provider_action_unsupported: 'Gmail in Mistral Studio unterstützt diese Mail-Aktion nicht.',
     provider_partial: 'Gmail hat nur einen Teil der Änderung ausgeführt. Prüfe den Ordner der Mail.',
     provider_failed: 'Der Anbieter hat die Änderung nicht bestätigt. Prüfe die Mail nach dem nächsten Abruf.',
     action_uncertain: 'Das hat nicht geklappt. Lade den Posteingang neu, um zu sehen, wo die Mail jetzt liegt.',
@@ -584,6 +585,7 @@ export const de = {
       const failure = { archive: 'archivieren', spam: 'als Spam markieren', mark_read: 'als gelesen markieren', mark_unread: 'als ungelesen markieren' }[kind]
       return `${result} ${plural(total - done, { one: '# ließ sich nicht', other: '# ließen sich nicht' })} ${failure}.`
     },
+    unsupportedSelection: 'Wähle für diese Aktion nur Mails aus unterstützten Konten. Gmail in Mistral Studio unterstützt diese Änderung nicht.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'Gmail hat # Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.', other: 'Gmail hat # Mails teilweise geändert. Die Liste zeigt die gemeldeten Ordner.' }),
     providerPartial: {
       INBOX: 'Gmail hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Posteingang.',
@@ -644,6 +646,9 @@ export const de = {
     removed: (title: string) => `${title} entfernt.`,
     providersLabel: 'Anbieter', providersLoading: 'Anbieter werden geladen …', providersError: 'Die Anbieter konnten nicht geladen werden. Versuch es gleich noch mal.',
     gmail: 'Gmail', outlook: 'Outlook', other: 'Anderer Anbieter',
+    gmailConnectorLogin: 'Melde Gmail in Mistral Studio an. Hier musst du keine Zugangsdaten eingeben.',
+    gmailCapabilitiesAvailable: 'Lesen, suchen, zusammenfassen und nach Bestätigung senden.',
+    gmailCapabilitiesUnavailable: 'Papierkorb, Archivieren, Spam, Gelesen, Ungelesen und Ordneraktionen sind in Mistral Studio für Gmail nicht verfügbar.',
     gmailConnectorSub: 'Über den Gmail-Connector in Mistral Studio', outlookConnectorSub: 'Über den Outlook-Connector in Mistral Studio',
     googleSub: 'Mit deinem Google-Konto anmelden', microsoftSub: 'Mit deinem Microsoft-Konto anmelden', otherSub: 'iCloud, Yahoo und andere über IMAP mit App-Passwort',
     connectorDescription: (provider: string, company: string) => `liam-e liest und ordnet deine Mails von ${provider} über den Connector in Mistral Studio. Die Anmeldung bei ${company} liegt dort, hier musst du nichts eingeben. Verändert oder gesendet wird nur, was du selbst auslöst oder bestätigst.`,

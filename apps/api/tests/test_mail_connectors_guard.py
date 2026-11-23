@@ -136,7 +136,7 @@ async def test_incoming_only_labels_verify_the_target_message_without_allowing_s
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from api.mail import actions, connector_mailbox
-    account = SimpleNamespace(id='placeholder', provider='gmail', email_address='gmail@connector.mistral')
+    account = SimpleNamespace(id='placeholder', provider='outlook', auth_type=connectors.CONNECTOR, email_address='outlook@connector.mistral')
     mail = SimpleNamespace(account_id=account.id, provider_uid='uid', thread_id='thread', sender='a@example.test', subject='Example')
     row = {'id': mail.provider_uid, 'sender': mail.sender, 'subject': mail.subject}
     get = AsyncMock(side_effect=[{'id': 'thread', 'messages': [row]}, {'id': 'thread', 'messages': []}])
@@ -152,7 +152,7 @@ async def test_incoming_only_labels_verify_the_target_message_without_allowing_s
         await actions.write_connector_labels(account, mail, added=['TRASH'], removed=[])
     with pytest.raises(connector_mailbox.MailboxUnavailable):
         await connectors.call_write_tool(account, 'send_email', {}, target=mail)
-    write.assert_awaited_once_with('gmail', 'unlabel_message', {'messageId': mail.provider_uid, 'labelIds': ['UNREAD']})
+    write.assert_awaited_once_with('outlook', 'unlabel_message', {'messageId': mail.provider_uid, 'labelIds': ['UNREAD']})
     assert connectors.mailbox_credential.get() is None
     monkeypatch.setattr(connector_mailbox, '_credential', AsyncMock(side_effect=connector_mailbox.MailboxUnproven()))
     get.reset_mock()

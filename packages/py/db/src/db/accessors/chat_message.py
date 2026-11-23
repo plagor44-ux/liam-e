@@ -13,6 +13,8 @@ from db.accessors import calendar_proposal_queue, calendar_source, chat_context,
 from db.engine import get_session_maker
 from db.models.chat_message import ChatMessage
 from db.models.chat_context import ChatContext
+from db.models.mail_account import MailAccount, ProviderActionUnsupported
+from db.models import mail_account as account_model
 from db.models.mail_message import MailMessage
 
 
@@ -50,7 +52,7 @@ async def add_message(
 
 
 async def claim_proposal(message_id: str, *, required_accounts: Collection[str] = (),
-                         mail_ids: Collection[str] = ()) -> ChatMessage | None:
+                         mail_ids: Collection[str] = (), label_write: bool = False) -> ChatMessage | None:
     async with get_session_maker()() as session:
         message = await claim_proposal_in_session(session, message_id)
         if message is not None and (required_accounts or mail_ids):
@@ -65,6 +67,10 @@ async def claim_proposal(message_id: str, *, required_accounts: Collection[str] 
                 targets.update(account for account, _ in rows)
             if not targets.issubset(permitted):
                 raise chat_settings.AccountNotGranted
+            if label_write and targets:
+                accounts = await session.scalars(select(MailAccount).where(MailAccount.id.in_(targets)))
+                if any(not account_model.label_writes_supported(a.provider, a.auth_type) for a in accounts):
+                    raise ProviderActionUnsupported
         await session.commit()
         return message
 

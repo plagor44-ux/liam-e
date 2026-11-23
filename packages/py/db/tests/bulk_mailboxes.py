@@ -58,10 +58,10 @@ class Mailboxes:
             "credentials": [{"name": "named", "authentication_type": "oauth2"}]}))
         monkeypatch.setattr(connectors, "_post", self.studio)
         for name in self.names:
-            provider, auth_type = {"Yahoo": ("imap", "imap_password"), "Studio": ("gmail", connectors.CONNECTOR),
+            provider, auth_type = {"Yahoo": ("imap", "imap_password"), "Studio": ("outlook", connectors.CONNECTOR),
                                    "OAuth": ("google", "oauth2")}[name]
             incoming_only = name == "Studio" and self.variant == "inbox-only"
-            address = "gmail@connector.mistral" if incoming_only else f"{name}@example.test"
+            address = "outlook@connector.mistral" if incoming_only else f"{name}@example.test"
             account = await service.upsert_account(provider=provider, auth_type=auth_type, email_address=address)
             self.accounts[name] = account
             if name == "Studio" and not incoming_only:

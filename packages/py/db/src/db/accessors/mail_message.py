@@ -200,6 +200,13 @@ async def resolve_aliases(message_ids: Collection[str]) -> dict[str, str]:
         return {alias: target for target, aliases in await session.execute(stmt) for alias in ids.intersection(aliases)}
 
 
+async def has_messages_from_accounts(message_ids: Collection[str], account_ids: Collection[str]) -> bool:
+    """Check real message IDs and verified aliases in a single read before a bulk write."""
+    stmt = select(MailMessage.id).where(matches_ids(message_ids), MailMessage.account_id.in_(account_ids)).limit(1)
+    async with get_session_maker()() as session:
+        return await session.scalar(stmt) is not None
+
+
 async def get_scoped_message(message_id: str, account_ids: list[str], *, folder: str) -> MailMessage | None:
     """Read a single indexed row of one folder without probing outside the authorized scope."""
     stmt = select(MailMessage).where(

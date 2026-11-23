@@ -191,6 +191,7 @@
 .le-inbox-search { padding: var(--space-2) var(--space-4); }
 .le-inbox-search .le-input { width: 100%; }
 .le-inbox-selection { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); min-width: 0; max-width: 100%; overflow-x: auto; }
+.le-inbox-selection--limited { flex-wrap: wrap; }
 .le-inbox-selection-actions { display: flex; gap: var(--space-2); }
 .le-mailrow-swipe .le-mailrow.is-checked { background: var(--accent-soft); }
 .le-inbox-selection > * { flex: none; }

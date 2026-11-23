@@ -487,6 +487,7 @@ export const en = {
     unreachable: 'The account can’t be reached. Try again in a moment.',
     host_not_allowed: 'liam-e can’t connect to this server. Check its address or add it to MAIL_IMAP_ALLOWED_HOSTS in Mistral Studio.',
     provider_error: 'The provider isn’t responding. Try again in a moment.',
+    provider_action_unsupported: 'Gmail in Mistral Studio does not support this email action.',
     provider_partial: 'Gmail only applied part of the change. Check the email’s folder.',
     provider_failed: 'The provider didn’t confirm the change. Check the email after the next sync.',
     action_uncertain: 'The result is uncertain. Reload the inbox to see where the email is now.',
@@ -598,6 +599,7 @@ export const en = {
       const result = action[0] + ' ' + numberFormat.format(done) + ' of ' + emails(total) + action[1] + '.'
       return kind === 'trash' ? result + ' The move is unconfirmed for ' + emails(total - done) + '.' : result
     },
+    unsupportedSelection: 'Select only emails from supported accounts for this action. Gmail in Mistral Studio does not support this change.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'Gmail partly changed # email. The list shows its reported folder.', other: 'Gmail partly changed # emails. The list shows their reported folders.' }),
     providerPartial: {
       INBOX: 'Gmail only applied part of the change. The email is in the inbox.',
@@ -664,6 +666,9 @@ export const en = {
     removed: title => 'Removed ' + title + '.',
     providersLabel: 'Providers', providersLoading: 'Loading providers …', providersError: 'Providers couldn’t be loaded. Try again.',
     gmail: 'Gmail', outlook: 'Outlook', other: 'Other provider',
+    gmailConnectorLogin: 'Sign in to Gmail in Mistral Studio. This app does not ask for your credentials.',
+    gmailCapabilitiesAvailable: 'Read, search, summarize, and send after confirmation.',
+    gmailCapabilitiesUnavailable: 'Trash, archive, spam, read and unread flags, and folder actions are unavailable for Gmail in Mistral Studio.',
     gmailConnectorSub: 'Through the Gmail connector in Mistral Studio', outlookConnectorSub: 'Through the Outlook connector in Mistral Studio',
     googleSub: 'Sign in to your Google account', microsoftSub: 'Sign in to your Microsoft account', otherSub: 'iCloud, Yahoo, and others via IMAP with an app password',
     connectorDescription: (provider, company) => 'liam-e reads and organizes email from ' + provider + ' through the connector in Mistral Studio. Sign in to ' + company + ' there. liam-e only changes or sends email when you take action or confirm a proposal.',

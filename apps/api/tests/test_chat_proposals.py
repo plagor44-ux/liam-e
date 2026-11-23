@@ -117,6 +117,7 @@ async def test_alias_and_current_id_on_new_and_existing_cards_have_one_target(st
     from datetime import date
     from api.mail.agent_tools import TurnContext, execute_tool
 
+    store.provider = "outlook"
     mail = MailMessage(id="current", account_id=store.id, provider_uid="item", connector_alias_ids=["former"])
     fake_store.messages[mail.id] = mail
     ids = ["former", mail.id]
@@ -327,3 +328,18 @@ async def test_draft_routes_are_gone():
     assert "chat_draft_confirm" not in operations
     assert "chat_draft_cancel" not in operations
     assert "chat_proposal_confirm" in operations
+
+
+@pytest.mark.parametrize("kind", ["archive", "trash", "mark_read"])
+async def test_gmail_studio_tool_explains_why_no_proposal_is_created(store, fake_store, kind):
+    from datetime import date
+    from api.mail.agent_tools import TurnContext, execute_tool
+
+    mail = MailMessage(id="target", account_id=store.id, provider_uid="indexed", is_read=False)
+    fake_store.messages[mail.id] = mail
+    ctx = TurnContext("chat", None, date.today(), account_ids=[store.id])
+    outcome = await execute_tool("propose_action", {"kind": kind, "message_ids": [mail.id]}, ctx)
+    assert outcome.proposal_message is None
+    detail = json.loads(outcome.content)
+    assert detail["error"] == "provider_action_unsupported"
+    assert "Gmail" in detail["note"] and "Mistral Studio" in detail["note"]

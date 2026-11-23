@@ -23,6 +23,8 @@ from urllib.parse import quote
 import httpx
 from utils.mistral import mistral_api_url, mistral_app_token
 
+from api.mail import action_capabilities
+
 
 logger = logging.getLogger(__name__)
 _TOOL_TIMEOUT_SECONDS = 120
@@ -138,6 +140,8 @@ async def call_write_tool(account, tool: str, arguments: dict[str, Any], *, targ
     if tool not in WRITE_TOOLS:
         raise ToolNotAllowedError("Tool is not a permitted write tool")
     from api.mail.connector_mailbox import bound_inbox_message, bound_mailbox, inbox_only
+    if tool in {"label_message", "unlabel_message"}:
+        action_capabilities.require_action(account, "label")
     if target is not None and tool in {"label_message", "unlabel_message"} and inbox_only(account):
         if arguments.get("messageId") != target.provider_uid:
             raise ToolNotAllowedError("Label target does not match the verified message")
@@ -152,6 +156,7 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
     """Both label mutations and their readbacks must use one proven mailbox."""
     from api.mail.connector_mailbox import bound_inbox_message, bound_mailbox, inbox_only
 
+    action_capabilities.require_action(account, "trash")
     if message.account_id != account.id:
         raise ToolNotAllowedError("Mail does not belong to this account")
     if not message.thread_id or not message.provider_uid:

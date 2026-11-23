@@ -122,6 +122,7 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
                 logger.warning("Bulk action display failed: %s", type(error).__name__)
             return result
 
+    await actions.require_bulk_support(body.message_ids, body.kind)
     aliases = await message_access.resolve_aliases(body.message_ids)
     targets = {}
     for message_id in body.message_ids:

@@ -7,7 +7,8 @@ from db.accessors import chat_settings, mail_account, mail_job, mail_message, ma
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from api.mail import newsletters, state
+from api.mail import action_capabilities, newsletters, state
+from api.mail.action_capabilities import MailActionCapabilities
 
 router = APIRouter()
 
@@ -18,6 +19,7 @@ class AccountSummaryOut(BaseModel):
     email_address: str
     provider: str
     connection: Literal["connector", "oauth", "imap"]
+    action_capabilities: MailActionCapabilities
     color_index: int
     unread: int
     state: Literal["ok", "syncing", "auth_expired", "error", "never"]
@@ -36,7 +38,7 @@ class MailSummaryOut(BaseModel):
 async def account_summary(account, colors: dict[str, int], unread: dict[str, int], sync_state) -> AccountSummaryOut:
     job = await mail_job.latest_for_account(account.id, kind="sync", open_only=True)
     status = state.account_status(account, sync_state, job)
-    return AccountSummaryOut(id=account.id, display_name=account.display_name, email_address=account.email_address, provider=account.provider, connection=state.connection(account), color_index=colors[account.id], unread=unread.get(account.id, 0), state=status.state, error_code=status.error_code, last_sync_at=status.last_sync_at)
+    return AccountSummaryOut(id=account.id, display_name=account.display_name, email_address=account.email_address, provider=account.provider, connection=state.connection(account), action_capabilities=action_capabilities.for_account(account), color_index=colors[account.id], unread=unread.get(account.id, 0), state=status.state, error_code=status.error_code, last_sync_at=status.last_sync_at)
 
 
 @router.get("", operation_id="mail_summary")

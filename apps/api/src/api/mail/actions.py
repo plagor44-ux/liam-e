@@ -14,7 +14,7 @@ from db.models.mail_message import IMAP_RETIRED, MailMessage
 from sqlalchemy.exc import IntegrityError
 
 from api.errors import refuse
-from api.mail import connectors
+from api.mail import action_capabilities, connectors
 
 ActionKind = Literal["archive", "trash", "spam", "mark_read", "mark_unread", "restore"]
 logger = logging.getLogger(__name__)
@@ -90,19 +90,27 @@ async def _reconcile_connector_labels(message: MailMessage, labels: list[str] | 
     return folder
 
 
+async def require_bulk_support(message_ids: list[str], kind: ActionKind) -> None:
+    blocked = [account.id for account in await account_access.list_accounts()
+               if not getattr(action_capabilities.for_account(account), kind)]
+    if blocked and await message_access.has_messages_from_accounts(message_ids, blocked):
+        raise action_capabilities.unsupported()
+
+
 async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
     from api.mail import action_backends
 
     message = await message_access.get_message(message_id)
     if message is None:
         raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
+    account = await account_access.get_account(message.account_id)
+    if account is None:
+        raise ActionUnsupportedError()
+    action_capabilities.require_action(account, kind)
     if message.folder in {"IMAP_DELETED", IMAP_RETIRED}:
         raise ActionUnsupportedError()
     sources = {"archive": ("INBOX",), "trash": ("INBOX", "ARCHIVE"), "spam": ("INBOX", "ARCHIVE"), "restore": ("ARCHIVE", "TRASH")}
     if kind in sources and message.folder not in sources[kind]:
-        raise ActionUnsupportedError()
-    account = await account_access.get_account(message.account_id)
-    if account is None:
         raise ActionUnsupportedError()
     backend = action_backends.backend_for(account)
     previous = {key: getattr(message, key) for key in ("folder", "is_read", "provider_uid", "labels_json")}
@@ -153,6 +161,11 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
 
     result = UndoResult()
     rows = await action_access.get_many(action_ids)
+    if rows:
+        accounts = {account.id: account for account in await account_access.list_accounts()}
+        for row in rows:
+            if account := accounts.get(row.account_id):
+                action_capabilities.require_action(account, row.kind)
     known = {row.id for row in rows}
     result.skipped.extend(key for key in dict.fromkeys(action_ids) if key not in known)
     for action in sorted(rows, key=lambda row: (_aware(row.created_at), row.id), reverse=True):

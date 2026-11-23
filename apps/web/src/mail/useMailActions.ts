@@ -160,7 +160,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         return Boolean(retained?.length)
       } else if (result.response?.status === 409) {
         rollback()
-        if (!options?.silent) notify(texts.proposalErrors.action_unsupported)
+        if (!options?.silent) notify(errorCode(result.error) === 'provider_action_unsupported' ? texts.errors.provider_action_unsupported : texts.proposalErrors.action_unsupported)
         return changes.length > 0
       } else if (!result.data || result.response?.status !== 200) {
         rollback()
@@ -218,6 +218,12 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         }
         for (const id of ids) update(id, kind)
         const result = await mailMessagesBulkAction({ body: { message_ids: ids, kind } })
+        if (errorCode(result.error) === 'provider_action_unsupported') {
+          rollback(ids)
+          reconcile.current = true
+          notify(texts.inbox.unsupportedSelection)
+          return
+        }
         if (!result.data || !result.response?.ok) throw new Error('bulk action failed') // i18n-exempt
         const failed = result.data.results.filter(row => row.status === 'failed' || row.status === 'unsupported').map(row => row.message_id)
         rollback(failed)
@@ -282,6 +288,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           if (!removes(selected.kind) && selected.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', selected.messageId], data => data && { ...data, is_read: selected.previousRead! })
         } else if (result.data?.skipped.includes(selected.actionId)) notify(texts.inbox.undoSkipped)
         else if (result.data?.expired.includes(selected.actionId)) notify(texts.inbox.undoExpired)
+        else if (errorCode(result.error) === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported)
         else if (result.data?.failed.includes(selected.actionId)) notify(texts.inbox.undoFailed)
         else notify(texts.inbox.undoUncertain)
       } catch { notify(timedOut ? texts.inbox.undoTimeout : texts.inbox.undoUncertain) }

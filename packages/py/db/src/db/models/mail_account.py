@@ -16,6 +16,14 @@ def inbox_only(account) -> bool:
     return not account.email_address or account.email_address.casefold().endswith("@connector.mistral")
 
 
+class ProviderActionUnsupported(ValueError):
+    """The provider connection does not offer message label or folder changes."""
+
+
+def label_writes_supported(provider: str, auth_type: str) -> bool:
+    return auth_type != "mistral_connector" or provider not in {"gmail", "google_mail"}
+
+
 class MailAccount(SQLModel, table=True):
     __tablename__ = "mail_account"
 

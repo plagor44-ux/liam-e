@@ -126,3 +126,48 @@ async def test_concurrency_is_bounded(bulk_store, monkeypatch):
     result = await messages.bulk_message_action(BulkMessageActionIn(message_ids=[str(i) for i in range(12)], kind='archive'))
     assert peak == 4
     assert all(row.status == 'not_found' for row in result.results)
+
+
+@pytest.mark.parametrize('kind', ['trash', 'restore', 'archive', 'spam', 'mark_read', 'mark_unread'])
+def test_gmail_studio_rejects_action_before_provider_or_index_change(client, bulk_store, kind):
+    store, backend = bulk_store
+    account = store.accounts['a']
+    account.provider = 'gmail'
+    account.auth_type = 'mistral_connector'
+    account.display_name = 'Arbitrary display name'
+    message = store.messages['one']
+    message.folder = 'TRASH' if kind == 'restore' else 'INBOX'
+    old = (message.folder, message.is_read, message.labels_json)
+    response = client.post('/api/v1/mail/messages/one/actions', json={'kind': kind})
+    assert response.status_code == 409
+    assert response.json()['detail']['code'] == 'provider_action_unsupported'
+    assert set(response.json()['detail']) == {'code', 'message'}
+    assert (message.folder, message.is_read, message.labels_json) == old
+    assert not store.actions
+    backend.apply.assert_not_awaited()
+
+
+def test_gmail_studio_capabilities_block_mixed_bulk_and_legacy_undo(client, bulk_store):
+    from db.models.mail_action import MailAction
+
+    store, backend = bulk_store
+    account = MailAccount(id='studio', provider='google_mail', auth_type='mistral_connector', email_address='mail@example.test')
+    store.accounts[account.id] = account
+    target = MailMessage(id='studio-mail', account_id=account.id, provider_uid='indexed')
+    store.messages[target.id] = target
+    action = MailAction(id='old-undo', account_id=account.id, message_id=target.id, kind='trash', previous_json='{}')
+    store.actions[action.id] = action
+    capabilities = {a['id']: a['action_capabilities'] for a in client.get('/api/v1/mail/accounts').json()}
+    assert capabilities[account.id] == dict.fromkeys(('archive','trash','restore','spam','mark_read','mark_unread','move','label'), False)
+    assert capabilities['a']['trash']
+    for path, body in [
+        ('/api/v1/mail/messages/actions', {'message_ids': ['one', target.id], 'kind': 'trash'}),
+        ('/api/v1/mail/actions/undo', {'action_ids': [action.id]}),
+    ]:
+        response = client.post(path, json=body)
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'provider_action_unsupported'
+        assert target.id not in response.text and action.id not in response.text
+    assert action.undone_at is None
+    assert store.messages['one'].folder == target.folder == 'INBOX'
+    backend.apply.assert_not_awaited()
+    backend.revert.assert_not_awaited()
