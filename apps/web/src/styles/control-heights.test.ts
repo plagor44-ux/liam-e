@@ -8,8 +8,9 @@ import { join, relative } from 'node:path'
 const root = new URL('..', import.meta.url).pathname
 const control = /\.le-(btn|chip|icon-btn|send|link)(?![\w-])/u
 const large = /(?<![\w-])(?:min-)?height\s*:\s*var\(--control-height-lg\)/u
-// Mobile mail actions remain 44 px even when a narrow viewport has a fine pointer.
-const allowed = new Set(['.le-mail-bottom .le-btn', '.le-quick-actions .le-btn', '.le-menu--mailrow .le-menu-item'])
+// The reader bottom bar is mobile-only. Quick filing has an explicit narrow-screen exception.
+const allowed = new Set(['.le-mail-bottom .le-btn'])
+const mobileAllowed = new Set(['.le-quick-actions .le-btn', '.le-menu--mailrow .le-menu-item'])
 
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? files(join(dir, entry.name)) : entry.name.endsWith('.css') ? [join(dir, entry.name)] : [])
@@ -48,6 +49,14 @@ function coarse(chain: string[]) {
   })
 }
 
+/** An exception is safe only when every alternative requires a narrow screen or coarse pointer. */
+function mobileOrCoarse(chain: string[]) {
+  return chain.some(prelude => {
+    const query = /^@media\s+(.+)$/su.exec(prelude)?.[1]
+    return query !== undefined && list(query).every(part => (/\(\s*max-width\s*:\s*639px\s*\)/u.test(part) || /\(\s*pointer\s*:\s*coarse\s*\)/u.test(part)) && !/(^|[\s(])not[\s(]/u.test(part))
+  })
+}
+
 /** Rules giving a control the large height outside a coarse pointer; comments removed, nesting by braces. */
 function offending(css: string) {
   const out: string[] = []
@@ -57,7 +66,7 @@ function offending(css: string) {
     if (char === '{') { stack.push(buffer.trim()); buffer = '' }
     else if (char === '}') {
       const prelude = stack.pop() ?? ''
-      if (!prelude.startsWith('@') && large.test(buffer) && !coarse(stack)) out.push(...list(prelude).filter(part => control.test(subject(part)) && !allowed.has(part)))
+      if (!prelude.startsWith('@') && large.test(buffer) && !coarse(stack)) out.push(...list(prelude).filter(part => control.test(subject(part)) && !allowed.has(part) && !(mobileAllowed.has(part) && mobileOrCoarse(stack))))
       buffer = ''
     } else buffer += char
   }
@@ -94,4 +103,8 @@ test.each([
 test('mobile quick filing and row menu actions keep 44 px targets', async () => {
   const css = await Bun.file(new URL('./ds-app.css', import.meta.url)).text()
   expect(css).toContain('@media (max-width: 639px), (pointer: coarse) { .le-quick-actions .le-btn, .le-menu--mailrow .le-menu-item { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }')
+})
+
+test('the mobile quick-action exception rejects an unconditional height', () => {
+  expect(offending(rule('.le-quick-actions .le-btn'))).toEqual(['.le-quick-actions .le-btn'])
 })
