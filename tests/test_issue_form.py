@@ -19,6 +19,10 @@ FORMS = sorted(path.stem for path in (ROOT / ".github" / "ISSUE_TEMPLATE").glob(
 FAKE_GH = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$@" >"$FAKE_GH_LOG"
+if [ -n "${FAKE_GH_FAIL:-}" ]; then
+  printf '%s\\n' "$FAKE_GH_FAIL" >&2
+  exit 4
+fi
 if [ "$1 $2" = "issue view" ]; then
   printf '%s' "$FAKE_GH_VIEW"
 else
@@ -161,3 +165,29 @@ def test_verify_finds_the_form_and_requires_its_label(gh: dict[str, str]) -> Non
     freeform = run("verify", "7", env=gh)
     assert freeform.returncode == 1
     assert "match no form" in freeform.stderr
+
+
+def test_verify_reports_why_gh_failed_without_a_traceback(gh: dict[str, str]) -> None:
+    gh["FAKE_GH_FAIL"] = "GraphQL: Could not resolve to an issue or pull request with the number of 7."
+
+    result = run("verify", "7", env=gh)
+
+    assert result.returncode == 4
+    assert result.stderr.startswith("issue_form: gh issue view 7 failed: GraphQL: Could not resolve")
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("command", ["verify", "create"])
+def test_a_missing_gh_gets_a_one_line_message(command: str, tmp_path: Path) -> None:
+    body = tmp_path / "body.md"
+    body.write_text(filled("01-bug"))
+    empty = tmp_path / "empty-path"
+    empty.mkdir()
+    args = ["verify", "7"] if command == "verify" else ["create", "01-bug", "--title", "Example", "--body-file", str(body)]
+
+    result = run(*args, env={**os.environ, "PATH": str(empty)})
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("issue_form: gh not found")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "Traceback" not in result.stderr

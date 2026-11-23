@@ -133,6 +133,15 @@ def skeleton(form: dict[str, Any]) -> str:
     return "\n\n".join(parts) + "\n"
 
 
+def run_gh(command: list[str], *, capture: bool) -> subprocess.CompletedProcess[str] | None:
+    """Run gh without raising; None (after a one-line message) when gh is not installed."""
+    try:
+        return subprocess.run(command, capture_output=capture, text=True, check=False)
+    except FileNotFoundError:
+        print("issue_form: gh not found on PATH; install the GitHub CLI and run gh auth login", file=sys.stderr)
+        return None
+
+
 def matching_form(body: str) -> tuple[str, dict[str, Any]] | None:
     labels = [label for label, _ in split_sections(body)[1]]
     for stem, form in load_forms().items():
@@ -167,9 +176,13 @@ def main(argv: list[str] | None = None) -> int:
         print(skeleton(resolve(args.form)[1]), end="")
         return 0
     if args.command == "verify":
-        view = subprocess.run(
-            ["gh", "issue", "view", str(args.number), "--json", "body,labels"], capture_output=True, text=True, check=True
-        )
+        view = run_gh(["gh", "issue", "view", str(args.number), "--json", "body,labels"], capture=True)
+        if view is None:
+            return 1
+        if view.returncode != 0:
+            reason = view.stderr.strip() or f"exit code {view.returncode}"
+            print(f"issue_form: gh issue view {args.number} failed: {reason}", file=sys.stderr)
+            return view.returncode
         issue = json.loads(view.stdout)
         found = matching_form(issue["body"] or "")
         if not found:
@@ -204,7 +217,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         print(shlex.join(command))
         return 0
-    return subprocess.run(command, check=False).returncode
+    created = run_gh(command, capture=False)
+    return 1 if created is None else created.returncode
 
 
 if __name__ == "__main__":
