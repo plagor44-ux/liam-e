@@ -664,6 +664,45 @@ test('app filing card names its destination and changes nothing until confirmed'
   expect(screen.queryByText(/wartet auf Bestätigung/)).toBeNull()
 })
 
+test('filing card with a missing label remains cancellable', async () => {
+  const initial = message()
+  initial.proposal = { kind: 'filing', reason: 'Einordnen', items: [{ id: 'm', kind: 'mail', title: 'Beispiel', subtitle: '' }], filing: { set_folder: false, add_labels: ['gone'], remove_labels: [] } }
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [] } as never)
+  const cancel = spyOn(sdk, 'chatProposalCancel').mockResolvedValue({ data: { ...initial, proposal_status: 'cancelled' } } as never)
+  setup(initial)
+  expect(await screen.findByText(/Ordner oder das Label dieses Vorschlags ist nicht mehr vorhanden/)).toBeTruthy()
+  expect((screen.getByRole('button', { name: 'Zuordnen' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
+})
+
+test.each(['filing', 'rule'] as const)('%s card shows no error while destinations load', async kind => {
+  const initial = message()
+  initial.proposal = kind === 'filing'
+    ? { kind, reason: '', items: [{ id: 'm', kind: 'mail', title: 'Beispiel', subtitle: '' }], filing: { folder_id: 'f', set_folder: true, add_labels: [], remove_labels: [] } }
+    : { kind, reason: '', items: [], rule: { name: 'Beispiel', folder_id: 'f', sender_domain: 'example.test' } }
+  spyOn(sdk, 'mailFoldersList').mockImplementation((async () => await new Promise(() => {})) as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [] } as never)
+  setup(initial)
+  expect(await screen.findByRole('button', { name: kind === 'filing' ? 'Zuordnen' : 'Regel anlegen' })).toBeTruthy()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByText(/nicht mehr vorhanden/)).toBeNull()
+  expect((screen.getByRole('button', { name: 'Abbrechen' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('rule card names a removed account and can still be cancelled', async () => {
+  const initial = message()
+  initial.proposal = { kind: 'rule', reason: '', items: [], rule: { name: 'Example', account_id: 'gone', folder_id: 'f', sender_domain: 'example.test' } }
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', name: 'Projects', kind: 'folder' }] } as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [] } as never)
+  const cancel = spyOn(sdk, 'chatProposalCancel').mockResolvedValue({ data: { ...initial, proposal_status: 'cancelled' } } as never)
+  setup(initial)
+  expect(await screen.findByText(/Konto dieser Regel ist nicht mehr vorhanden/)).toBeTruthy()
+  expect((screen.getByRole('button', { name: 'Regel anlegen' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
+})
+
 test('rule card shows scope and actions before confirmation', async () => {
   const initial = message()
   initial.proposal = { kind: 'rule', reason: 'Automatisch', items: [], rule: { name: 'Projects', account_id: 'a', sender_domain: 'example.test', folder_id: 'f', mark_read: true } }

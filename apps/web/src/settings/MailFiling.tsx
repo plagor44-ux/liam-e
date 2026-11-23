@@ -58,7 +58,7 @@ export function RuleSettings() {
   const [showRuns, setShowRuns] = useState<string>(), [matched, setMatched] = useState<number>()
   const [queued, setQueued] = useState<number>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
-  const runs = useQuery({ queryKey: ['mail-rule-runs', showRuns], enabled: Boolean(showRuns), queryFn: () => unwrap(mailRuleRunsList({ path: { rule_id: showRuns! }, throwOnError: true })) })
+  const runs = useQuery({ queryKey: ['mail-rule-runs', showRuns], enabled: Boolean(showRuns), refetchInterval: showRuns ? 3000 : false, queryFn: () => unwrap(mailRuleRunsList({ path: { rule_id: showRuns! }, throwOnError: true })) })
   const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-rules'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-rule-runs'] }) }
   const update = (part: Partial<RuleIn>) => { setDraft(old => ({ ...old, ...part })); setMatched(undefined) }
   const execute = async (action: 'save' | 'preview' | 'apply' | 'delete') => {
@@ -98,6 +98,16 @@ export function RuleSettings() {
       row.mark_read && t.markRead, row.mark_unread && t.markUnread, row.archive && t.archive].filter(Boolean)
     return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.conditions}: {conditions.join(' · ')}</small><small>{t.targets}: {actions.join(' · ')}</small></div>
   }
+  const providerOutcomes = (value: string | undefined) => {
+    try {
+      const parsed: unknown = JSON.parse(value || '{}')
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+      return Object.entries(parsed).flatMap(([kind, status]) => {
+        const label = kind === 'mark_read' ? t.markRead : kind === 'mark_unread' ? t.markUnread : kind === 'archive' ? t.archive : null
+        return label && (status === 'skipped_unsupported' || status === 'unknown') ? [`${label}: ${status === 'unknown' ? t.unknown : t.skipped}`] : []
+      })
+    } catch { return [] }
+  }
   return <section className="le-prompts"><h2 className="heading">{t.rules}</h2><p>{t.ruleDelay}</p>
     <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
       <TextField label={t.ruleName} value={draft.name} onChange={event => update({ name: event.target.value })} maxLength={120} required />
@@ -124,7 +134,9 @@ export function RuleSettings() {
       {showRuns === row.id && runs.isPending && <p role="status">{t.loading}</p>}
       {showRuns === row.id && runs.isError && <p role="alert">{t.error}</p>}
       {showRuns === row.id && runs.data?.length === 0 && <p>{t.noRuns}</p>}
-      {showRuns === row.id && runs.data?.map(run => <p key={run.id}>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('skipped_unsupported') ? t.skipped : t.completed}</p>)}
+      {showRuns === row.id && runs.data?.map(run => <div key={run.id} className="le-filing-summary"><p>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('skipped_unsupported') ? t.skipped : t.completed}</p>
+        {['done', 'local_done', 'unknown'].includes(run.status ?? '') && <small>{t.localDone}</small>}
+        {providerOutcomes(run.provider_results_json).map(detail => <small key={detail}>{detail}</small>)}</div>)}
     </div>)}
     {applying && <PreferenceDialog title={t.applyTitle} close={() => { if (!busy) setApplying(undefined) }}><p>{applying.name}. {t.applyDescription}</p><div className="le-dialog-actions"><Button variant="secondary" onClick={() => setApplying(undefined)}>{t.cancel}</Button><Button variant="primary" disabled={busy} onClick={() => { void execute('apply') }}>{t.apply}</Button></div></PreferenceDialog>}
     {deleting && <PreferenceDialog title={t.deleteRule} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}</p><div className="le-dialog-actions"><Button variant="secondary" onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void execute('delete') }}>{t.remove}</Button></div></PreferenceDialog>}

@@ -7,6 +7,50 @@ from db.engine import get_session_maker
 from db.models.mail_rule_run import MailRuleRun
 
 
+async def merge_verified(session, keep_id: str, duplicate_id: str) -> None:
+    """Preserve rule/version deduplication when verified mail identities converge."""
+    import json
+    from db.models._common import utcnow
+
+    rows = (await session.scalars(select(MailRuleRun).where(MailRuleRun.message_id.in_([keep_id, duplicate_id]))
+                                  .order_by(MailRuleRun.rule_id, MailRuleRun.rule_version, MailRuleRun.id).with_for_update())).all()
+    kept = {(row.rule_id, row.rule_version): row for row in rows if row.message_id == keep_id}
+    for other in (row for row in rows if row.message_id == duplicate_id):
+        current = kept.get((other.rule_id, other.rule_version))
+        if current is None:
+            other.message_id = keep_id
+            kept[(other.rule_id, other.rule_version)] = other
+            continue
+        left, right = json.loads(current.provider_results_json), json.loads(other.provider_results_json)
+        merged = {}
+        for kind in left.keys() | right.keys():
+            values = {left.get(kind), right.get(kind)}
+            if values & {'unknown', 'dispatching'}:
+                merged[kind] = 'unknown'
+            elif 'done' in values:
+                merged[kind] = 'done'
+            elif 'skipped_unsupported' in values:
+                merged[kind] = 'skipped_unsupported'
+            elif 'skipped_stale' in values:
+                merged[kind] = 'skipped_stale'
+            else:
+                merged[kind] = 'pending'
+        current.provider_results_json = json.dumps(merged)
+        if 'unknown' in merged.values() or 'unknown' in (current.status, other.status):
+            current.status = 'unknown'
+        elif 'pending' in merged.values():
+            current.status = 'local_done'
+        elif merged or 'done' in (current.status, other.status):
+            current.status = 'done'
+        elif 'skipped_stale' in (current.status, other.status):
+            current.status = 'skipped_stale'
+        elif 'skipped_conflict' in (current.status, other.status):
+            current.status = 'skipped_conflict'
+        current.updated_at = utcnow()
+        await session.delete(other)
+    await session.flush()
+
+
 async def create_once(rule_id: str, rule_version: int, message_id: str, account_id: str) -> tuple[MailRuleRun, bool]:
     candidate = MailRuleRun(rule_id=rule_id, rule_version=rule_version, message_id=message_id, account_id=account_id)
     stmt = insert(MailRuleRun).values(**candidate.model_dump()).on_conflict_do_nothing(

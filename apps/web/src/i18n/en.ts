@@ -26,6 +26,7 @@ export const en = {
     empty: 'No folders or labels yet. Create one for your emails.',
     localOnly: 'Folders and labels apply across accounts only in liam-e. A folder removes an email from the inbox; labels only mark it.',
     loading: 'Loading …', error: 'The change couldn’t be completed. Try again.',
+    missingDestination: 'The folder or label in this proposal no longer exists. You can cancel the proposal.', missingAccount: 'The account in this rule no longer exists. You can cancel the proposal.',
     filters: 'Folders and labels', inbox: 'Inbox', file: 'File', clearFolder: 'Remove from folder',
     addLabel: name => `Add label ${name}`, removeLabel: name => `Remove label ${name}`,
     someLabel: name => `${name} (partly assigned)`, enabled: 'Active', disabled: 'Paused', on: 'On', off: 'Off', conditions: 'Conditions', targets: 'Actions',
@@ -37,7 +38,7 @@ export const en = {
     preview: 'Preview', matches: n => plural(n, { one: '# matching email', other: '# matching emails' }), apply: 'Apply to existing emails', applyTitle: 'Apply rule to existing emails?',
     queued: n => plural(n, { one: '# email queued for processing.', other: '# emails queued for processing.' }),
     applyDescription: 'Matching inbox emails are queued for processing. A sleeping Studio instance delays them. Provider actions run only when the account supports them.',
-    outcomes: 'Recent runs', noRuns: 'No runs yet.', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
+    outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
     ruleConfirm: 'Create rule?', filingConfirm: 'File emails?', filingPending: 'Proposed filing — awaiting confirmation.', ruleDone: 'Rule created.', filingDone: 'Emails filed.',
   },
   preferences: {

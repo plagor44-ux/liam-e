@@ -220,12 +220,16 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     if (!rule) return null
     const folder = destinations.data?.find(row => row.id === rule.folder_id), label = destinations.data?.find(row => row.id === rule.label_id)
     const account = accounts.data?.find(row => row.id === rule.account_id)
-    const unavailable = destinations.isPending || accounts.isPending || destinations.isError || accounts.isError || Boolean(rule.folder_id && !folder) || Boolean(rule.label_id && !label) || Boolean(rule.account_id && !account)
+    const loading = destinations.isPending || accounts.isPending
+    const loadError = destinations.isError || accounts.isError
+    const missingDestination = !loading && !destinations.isError && (Boolean(rule.folder_id && !folder) || Boolean(rule.label_id && !label))
+    const missingAccount = !loading && !accounts.isError && Boolean(rule.account_id && !account)
+    const unavailable = loading || loadError || missingDestination || missingAccount
     return <section className="le-confirm"><div className="le-confirm-head"><h3 className="le-confirm-title">{texts.mailFiling.ruleConfirm}</h3><span>{proposal.reason}</span></div>
-      <p>{rule.name}</p><p>{texts.mailFiling.account}: {account ? account.display_name || account.email_address : texts.mailFiling.allAccounts}</p>
+      <p>{rule.name}</p><p>{texts.mailFiling.account}: {account ? account.display_name || account.email_address : rule.account_id ? texts.mailFiling.none : texts.mailFiling.allAccounts}</p>
       {rule.sender_address && <p>{texts.mailFiling.sender}: {rule.sender_address}</p>}{rule.sender_domain && <p>{texts.mailFiling.domain}: {rule.sender_domain}</p>}{rule.subject_contains && <p>{texts.mailFiling.subject}: {rule.subject_contains}</p>}{rule.recipient && <p>{texts.mailFiling.recipient}: {rule.recipient}</p>}
       {folder && <p>{texts.mailFiling.folder}: {folder.name}</p>}{label && <p>{texts.mailFiling.label}: {label.name}</p>}{rule.mark_read && <p>{texts.mailFiling.markRead}</p>}{rule.mark_unread && <p>{texts.mailFiling.markUnread}</p>}{rule.archive && <p>{texts.mailFiling.archive}</p>}
-      {unavailable && <Notice tone="info">{texts.mailFiling.error}</Notice>}{error && <Notice tone="danger">{failureText(error, proposal.kind, texts)}</Notice>}
+      {loadError && <Notice tone="danger">{texts.mailFiling.error}</Notice>}{missingDestination && <Notice tone="info">{texts.mailFiling.missingDestination}</Notice>}{missingAccount && <Notice tone="info">{texts.mailFiling.missingAccount}</Notice>}{error && <Notice tone="danger">{failureText(error, proposal.kind, texts)}</Notice>}
       <div className="le-confirm-foot"><Button variant="primary" disabled={busy || unavailable} onClick={() => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids: [] }, throwOnError: true })), true) }}>{texts.mailFiling.addRule}</Button><Button variant="ghost" disabled={busy} onClick={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }}>{texts.controls.cancel}</Button></div>
     </section>
   }
@@ -235,9 +239,10 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     const saved = cardState(client, current.id), rows = destinations.data ?? []
     const target = command.folder_id ? rows.find(row => row.id === command.folder_id) : undefined
     const added = (command.add_labels ?? []).map(id => rows.find(row => row.id === id)), removed = (command.remove_labels ?? []).map(id => rows.find(row => row.id === id))
-    const unavailable = destinations.isPending || destinations.isError || Boolean(command.folder_id && !target) || added.some(row => !row) || removed.some(row => !row)
-    const details = [texts.mailFiling.filingPending, proposal.reason, command.set_folder ? target ? `${texts.mailFiling.folder}: ${target.name}` : texts.mailFiling.clearFolder : '', ...added.map(row => texts.mailFiling.addLabel(row?.name ?? '')), ...removed.map(row => texts.mailFiling.removeLabel(row?.name ?? ''))].filter(Boolean).join(' · ')
-    return <><ConfirmCard title={texts.mailFiling.filingConfirm} reason={details} items={proposal.items} confirmLabel={() => texts.mailFiling.file} deselected={saved.deselected ?? new Set<string>()} onDeselectedChange={value => { saved.deselected = value; refresh(n => n + 1) }} busy={busy || unavailable} onConfirm={selected_ids => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids }, throwOnError: true })), true) }} onCancel={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }} />{(error || unavailable) && <Notice tone="danger">{texts.mailFiling.error}</Notice>}</>
+    const missingDestination = !destinations.isPending && !destinations.isError && (Boolean(command.folder_id && !target) || added.some(row => !row) || removed.some(row => !row))
+    const unavailable = destinations.isPending || destinations.isError || missingDestination
+    const details = [texts.mailFiling.filingPending, proposal.reason, command.set_folder ? command.folder_id ? target ? `${texts.mailFiling.folder}: ${target.name}` : '' : texts.mailFiling.clearFolder : '', ...added.map(row => row ? texts.mailFiling.addLabel(row.name) : ''), ...removed.map(row => row ? texts.mailFiling.removeLabel(row.name) : '')].filter(Boolean).join(' · ')
+    return <><ConfirmCard title={texts.mailFiling.filingConfirm} reason={details} items={proposal.items} confirmLabel={() => texts.mailFiling.file} deselected={saved.deselected ?? new Set<string>()} onDeselectedChange={value => { saved.deselected = value; refresh(n => n + 1) }} busy={busy} confirmDisabled={unavailable} onConfirm={selected_ids => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids }, throwOnError: true })), true) }} onCancel={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }} />{(error || destinations.isError) && <Notice tone="danger">{texts.mailFiling.error}</Notice>}{missingDestination && <Notice tone="info">{texts.mailFiling.missingDestination}</Notice>}</>
   }
   const saved = cardState(client, current.id)
   const items = proposal.items.map(item => item.kind === 'sender' && !['one_click', 'one-click', 'post', 'mailto'].includes(item.method ?? '') ? { ...item, subtitle: `${item.subtitle} · ${texts.proposal.manualSubtitle}` } : item)

@@ -56,3 +56,21 @@ test('applying a rule to existing mail requires confirmation', async () => {
   await waitFor(() => expect(requests.some(request => request.url.includes('/apply') && (request.body as { confirm_apply: boolean }).confirm_apply)).toBe(true))
   expect(await screen.findByText('1 Mail zur Verarbeitung vorgemerkt.')).toBeTruthy()
 })
+
+test('visible rule outcomes refresh after an initially empty result', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  let runReads = 0
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/runs')) return Response.json(++runReads === 1 ? [] : [{ id: 'run', status: 'done', provider_results_json: '{"mark_read":"skipped_unsupported"}' }])
+    if (path.endsWith('/folders') || path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Example', version: 1, sender_domain: 'example.test', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Letzte Ausführungen' }))
+  expect(await screen.findByText('Noch keine Ausführungen.')).toBeTruthy()
+  expect(await screen.findByText('Beim Anbieter übersprungen', {}, { timeout: 6000 })).toBeTruthy()
+})

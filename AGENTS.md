@@ -251,7 +251,8 @@ Folders and labels are global app data, never provider folders or labels. Each i
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label
 filters include filed and unfiled mail. App filters include the indexed inbox and archive, while
 trash remains separate. Filing works across accounts regardless of provider capabilities.
-Deleting a destination requires confirmation and is blocked while a rule references it.
+Deleting a destination requires confirmation and is blocked while a rule references it. Removing
+an account also removes rules scoped to it and their runs, without widening those rules to other accounts.
 
 Rules match account, sender address or domain, subject and recipient, in ascending priority. The
 first matching folder wins and matching labels accumulate. New-message jobs and their versioned
@@ -260,7 +261,8 @@ actions pass through `require_action`, unsupported actions are recorded as skipp
 writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.
 The owner can preview and explicitly queue a rule for indexed inbox mail. Each manual application
 uses the same durable worker and recovery protocol as sync-triggered runs; an interrupted provider
-dispatch becomes unknown without being resent. Chat proposals require
+dispatch becomes unknown without being resent. Verified duplicate merges retain rule-run
+deduplication; conflicting uncertain dispatches become unknown. Chat proposals require
 confirmation, recheck the saved account grant and commit the card with the local mutation. Rule
 proposals require a direct request in the current stored user message. Folder and rule management
 reads are browser-only and every non-GET operation is in the MCP mutating inventory.

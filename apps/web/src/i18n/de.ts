@@ -19,6 +19,7 @@ export const de = {
     empty: 'Noch keine Ordner oder Labels. Erstelle einen Eintrag für deine Mails.',
     localOnly: 'Ordner und Labels gelten für alle Konten nur in liam-e. Ein Ordner nimmt die Mail aus dem Posteingang; Labels markieren sie nur.',
     loading: 'Wird geladen …', error: 'Die Änderung konnte nicht ausgeführt werden. Versuch es noch einmal.',
+    missingDestination: 'Der Ordner oder das Label dieses Vorschlags ist nicht mehr vorhanden. Du kannst den Vorschlag abbrechen.', missingAccount: 'Das Konto dieser Regel ist nicht mehr vorhanden. Du kannst den Vorschlag abbrechen.',
     filters: 'Ordner und Labels', inbox: 'Posteingang', file: 'Zuordnen', clearFolder: 'Aus Ordner entfernen',
     addLabel: (name: string) => `Label ${name} zuordnen`, removeLabel: (name: string) => `Label ${name} entfernen`,
     someLabel: (name: string) => `${name} (teilweise zugeordnet)`, enabled: 'Aktiv', disabled: 'Pausiert', on: 'Ein', off: 'Aus', conditions: 'Bedingungen', targets: 'Aktionen',
@@ -30,7 +31,7 @@ export const de = {
     preview: 'Vorschau', matches: (n: number) => `${n} passende ${n === 1 ? 'Mail' : 'Mails'}`, apply: 'Auf vorhandene Mails anwenden', applyTitle: 'Regel auf vorhandene Mails anwenden?',
     queued: (n: number) => `${n} ${n === 1 ? 'Mail' : 'Mails'} zur Verarbeitung vorgemerkt.`,
     applyDescription: 'Passende Mails werden für die Verarbeitung vorgemerkt. Eine schlafende Studio-Instanz verzögert sie. Änderungen beim Anbieter erfolgen nur, wenn das Konto sie unterstützt.',
-    outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
+    outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', localDone: 'App-Zuordnung gespeichert', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
     ruleConfirm: 'Regel erstellen?', filingConfirm: 'Mails zuordnen?', filingPending: 'Vorgeschlagene Zuordnung — wartet auf Bestätigung.', ruleDone: 'Regel erstellt.', filingDone: 'Mails zugeordnet.',
   },
   preferences: {

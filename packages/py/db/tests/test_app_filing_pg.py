@@ -337,3 +337,57 @@ def test_rebuild_invalidates_changed_insight_for_retained_message(pg_db):
         assert await mail_insight.get(row.id) is None
         assert (await mail_message.get_message(row.id)).body_version == BODY_VERSION
     asyncio.run(run())
+
+
+def test_deleting_account_removes_only_its_scoped_rules(pg_db):
+    async def run():
+        from db.accessors import mail_account, mail_filing, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='google', auth_type='oauth2', email_address='a@example.test')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        scoped = await mail_rule.create(name='Scoped', account_id=account.id, folder_id=folder.id)
+        global_rule = await mail_rule.create(name='Global')
+        await mail_rule_run.create_once(scoped.id, scoped.version, 'mail', account.id)
+        assert await mail_account.delete_account(account.id)
+        assert await mail_rule.get(scoped.id) is None
+        assert await mail_rule.get(global_rule.id) is not None
+        assert await mail_rule_run.list_for_rule(scoped.id) == []
+        await mail_filing.delete_destination(folder.id)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('collision', [False, True])
+def test_verified_merge_preserves_rule_dispatch_deduplication(pg_db, monkeypatch, collision):
+    async def run():
+        import json
+        from unittest.mock import AsyncMock
+        from api.mail import actions, rules
+        from db.accessors import mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        keep = await mail_message.upsert_message(account_id='account-a', folder='INBOX', provider_uid='uid')
+        duplicate = await mail_message.upsert_message(account_id='account-a', folder='ARCHIVE', provider_uid='uid')
+        rule = await mail_rule.create(name='Rule', mark_read=True)
+        prior, _ = await mail_rule_run.create_once(rule.id, rule.version, duplicate.id, keep.account_id)
+        async with get_session_maker().begin() as session:
+            row = await session.get(type(prior), prior.id)
+            row.status, row.provider_results_json = 'local_done', json.dumps({'mark_read': 'dispatching'})
+        if collision:
+            current, _ = await mail_rule_run.create_once(rule.id, rule.version, keep.id, keep.account_id)
+            async with get_session_maker().begin() as session:
+                row = await session.get(type(current), current.id)
+                row.status, row.provider_results_json = 'local_done', json.dumps({'mark_read': 'pending'})
+        async with get_session_maker().begin() as session:
+            keep_row = await mail_message.get_message(keep.id, session)
+            duplicate_row = await mail_message.get_message(duplicate.id, session)
+            await mail_message._merge_copy(session, keep_row, duplicate_row, verified=True)
+        write = AsyncMock()
+        monkeypatch.setattr(actions, 'apply_action', write)
+        outcome = await rules.execute_rule_run(rule.id, rule.version, duplicate.id, recover=True)
+        assert outcome.status == 'unknown'
+        assert json.loads(outcome.provider_results_json)['mark_read'] == 'unknown'
+        assert len(await mail_rule_run.list_for_rule(rule.id)) == 1
+        write.assert_not_awaited()
+    asyncio.run(run())

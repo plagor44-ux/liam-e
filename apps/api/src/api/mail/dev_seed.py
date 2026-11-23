@@ -130,7 +130,8 @@ async def seed_filing() -> None:
     label = MailFolder(id=seed_id("label", "important"), name="Wichtig (Beispiel)", kind="label")
     messages = [seed_id("mail", "meyer-angebot-4471"), seed_id("mail", "kita-elternabend")]
     filings = [MailFiling(message_id=message_id, folder_id=folder.id) for message_id in messages]
-    labels = [MailLabelAssignment(message_id=messages[0], label_id=label.id)]
+    labels = [MailLabelAssignment(message_id=message_id, label_id=label.id)
+              for message_id in (messages[0], seed_id("mail", "hausverwaltung-nebenkosten"))]
     rules = [MailRule(id=seed_id("rule", "projects"), name="Angebote zuordnen (Beispiel)",
                       sender_domain="meyer-gmbh.example", folder_id=folder.id, label_id=label.id),
              MailRule(id=seed_id("rule", "studio-skip"), name="Studio-Aktion (Beispiel)",

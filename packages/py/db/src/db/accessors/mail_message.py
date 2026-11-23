@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, insert
 from sqlalchemy.orm import aliased, undefer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from db.accessors import mail_reference_snapshot, mail_sync_state
+from db.accessors import mail_reference_snapshot, mail_rule_run, mail_sync_state
 from db.models.mail_insight import MailInsight
 from db.models.mail_action import MailAction
 from db.models.mail_filing import MailFiling
@@ -463,6 +463,7 @@ async def reconcile_label_folders(session: AsyncSession, account_id: str, inbox:
 
 async def _merge_copy(session, keep: MailMessage, duplicate: MailMessage, *, verified: bool, redirect: bool = True) -> None:
     if verified and not keep.unverified_connector and not duplicate.unverified_connector:
+        await mail_rule_run.merge_verified(session, keep.id, duplicate.id)
         filing = await session.get(MailFiling, duplicate.id)
         if filing is not None:
             stmt = insert(MailFiling).values(message_id=keep.id, folder_id=filing.folder_id)
