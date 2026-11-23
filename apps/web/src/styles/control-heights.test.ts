@@ -8,8 +8,8 @@ import { join, relative } from 'node:path'
 const root = new URL('..', import.meta.url).pathname
 const control = /\.le-(btn|chip|icon-btn|send|link)(?![\w-])/u
 const large = /(?<![\w-])(?:min-)?height\s*:\s*var\(--control-height-lg\)/u
-// Bars that DESIGN.md sizes at 44 px on every pointer: the mail reader's bottom bar exists only on mobile (§7.4).
-const allowed = new Set(['.le-mail-bottom .le-btn'])
+// Mobile mail actions remain 44 px even when a narrow viewport has a fine pointer.
+const allowed = new Set(['.le-mail-bottom .le-btn', '.le-quick-actions .le-btn', '.le-menu--mailrow .le-menu-item'])
 
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? files(join(dir, entry.name)) : entry.name.endsWith('.css') ? [join(dir, entry.name)] : [])
@@ -88,4 +88,10 @@ test.each([
   ['the allowed mobile bar', rule('.le-mail-bottom .le-btn'), []],
 ])('the guard handles %s', (_, css, expected) => {
   expect(offending(css)).toEqual(expected)
+})
+
+
+test('mobile quick filing and row menu actions keep 44 px targets', async () => {
+  const css = await Bun.file(new URL('./ds-app.css', import.meta.url)).text()
+  expect(css).toContain('@media (max-width: 639px), (pointer: coarse) { .le-quick-actions .le-btn, .le-menu--mailrow .le-menu-item { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }')
 })

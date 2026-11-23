@@ -269,6 +269,8 @@ request. The installation-scoped history is capped at 200 destinations and 90 da
 deleting a destination removes its history. Expired entries are removed on reads and writes and
 hourly while the worker runs. The browser-only quick-action read ranks frequency with a 30-day age
 weight; the UI applies locale order to ties and shows at most five actions, fewer on narrow screens.
+Already-applied destinations are excluded. Desktop rows show quick actions on hover, focus or selection;
+mobile rows expose them in the more menu. The selection bar and reader also offer compact actions.
 From an opened mail, create-and-assign creates the destination and files the verified source in one
 transaction; a missing source or duplicate name leaves no partial destination. The rule editor can
 prefill account, sender, domain and subject from that mail. Only selected conditions are saved, and

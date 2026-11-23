@@ -21,8 +21,9 @@ type MenuProps = {
   label?: string
   onOpen?: () => void
   openRequest?: number
+  menuClassName?: string
 }
-export function Menu({ trigger, items = [], groups, placement = 'down-start', label, onOpen, openRequest }: MenuProps) {
+export function Menu({ trigger, items = [], groups, placement = 'down-start', label, onOpen, openRequest, menuClassName = '' }: MenuProps) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLSpanElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -67,7 +68,7 @@ export function Menu({ trigger, items = [], groups, placement = 'down-start', la
     if (item.href !== undefined) return <a key={index} role="menuitem" className="le-menu-item" href={item.href} target="_blank" rel="noreferrer" onClick={close}>{content}</a>
     return <button key={index} type="button" role={item.checked === undefined ? 'menuitem' : item.checkable === 'checkbox' ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={item.checked} aria-disabled={item.disabled || undefined} className={`le-menu-item${item.tone === 'danger' ? ' le-menu-item--danger' : ''}`} onClick={() => { if (item.disabled) return; close(); item.onSelect() }}>{content}</button>
   }
-  return <span ref={anchorRef} className="le-menu-anchor">{trigger({ ref: triggerRef, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-controls': open ? id : undefined, onClick: () => { if (!open) { document.dispatchEvent(new Event('liam-menu-open')); onOpen?.() } setOpen(!open) } })}{open && createPortal(<div ref={menuRef} id={id} role="menu" aria-label={label} className={`le-menu le-rise le-menu--${placement}${groups ? ' le-menu--grouped' : ''}`} style={position} onKeyDown={(event) => {
+  return <span ref={anchorRef} className="le-menu-anchor">{trigger({ ref: triggerRef, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-controls': open ? id : undefined, onClick: () => { if (!open) { document.dispatchEvent(new Event('liam-menu-open')); onOpen?.() } setOpen(!open) } })}{open && createPortal(<div ref={menuRef} id={id} role="menu" aria-label={label} className={`le-menu le-rise le-menu--${placement}${groups ? ' le-menu--grouped' : ''} ${menuClassName}`} style={position} onKeyDown={(event) => {
     if (event.key === 'Escape') { event.preventDefault(); close() }
     // No preventDefault: the browser moves on from the trigger, as if the menu had never been open.
     if (event.key === 'Tab') close()

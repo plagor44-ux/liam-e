@@ -211,7 +211,7 @@
 .le-quick-actions { display: flex; flex-wrap: nowrap; gap: var(--space-1); min-width: 0; overflow: auto; }
 .le-quick-actions .le-btn { flex: 0 1 auto; max-width: 11rem; min-width: 0; white-space: nowrap; font-size: var(--font-size-small); }
 .le-quick-actions .le-btn span { overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 639px), (pointer: coarse) { .le-quick-actions .le-btn { min-height: var(--control-height-lg); } }
+@media (max-width: 639px), (pointer: coarse) { .le-quick-actions .le-btn, .le-menu--mailrow .le-menu-item { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }
 .le-shortcut-list { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
 .le-shortcut-list li { display: flex; align-items: baseline; gap: var(--space-3); }
 .le-shortcut-list kbd { min-width: 5rem; font: inherit; font-weight: 600; }
