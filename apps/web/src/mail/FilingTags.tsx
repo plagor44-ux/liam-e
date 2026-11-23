@@ -1,5 +1,5 @@
 import type { MailFolder } from '../api/generated/types.gen'
-import { Tag } from '../ds'
+import { Tag, Tooltip } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import { sortDestinations } from './filingOrder'
 
@@ -8,5 +8,8 @@ export function FilingTags({ folderId, labelIds, destinations }: { folderId?: st
   const assigned = new Set([folderId, ...(labelIds ?? [])].filter(Boolean))
   const rows = sortDestinations(destinations.filter(row => row.id && assigned.has(row.id)), locale)
   if (!rows.length) return null
-  return <div className="le-filing-tags">{rows.map(row => <Tag key={row.id} tone="on-surface" icon={row.kind === 'folder' ? 'folder' : 'tag'} className={row.color && row.color !== 'none' ? `le-destination-${row.color}` : ''}><span>{row.kind === 'folder' ? texts.mailFiling.folder : texts.mailFiling.label}: {row.name}</span></Tag>)}</div>
+  return <div className="le-filing-tags">{rows.map(row => {
+    const name = `${row.kind === 'folder' ? texts.mailFiling.folder : texts.mailFiling.label}: ${row.name}`
+    return <Tooltip key={row.id} content={name}><span className="le-filing-tag-anchor" role="img" aria-label={name} tabIndex={0}><Tag tone="on-surface" icon={row.kind === 'folder' ? 'folder' : 'tag'} className={row.color && row.color !== 'none' ? `le-destination-${row.color}` : ''}><span>{name}</span></Tag></span></Tooltip>
+  })}</div>
 }

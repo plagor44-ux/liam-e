@@ -1,7 +1,7 @@
 // i18n-exempt: synthetic data.
 import { afterEach, expect, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
 import { FilingMenu } from './FilingMenu'
 import { FilingTags } from './FilingTags'
@@ -172,4 +172,20 @@ test('label shortcut focuses and roves only through available labels', async () 
   fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' })
   expect(document.activeElement).toBe(beta)
   folders.mockRestore()
+})
+
+
+test('a filing tag exposes its full name on keyboard focus', async () => {
+  const name = 'A very long synthetic destination name'
+  render(<FilingTags labelIds={['l']} destinations={[{ id: 'l', name, kind: 'label' }]} />)
+  const tag = screen.getByRole('img', { name: `Label: ${name}` })
+  fireEvent.mouseEnter(tag)
+  expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', `Label: ${name}`)
+  fireEvent.mouseLeave(tag)
+  fireEvent.keyDown(document.body, { key: 'Tab' })
+  act(() => tag.focus())
+  expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', `Label: ${name}`)
+  const css = await Bun.file(new URL('../styles/ds-app.css', import.meta.url)).text()
+  expect(css).toMatch(/\.le-filing-tags \.le-tag \{[^}]*white-space: nowrap;/u)
+  expect(css).toMatch(/\.le-filing-tags \.le-tag > span \{[^}]*text-overflow: ellipsis;/u)
 })
