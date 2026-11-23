@@ -15,6 +15,9 @@ import { OriginalDialog } from './OriginalDialog'
 import { ActionToast } from './ActionToast'
 import { MailHtml } from './MailHtml'
 import { useMailActionsContext } from './useMailActions'
+import { FilingMenu } from './FilingMenu'
+import { FilingTags } from './FilingTags'
+import { foldersQuery } from '../settings/mailQueries'
 
 export function MailView({ id }: { id: string }) {
   const { texts, locale } = useI18n()
@@ -24,6 +27,7 @@ export function MailView({ id }: { id: string }) {
   const split = breakpoint === 'desktop' || breakpoint === 'wide'
   const message = useQuery({ ...messageQuery(id), retry: (count, error) => !(error instanceof MessageNotFoundError) && count < 2 })
   const summary = useQuery(summaryQuery())
+  const destinations = useQuery(foldersQuery())
   const { run, checkCapacity, notify } = useMailActionsContext()
   const { state, send, retry, retryWithoutPreferences } = useChatSession()
   const [started, setStarted] = useState(false)
@@ -78,6 +82,7 @@ export function MailView({ id }: { id: string }) {
   }
   const iconSize = !split || coarse ? 'lg' : 'md'
   const actions = data && !data.local_reference_only && <>
+    <FilingMenu ids={[id]} />
     <IconButton label={texts.controls.archive} icon="archive" size={iconSize} shortcut={split ? 'E' : undefined} disabled={capabilities?.archive === false} tip={capabilities?.archive === false ? hint : undefined} onClick={() => remove('archive')} />
     <IconButton label={data.is_read ? texts.controls.markUnread : texts.controls.markRead} icon="mail-open" size={iconSize} shortcut={split ? 'U' : undefined} disabled={capabilities?.[readKind] === false} tip={capabilities?.[readKind] === false ? hint : undefined} onClick={() => { void run(id, readKind) }} />
     <IconButton label={texts.controls.trash} icon="trash-2" size={iconSize} tone="danger" shortcut={split ? 'Entf' : undefined} disabled={capabilities?.trash === false} tip={capabilities?.trash === false ? hint : undefined} onClick={() => remove('trash')} />
@@ -95,6 +100,7 @@ export function MailView({ id }: { id: string }) {
       {message.isPending && <><span className="le-sr" role="status">{texts.mail.loading}</span><div className="le-mail-placeholder" aria-hidden="true"><div className="le-mail-placeholder-head"><span /><div><span /><span /></div></div><span /><span /><span /><span /></div></>}
       {message.isError && <div className="le-mail-error">{message.error instanceof MessageNotFoundError ? <Notice tone="danger" action={{ label: texts.mail.toInbox, onClick: back }}>{texts.proposalErrors.item_gone}</Notice> : <><Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void message.refetch() } }}>{texts.mail.loadError}</Notice><Button variant="secondary" className="le-mail-to-inbox" onClick={back}>{texts.mail.toInbox}</Button></>}</div>}
       {data && <article className="le-mail-article"><h1 className="title">{texts.mail.subjectText(data.subject)}</h1><div className="le-mail-header"><Avatar name={data.sender_name || data.sender_address} address={data.sender_address} colorIndex={data.color_index} size="lg" /><div className="le-mail-sender"><div className="body-strong">{data.sender_name || data.sender_address}</div>{breakpoint !== 'mobile' && <div className="small le-muted le-mail-address">{data.to.length ? texts.mail.addressTo(data.sender_address, data.to.join(', ')) : data.sender_address}</div>}</div>{account && <Tag tone="on-surface" dot={data.color_index}>{providerLabel(account)}</Tag>}{data.internal_date && <time className="small le-muted le-num" dateTime={data.internal_date}>{formatMailTime(new Date(data.internal_date), new Date(), undefined, locale)}</time>}</div>
+        <FilingTags folderId={data.app_folder_id} labelIds={data.app_label_ids} destinations={destinations.data ?? []} />
         {data.local_reference_only ? <Notice tone="info">{texts.mail.localReference}</Notice> : <InsightBox id={id} onFollowup={start} />}
         <MailHtml key={id} id={id} text={data.body_text} localOnly={data.local_reference_only ?? false} />
         {data.attachments.length > 0 && <div className="le-mail-attachments">{data.attachments.map((attachment, index) => <span key={index} className="le-mail-attachment"><Icon name="paperclip" size="sm" /><span className="le-mail-attachment-name">{attachment.name}</span><span className="le-mail-attachment-size">{formatBytes(attachment.size, locale)}</span></span>)}</div>}

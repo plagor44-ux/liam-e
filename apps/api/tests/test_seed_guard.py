@@ -57,6 +57,7 @@ async def seeded(fake_store, monkeypatch):
     monkeypatch.setattr(dev_seed.seed_access, "replace_conversations", AsyncMock())
     # The task seed writes through real sessions; its own tests cover it (test_dev_seed.py).
     monkeypatch.setattr(dev_seed, "seed_tasks", AsyncMock())
+    monkeypatch.setattr(dev_seed, "seed_filing", AsyncMock())
     monkeypatch.setattr(dev_seed.chat_access, "add_message", add)
     monkeypatch.setattr(dev_seed.chat_access, "cancel_open_proposals", AsyncMock())
     monkeypatch.setattr(proposals.message_access, "get_message", AsyncMock(side_effect=lambda id: chats.get(id)))

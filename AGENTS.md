@@ -211,6 +211,18 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Mail / connectors | GET | `/api/v1/mail/connectors` | `mail_connectors_list` |
 | Mail / connectors | POST | `/api/v1/mail/connectors/{name}/connect` | `mail_account_connect_connector` |
 | Mail / connectors | GET | `/api/v1/mail/connectors/{name}/tools` | `mail_connector_tools_list` |
+| Mail / filing | GET | `/api/v1/mail/folders` | `mail_folders_list` |
+| Mail / filing | POST | `/api/v1/mail/folders` | `mail_folder_create` |
+| Mail / filing | PATCH | `/api/v1/mail/folders/{destination_id}` | `mail_folder_update` |
+| Mail / filing | DELETE | `/api/v1/mail/folders/{destination_id}` | `mail_folder_delete` |
+| Mail / filing | POST | `/api/v1/mail/folders/assign` | `mail_filing_assign` |
+| Mail / rules | GET | `/api/v1/mail/rules` | `mail_rules_list` |
+| Mail / rules | POST | `/api/v1/mail/rules` | `mail_rule_create` |
+| Mail / rules | POST | `/api/v1/mail/rules/preview` | `mail_rules_preview` |
+| Mail / rules | PATCH | `/api/v1/mail/rules/{rule_id}` | `mail_rule_update` |
+| Mail / rules | DELETE | `/api/v1/mail/rules/{rule_id}` | `mail_rule_delete` |
+| Mail / rules | POST | `/api/v1/mail/rules/{rule_id}/apply` | `mail_rule_apply` |
+| Mail / rules | GET | `/api/v1/mail/rules/{rule_id}/runs` | `mail_rule_runs_list` |
 | Mail / messages | GET | `/api/v1/mail/messages` | `mail_messages_list` |
 | Mail / messages | POST | `/api/v1/mail/messages/actions` | `mail_messages_bulk_action` |
 | Mail / messages | GET | `/api/v1/mail/messages/{message_id}` | `mail_message_get` |
@@ -232,6 +244,24 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Tasks | POST | `/api/v1/tasks/occurrences/{occurrence_id}/complete` | `tasks_occurrence_complete` |
 | Tasks | POST | `/api/v1/tasks/occurrences/{occurrence_id}/skip` | `tasks_occurrence_skip` |
 | Tasks | POST | `/api/v1/tasks/occurrences/{occurrence_id}/reopen` | `tasks_occurrence_reopen` |
+
+## App-side mail filing and rules
+
+Folders and labels are global app data, never provider folders or labels. Each indexed message has
+at most one app folder and any number of labels. The owner inbox hides foldered messages; label
+filters include filed and unfiled mail. App filters include the indexed inbox and archive, while
+trash remains separate. Filing works across accounts regardless of provider capabilities.
+Deleting a destination requires confirmation and is blocked while a rule references it.
+
+Rules match account, sender address or domain, subject and recipient, in ascending priority. The
+first matching folder wins and matching labels accumulate. New-message jobs and their versioned
+rule snapshots commit with the sync batch. Local assignments precede provider actions; provider
+actions pass through `require_action`, unsupported actions are recorded as skipped, and uncertain
+writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.
+The owner can preview and explicitly apply a rule to indexed inbox mail. Chat proposals require
+confirmation, recheck the saved account grant and commit the card with the local mutation. Rule
+proposals require a direct request in the current stored user message. Folder and rule management
+reads are browser-only and every non-GET operation is in the MCP mutating inventory.
 
 ## Agent read facade
 

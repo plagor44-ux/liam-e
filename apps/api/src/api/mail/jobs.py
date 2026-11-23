@@ -69,7 +69,38 @@ async def _sync_with_lease(payload: dict, job_id: str, attempt: int) -> None:
         await asyncio.gather(work, lease, return_exceptions=True)
 
 
+async def _rules_with_lease(payload: dict, job_id: str, attempt: int) -> None:
+    from api.mail import rules
+
+    async def apply():
+        prepared = []
+        snapshot = dict(payload["rules"])
+        for rule_id, version in payload["rules"]:
+            prepared.append(await rules.prepare_rule_run(rule_id, version, payload["message_id"], snapshot=snapshot))
+        for run in prepared:
+            await rules.dispatch_rule_run(run, recover=attempt > 1)
+
+    async def heartbeat():
+        interval = max(0.01, min(60.0, mail_env.mail_sync_stale_minutes * 20.0))
+        while True:
+            await asyncio.sleep(interval)
+            if not await mail_job.renew(job_id, attempt):
+                raise RuntimeError("Mail rule claim lost")
+
+    work, lease = asyncio.create_task(apply()), asyncio.create_task(heartbeat())
+    try:
+        done, _ = await asyncio.wait((work, lease), return_when=asyncio.FIRST_COMPLETED)
+        if lease in done:
+            await lease
+        await work
+    finally:
+        work.cancel()
+        lease.cancel()
+        await asyncio.gather(work, lease, return_exceptions=True)
+
+
 register_claim_handler("sync", _sync_with_lease)
+register_claim_handler("mail_rule_apply", _rules_with_lease)
 register_handler(mail_job.VERIFIED_INSIGHTS, _insights)
 register_handler("insights", _insights)
 

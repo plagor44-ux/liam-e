@@ -7,13 +7,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import String, and_, any_, bindparam, case, cast, delete, exists, func, or_, select, tuple_, update
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, insert
 from sqlalchemy.orm import aliased, undefer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from db.accessors import mail_reference_snapshot, mail_sync_state
 from db.models.mail_insight import MailInsight
 from db.models.mail_action import MailAction
+from db.models.mail_filing import MailFiling
+from db.models.mail_label_assignment import MailLabelAssignment
 
 from db.engine import get_session_maker
 from db.models.mail_message import IMAP_RETIRED, MailMessage
@@ -239,6 +241,9 @@ async def count_for_account(account_id: str) -> int:
 
 async def delete_for_account(account_id: str) -> None:
     async with get_session_maker()() as session:
+        ids = select(MailMessage.id).where(MailMessage.account_id == account_id)
+        await session.execute(delete(MailFiling).where(MailFiling.message_id.in_(ids)))
+        await session.execute(delete(MailLabelAssignment).where(MailLabelAssignment.message_id.in_(ids)))
         result = await session.execute(
             select(MailMessage).where(MailMessage.account_id == account_id)
         )
@@ -264,9 +269,19 @@ def _listed_folder(folder: str):
     return MailMessage.folder.in_(("ARCHIVE", IMAP_RETIRED)) if folder == "ARCHIVE" else MailMessage.folder == folder
 
 
-async def list_page(*, chat_only: bool = False, folder: str = "INBOX", account_ids: list[str] | None = None, unread_only: bool = False, important_only: bool = False, with_attachments: bool = False, query: str = "", before: tuple[datetime | None, str] | None = None, limit: int = 50) -> list[MailMessage]:
+async def list_page(*, chat_only: bool = False, folder: str = "INBOX", account_ids: list[str] | None = None, unread_only: bool = False, important_only: bool = False, with_attachments: bool = False, query: str = "", before: tuple[datetime | None, str] | None = None, limit: int = 50, hide_filed: bool = False, app_folder_id: str | None = None, app_label_id: str | None = None) -> list[MailMessage]:
     date_key = func.coalesce(MailMessage.internal_date, datetime(1970, 1, 1, tzinfo=UTC))
-    stmt = select(MailMessage).where(_listed_folder(folder))
+    # App classifications span the locally indexed inbox and archive; trash remains separate.
+    indexed = MailMessage.folder.in_(("INBOX", "ARCHIVE", IMAP_RETIRED)) if folder == "INBOX" and (app_folder_id or app_label_id) else _listed_folder(folder)
+    stmt = select(MailMessage).where(indexed)
+    filing = select(MailFiling.message_id).where(MailFiling.message_id == MailMessage.id)
+    if app_folder_id is not None:
+        stmt = stmt.where(exists(filing.where(MailFiling.folder_id == app_folder_id)))
+    elif hide_filed:
+        stmt = stmt.where(~exists(filing.where(MailFiling.folder_id.is_not(None))))
+    if app_label_id is not None:
+        stmt = stmt.where(exists(select(MailLabelAssignment.message_id).where(
+            MailLabelAssignment.message_id == MailMessage.id, MailLabelAssignment.label_id == app_label_id)))
     if account_ids is not None:
         stmt = stmt.where(MailMessage.account_id.in_(account_ids))
     if chat_only:
@@ -289,6 +304,9 @@ async def list_page(*, chat_only: bool = False, folder: str = "INBOX", account_i
 async def count_unread(*, chat_only: bool = False, folder: str = "INBOX", account_ids: list[str] | None = None) -> dict[str, int]:
     async with get_session_maker()() as session:
         query = select(MailMessage.account_id, func.count()).where(_listed_folder(folder), MailMessage.is_read.is_(False))
+        if folder == "INBOX" and not chat_only:
+            query = query.where(~exists(select(MailFiling.message_id).where(
+                MailFiling.message_id == MailMessage.id, MailFiling.folder_id.is_not(None))))
         if account_ids is not None:
             query = query.where(MailMessage.account_id.in_(account_ids))
         if chat_only:
@@ -315,16 +333,20 @@ async def delete_duplicate(account_id: str, folder: str, provider_uid: str, *, k
     """Remove only a sync copy of the same identified message, never another mail."""
     if not rfc_message_id:
         return False
-    async with get_session_maker()() as session:
-        result = await session.execute(delete(MailMessage).where(
+    async with get_session_maker().begin() as session:
+        keep = await session.scalar(select(MailMessage).where(MailMessage.id == keep_id,
+            MailMessage.account_id == account_id).with_for_update())
+        duplicate = await session.scalar(select(MailMessage).where(
             MailMessage.account_id == account_id,
             MailMessage.folder == folder,
             MailMessage.provider_uid == provider_uid,
             MailMessage.id != keep_id,
             MailMessage.rfc_message_id == rfc_message_id,
-        ))
-        await session.commit()
-        return bool(result.rowcount)
+        ).with_for_update())
+        if keep is None or duplicate is None:
+            return False
+        await _merge_copy(session, keep, duplicate, verified=True)
+        return True
 
 
 async def newsletter_senders(*, chat_only: bool = False, account_ids: list[str] | None = None) -> list[NewsletterRow]:
@@ -373,6 +395,21 @@ async def known_uids(account_id: str, folder: str, *, verified_only: bool = Fals
         query = query.where(MailMessage.unverified_connector.is_(False))
     async with (nullcontext(session) if session is not None else get_session_maker()()) as session:
         return dict((await session.execute(query)).all())
+
+
+async def rebuild_imap_uids(session: AsyncSession, account_id: str, candidates: set[str], generation: str) -> set[str]:
+    """Keep a UID only when its mailbox generation is known to match."""
+    if not candidates:
+        return set()
+    cursor = await session.scalar(select(MailSyncState.cursor).where(MailSyncState.account_id == account_id))
+    legacy_same_generation = (cursor or '').partition(':')[0] == generation
+    valid = MailMessage.imap_uidvalidity == generation
+    if legacy_same_generation:
+        valid = or_(valid, MailMessage.imap_uidvalidity.is_(None))
+    rows = await session.scalars(select(MailMessage.provider_uid).where(
+        MailMessage.account_id == account_id, MailMessage.folder == 'INBOX',
+        MailMessage.provider_uid.in_(candidates), valid))
+    return set(rows.all())
 
 
 async def reconcile_label_folders(session: AsyncSession, account_id: str, inbox: set[str], archived: set[str],
@@ -426,11 +463,22 @@ async def reconcile_label_folders(session: AsyncSession, account_id: str, inbox:
 
 async def _merge_copy(session, keep: MailMessage, duplicate: MailMessage, *, verified: bool) -> None:
     if verified and not keep.unverified_connector and not duplicate.unverified_connector:
+        filing = await session.get(MailFiling, duplicate.id)
+        if filing is not None:
+            stmt = insert(MailFiling).values(message_id=keep.id, folder_id=filing.folder_id)
+            await session.execute(stmt.on_conflict_do_nothing())
+        labels = (await session.scalars(select(MailLabelAssignment.label_id).where(
+            MailLabelAssignment.message_id == duplicate.id))).all()
+        for label_id in labels:
+            stmt = insert(MailLabelAssignment).values(message_id=keep.id, label_id=label_id)
+            await session.execute(stmt.on_conflict_do_nothing())
         keep.connector_alias_ids = sorted(set(keep.connector_alias_ids + duplicate.connector_alias_ids + [duplicate.id]))
         await session.execute(update(MailAction).where(MailAction.account_id == keep.account_id,
             MailAction.message_id == duplicate.id).values(message_id=keep.id))
     else:
         await mail_reference_snapshot.preserve(session, duplicate)
+    await session.execute(delete(MailFiling).where(MailFiling.message_id == duplicate.id))
+    await session.execute(delete(MailLabelAssignment).where(MailLabelAssignment.message_id == duplicate.id))
     await session.execute(delete(MailInsight).where(MailInsight.message_id == duplicate.id))
     await session.delete(duplicate)
 
@@ -727,11 +775,14 @@ async def set_body(message_id: str, *, session: AsyncSession | None = None, body
 
 
 async def delete_folder(account_id: str, folder: str, *, session: AsyncSession | None = None, exclude_uids: Collection[str] = ()) -> int:
-    stmt = delete(MailMessage).where(MailMessage.account_id == account_id, MailMessage.folder == folder)
+    conditions = [MailMessage.account_id == account_id, MailMessage.folder == folder]
     if exclude_uids:
-        stmt = stmt.where(MailMessage.provider_uid.not_in(exclude_uids))
+        conditions.append(MailMessage.provider_uid.not_in(exclude_uids))
     async with _writer(session) as session:
-        result = await session.execute(stmt)
+        ids = select(MailMessage.id).where(*conditions)
+        await session.execute(delete(MailFiling).where(MailFiling.message_id.in_(ids)))
+        await session.execute(delete(MailLabelAssignment).where(MailLabelAssignment.message_id.in_(ids)))
+        result = await session.execute(delete(MailMessage).where(*conditions))
         return result.rowcount
 
 

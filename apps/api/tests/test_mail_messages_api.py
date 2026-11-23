@@ -23,6 +23,7 @@ def access(monkeypatch):
     monkeypatch.setattr(messages.mail_reference_snapshot, "read", AsyncMock(return_value=None))
     monkeypatch.setattr(messages.insight_access, "get_for_messages", insights)
     monkeypatch.setattr(messages.account_access, "list_accounts", accounts)
+    monkeypatch.setattr(messages.filing_access, "for_messages", AsyncMock(return_value={}))
     return SimpleNamespace(page=page, get=get, insights=insights, accounts=accounts)
 
 
@@ -43,7 +44,7 @@ def test_messages_list_rejects_bad_cursor(client, access, cursor):
 def test_messages_list_maps_filters_to_accessor(client, access):
     response = client.get("/api/v1/mail/messages", params=[("account_id", "a1"), ("account_id", "a2"), ("unread", "true"), ("important", "true"), ("attachments", "true"), ("q", "Rechnung"), ("folder", "ARCHIVE")])
     assert response.status_code == 200
-    access.page.assert_awaited_once_with(folder="ARCHIVE", account_ids=["a1", "a2"], unread_only=True, important_only=True, with_attachments=True, query="Rechnung", before=None, limit=50)
+    access.page.assert_awaited_once_with(folder="ARCHIVE", account_ids=["a1", "a2"], unread_only=True, important_only=True, with_attachments=True, query="Rechnung", before=None, limit=50, hide_filed=False, app_folder_id=None, app_label_id=None)
 
 
 def test_messages_list_sets_next_cursor_only_when_page_full(client, access):
@@ -56,6 +57,15 @@ def test_messages_list_sets_next_cursor_only_when_page_full(client, access):
     assert response.json()["next_cursor"] is None
     assert access.page.await_args.kwargs["before"] == (datetime(1970, 1, 1, tzinfo=UTC), "m1")
     assert access.page.await_args.kwargs["account_ids"] is None
+
+
+def test_message_list_and_detail_expose_filing(client, access):
+    access.page.return_value = [message()]
+    access.get.return_value = message()
+    messages.filing_access.for_messages.return_value = {"m1": messages.filing_access.Filing("folder", ["label"])}
+    for data in (client.get('/api/v1/mail/messages').json()['items'][0], client.get('/api/v1/mail/messages/m1').json()):
+        assert data['app_folder_id'] == 'folder'
+        assert data['app_label_ids'] == ['label']
 
 
 def test_message_get_includes_attachments_and_insight_deadline(client, access):

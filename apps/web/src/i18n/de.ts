@@ -11,6 +11,26 @@ const noticeSubject = (subject: string) => {
 
 export const de = {
   offline: offline.de,
+  mailFiling: {
+    folders: 'Ordner und Labels', rules: 'Mailregeln', folder: 'Ordner', label: 'Label', name: 'Name',
+    add: 'Anlegen', rename: 'Umbenennen', remove: 'Löschen', save: 'Speichern', cancel: 'Abbrechen',
+    removeName: (name: string) => `${name} löschen`, removeTitle: 'Ordner oder Label löschen?',
+    removeDescription: 'Die Zuordnung zu Mails wird entfernt. Beim Anbieter bleibt alles unverändert. Regeln, die diesen Eintrag verwenden, müssen zuerst geändert werden.',
+    empty: 'Noch keine Ordner oder Labels. Erstelle einen Eintrag für deine Mails.',
+    localOnly: 'Ordner und Labels gelten für alle Konten nur in liam-e. Ein Ordner nimmt die Mail aus dem Posteingang; Labels markieren sie nur.',
+    loading: 'Wird geladen …', error: 'Die Änderung konnte nicht ausgeführt werden. Versuch es noch einmal.',
+    filters: 'Ordner und Labels', inbox: 'Posteingang', file: 'Zuordnen', clearFolder: 'Aus Ordner entfernen',
+    addLabel: (name: string) => `Label ${name} zuordnen`, removeLabel: (name: string) => `Label ${name} entfernen`,
+    done: 'Zuordnung gespeichert.', selectMail: 'Wähle zuerst eine Mail.',
+    ruleName: 'Name der Regel', account: 'Konto', allAccounts: 'Alle Konten', sender: 'Absenderadresse', domain: 'Absenderdomain', subject: 'Betreff enthält', recipient: 'Empfängeradresse',
+    none: 'Keine Auswahl', markRead: 'Als gelesen markieren', markUnread: 'Als ungelesen markieren', archive: 'Beim Anbieter archivieren',
+    active: 'Regel aktiv', priority: 'Reihenfolge', addRule: 'Regel anlegen', editRule: 'Regel bearbeiten', deleteRule: 'Regel löschen',
+    ruleEmpty: 'Noch keine Regeln. Erstelle eine Regel für neue Mails.', ruleDelay: 'Regeln laufen nach dem Abruf. Schläft die Studio-Instanz, verzögert sich die Ausführung bis zum nächsten Abruf.',
+    preview: 'Vorschau', matches: (n: number) => `${n} passende ${n === 1 ? 'Mail' : 'Mails'}`, apply: 'Auf vorhandene Mails anwenden', applyTitle: 'Regel auf vorhandene Mails anwenden?',
+    applyDescription: 'Die Regel wird auf passende Mails im Posteingang angewendet. Änderungen beim Anbieter erfolgen nur, wenn das Konto sie unterstützt.',
+    outcomes: 'Letzte Ausführungen', skipped: 'Beim Anbieter übersprungen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
+    ruleConfirm: 'Regel erstellen?', filingConfirm: 'Mails zuordnen?', ruleDone: 'Regel erstellt.', filingDone: 'Mails zugeordnet.',
+  },
   preferences: {
     title: 'Präferenzen', empty: 'Noch keine Präferenzen gespeichert. Lege fest, wie liam-e für dich schreiben soll.',
     add: 'Präferenz hinzufügen', edit: 'Bearbeiten', pause: 'Pausieren', activate: 'Aktivieren', remove: 'Löschen',

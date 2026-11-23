@@ -669,7 +669,8 @@ def test_imap_old_inbox_rebuild_commits_before_trash_ack(pg_db, monkeypatch):
             with monkeypatch.context() as patch:
                 patch.setattr(sync_imap, "fetch_changes", AsyncMock(return_value=before_move))
                 assert (await sync.sync_account(account.id)).status == "ok"
-            assert (await mail_message.known_uids(account.id, "INBOX"))["11"] != ids["11"]
+            # The matching UIDVALIDITY now preserves the local identity and its app filing.
+            assert (await mail_message.known_uids(account.id, "INBOX"))["11"] == ids["11"]
             await commit(*args, **kwargs)
         monkeypatch.setattr(mail_message, "commit_trash_move", rebuild_first)
         async with client() as browser:

@@ -3,7 +3,7 @@
 import json
 from contextlib import asynccontextmanager
 from sqlalchemy.exc import IntegrityError
-from db.accessors import mail_account, mail_action, mail_credential, mail_insight, mail_sync_state, mail_job, mail_message, mail_reference_snapshot
+from db.accessors import mail_account, mail_action, mail_credential, mail_filing, mail_insight, mail_sync_state, mail_job, mail_message, mail_reference_snapshot
 from db.models.mail_action import MailAction
 from db.models.mail_job import MailJob
 from db.models.mail_account import MailAccount
@@ -20,6 +20,9 @@ class FakeStore:
         self.messages = {}
         self.actions = {}
         self.insights = {}
+        async def no_filings(message_ids):
+            return {}
+        monkeypatch.setattr(mail_filing, "for_messages", no_filings)
         for name in ("record", "get_many", "mark_undone", "release", "latest_open", "delete_for_account"):
             monkeypatch.setattr(mail_action, name, getattr(self, "action_" + name))
         monkeypatch.setattr(mail_message, "get_message", self.get_message)
@@ -39,6 +42,9 @@ class FakeStore:
         monkeypatch.setattr(mail_message, "set_body", self.set_body)
         for name in ("enqueue", "claim_next", "finish", "fail", "latest_for_account", "delete_for_account"):
             monkeypatch.setattr(mail_job, name, getattr(self, "job_" + name))
+        async def no_rules(session, account_id, message_ids):
+            return None
+        monkeypatch.setattr(mail_job, "queue_mail_rules", no_rules)
         monkeypatch.setattr(mail_message, "count_unread", self.count_unread)
         monkeypatch.setattr(mail_message, "count_for_account", self.count_for_account)
         async def newsletter_senders(*, account_ids=None, chat_only=False):

@@ -10,6 +10,7 @@ import { inboxSearchSchema } from './filters'
 const originalMatchMedia = window.matchMedia
 const row = { id: 'm1', account_id: 'a', color_index: 0, sender_name: 'Anna', sender_address: 'anna@example.com', subject: 'Termin', snippet: '', internal_date: null, deadline: null, has_attachments: false, is_flagged: false, is_read: false, needs_reply: false }
 function setup(mode: 'empty' | 'error' | 'loading' | 'row' | 'rows' | 'many' = 'empty', path = '/mail', coarse = false, mobile = false, limited = false) {
+  spyOn(sdk, 'mailFoldersList').mockImplementation((async () => ({ data: [{ id: 'folder', name: 'Projects', kind: 'folder' }] })) as never)
   window.matchMedia = ((query: string) => ({ matches: (!mobile && query.includes('1024px')) || (coarse && query.includes('pointer: coarse')), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', color_index: 0, state: 'ok' }, ...(limited ? [{ id: 'limited', display_name: 'Studio', email_address: 'studio@example.test', provider: 'gmail', connection: 'connector', color_index: 1, state: 'ok', action_capabilities: mailCapabilities(false) }] : [])], unread_total: 1, last_sync_at: null } })) as never)
   const list = spyOn(sdk, 'mailMessagesList').mockImplementation((async () => {
@@ -429,4 +430,12 @@ test('a swipe on Gmail Studio explains the restriction without an action', async
   expect(screen.getAllByText(hint)).toHaveLength(1)
   expect(action).not.toHaveBeenCalled()
   expect(screen.getByText('Zweite')).toBeTruthy()
+})
+
+test('folder filter selects the global app-side folder', async () => {
+  const { router, list } = setup('row')
+  fireEvent.click(await screen.findByRole('button', { name: 'Ordner und Labels' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Projects' }))
+  await waitFor(() => expect(router.state.location.searchStr).toContain('app_folder='))
+  await waitFor(() => expect(list.mock.calls.some(([options]) => options?.query?.app_folder_id === 'folder')).toBe(true))
 })

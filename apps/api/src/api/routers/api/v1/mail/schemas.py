@@ -28,6 +28,8 @@ class MessageListItemOut(BaseModel):
     has_attachments: bool
     deadline: date | None
     needs_reply: bool
+    app_folder_id: str | None = None
+    app_label_ids: list[str] = Field(default_factory=list)
 
 
 class InsightOut(BaseModel):

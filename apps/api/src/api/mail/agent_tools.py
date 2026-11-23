@@ -1,5 +1,6 @@
 """Read-only agent tools and explicit proposal creation."""
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
@@ -215,6 +216,39 @@ async def execute_tool(name: str, arguments: dict, ctx: TurnContext) -> ToolOutc
         from api.mail.calendar_tools import read_calendar
         value, refs = await read_calendar(name, arguments, ctx.calendar_source_ids, ctx.calendar_timezone)
         return result(value, calendars=refs)
+    if name == 'propose_rule':
+        from db.accessors import chat_message, mail_filing
+        from api.mail.rule_schemas import RuleIn
+        from pydantic import ValidationError
+        source = await chat_message.get_message(ctx.source_message_id) if ctx.source_message_id else None
+        direct = r'(?is)^\s*(?:(?:please\s+)?(?:create|make|add|set up)\s+(?:me\s+)?(?:a\s+)?rule\b|(?:bitte\s+)?(?:erstelle?|lege|richte|mach|erzeuge)\s+(?:mir\s+)?(?:eine?\s+)?regel\b)'
+        if not source or source.role != 'user' or source.conversation_id != ctx.conversation_id or source.context_id != ctx.context_id or not re.match(direct, source.content):
+            return result({'error': 'explicit_rule_request_required'})
+        if not ctx.context_id or not await chat_context.is_live(ctx.context_id):
+            return result({'error': 'context_revoked'})
+        try:
+            rule = RuleIn.model_validate({key: value for key, value in arguments.items() if key != 'reason'})
+        except ValidationError:
+            return result({'error': 'rule_invalid'})
+        accounts = await mail_account.list_accounts()
+        if (rule.account_id and rule.account_id not in ctx.account_ids) or (not rule.account_id and not {a.id for a in accounts if a.is_active}.issubset(set(ctx.account_ids))):
+            return result({'error': 'account_out_of_scope'})
+        destinations = {row.id: row.kind for row in await mail_filing.list_destinations()}
+        if (rule.folder_id and destinations.get(rule.folder_id) != 'folder') or (rule.label_id and destinations.get(rule.label_id) != 'label'):
+            return result({'error': 'rule_invalid'})
+        return await _proposal(ctx, proposals.Proposal(kind='rule', reason=str(arguments.get('reason', ''))[:500], items=[], rule=rule))
+    if name == 'propose_filing':
+        message_ids = arguments.get('message_ids')
+        add_labels = arguments.get('add_labels', [])
+        remove_labels = arguments.get('remove_labels', [])
+        if (not isinstance(message_ids, list) or not 1 <= len(message_ids) <= 50
+                or any(not isinstance(value, str) or not value for value in message_ids)
+                or any(not isinstance(values, list) or len(values) > 100 or any(not isinstance(value, str) or not value for value in values)
+                       for values in (add_labels, remove_labels))
+                or (arguments.get('folder_id') is not None and not isinstance(arguments['folder_id'], str))
+                or ('set_folder' in arguments and not isinstance(arguments['set_folder'], bool))
+                or set(add_labels) & set(remove_labels)):
+            return result({'error': 'filing_invalid'})
     scope = ctx.account_ids
     if any(id is not None and id not in scope for id in (ctx.account_id, arguments.get('account_id'))):
         return result({'error': 'account_out_of_scope'})
@@ -232,6 +266,28 @@ async def execute_tool(name: str, arguments: dict, ctx: TurnContext) -> ToolOutc
             return result({'error': 'sender_not_found'})
     if name == 'list_accounts':
         return result(await _account_statuses(scope))
+    if name == 'list_folders':
+        from db.accessors import mail_filing
+        return result({'untrusted_folders': [{'id': row.id, 'name': row.name, 'kind': row.kind} for row in await mail_filing.list_destinations()]})
+    if name == 'propose_filing':
+        from db.accessors import mail_filing
+        if not ctx.context_id or not await chat_context.is_live(ctx.context_id):
+            return result({'error': 'context_revoked'})
+        destinations = {row.id: row.kind for row in await mail_filing.list_destinations()}
+        folder_id = arguments.get('folder_id')
+        add_labels, remove_labels = arguments.get('add_labels', []), arguments.get('remove_labels', [])
+        set_folder = bool(arguments.get('set_folder', folder_id is not None))
+        if (folder_id and destinations.get(folder_id) != 'folder') or any(destinations.get(label) != 'label' for label in add_labels + remove_labels) or not (set_folder or add_labels or remove_labels):
+            return result({'error': 'filing_invalid'})
+        items = []
+        for message_id in dict.fromkeys(arguments.get('message_ids', [])[:50]):
+            mail = verified_messages.get(message_id)
+            if mail is not None:
+                items.append(proposals.ProposalItem(id=mail.id, kind='mail', title=mail.subject or ('No subject' if ctx.locale == 'en' else 'Ohne Betreff'), subtitle=headers.sender_name(mail.sender)))
+        if not items:
+            return result({'error': 'no_valid_items'})
+        command = proposals.FilingCommand(folder_id=folder_id, set_folder=set_folder, add_labels=add_labels, remove_labels=remove_labels)
+        return await _proposal(ctx, proposals.Proposal(kind='filing', reason=str(arguments.get('reason', ''))[:500], items=items, filing=command))
     if name == 'search_messages':
         account_id = arguments.get('account_id') or ctx.account_id
         if scope == []:

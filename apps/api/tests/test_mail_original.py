@@ -249,6 +249,7 @@ def test_message_detail_original_availability(client, monkeypatch, provider, aut
     monkeypatch.setattr(messages.message_access, 'get_message', AsyncMock(return_value=row))
     monkeypatch.setattr(messages.account_access, 'list_accounts', AsyncMock(return_value=accounts))
     monkeypatch.setattr(messages.insight_access, 'get_for_messages', AsyncMock(return_value={}))
+    monkeypatch.setattr(messages.filing_access, 'for_messages', AsyncMock(return_value={}))
     response = client.get('/api/v1/mail/messages/m')
     assert response.status_code == 200
     assert response.json()['can_show_original'] is expected

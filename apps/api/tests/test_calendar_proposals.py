@@ -138,7 +138,7 @@ def test_card_output_has_no_connection_ref(card):
 def test_prompt_version_and_calendar_rules_present():
     from api.mail.agent_prompt import APP_PROMPT_VERSION, system_prompt
     text = system_prompt(today=date(2026, 12, 5), account_scope=None)
-    assert APP_PROMPT_VERSION == "23" and "propose_calendar_change" in text
+    assert APP_PROMPT_VERSION == "24" and "propose_calendar_change" in text
     assert "ICS bleibt nur lesbar" in text
 
 

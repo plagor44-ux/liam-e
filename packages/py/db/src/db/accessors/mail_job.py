@@ -38,6 +38,24 @@ def queue_verified_insights(session, account_id: str, message_ids: list[str], li
         session.add(MailJob(kind=VERIFIED_INSIGHTS, status=READY_REFRESH, payload_json=json.dumps(payload), dedupe_key=f"insights-refresh:{new_id()}"))
 
 
+async def queue_mail_rules(session, account_id: str, message_ids: list[str]) -> None:
+    """Commit rule snapshots with the newly indexed messages that triggered them."""
+    from db.models.mail_rule import MailRule
+
+    if not message_ids:
+        return
+    rules = (await session.execute(select(MailRule.id, MailRule.version).where(
+        MailRule.is_active.is_(True), or_(MailRule.account_id.is_(None), MailRule.account_id == account_id)
+    ).order_by(MailRule.position, MailRule.created_at, MailRule.id))).all()
+    if not rules:
+        return
+    for message_id in dict.fromkeys(message_ids):
+        row = MailJob(kind="mail_rule_apply", payload_json=json.dumps({"account_id": account_id,
+            "message_id": message_id, "rules": [[rule_id, version] for rule_id, version in rules]}),
+            dedupe_key=f"mail-rule:{message_id}")
+        await session.execute(insert(MailJob).values(**row.model_dump()).on_conflict_do_nothing())
+
+
 async def claim_next(now: datetime, *, stale_after: timedelta) -> MailJob | None:
     stmt = select(MailJob).where(or_(and_(MailJob.status.in_(("queued", READY_REFRESH)), MailJob.run_after <= now), and_(MailJob.status.in_(RUNNING), MailJob.locked_at < now - stale_after))).order_by(MailJob.run_after, MailJob.id).with_for_update(skip_locked=True).limit(1)
     async with get_session_maker()() as session:

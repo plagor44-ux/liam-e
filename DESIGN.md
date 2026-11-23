@@ -631,6 +631,16 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
 
 ### 9.7 Templates and settings
 
+- `/settings/folders` manages global app folders and labels. Explain that a folder hides mail from
+  liam-e's inbox, labels do not, and neither changes the provider. Deletion names the consequence
+  and needs a confirmation dialog; a destination used by a rule cannot be deleted yet.
+- `/settings/rules` manages ordered, versioned rules with account, sender, domain, subject and
+  recipient conditions. Preview shows a count; applying to existing mail needs a separate dialog.
+  Show unsupported provider actions as skipped and uncertain provider outcomes as unknown. Explain
+  that a sleeping Studio instance delays rule execution until the next fetch.
+- The inbox filters global folders and labels across accounts. A selected mail or bulk selection
+  can be filed without requiring provider write capabilities. Chat filing and rule cards show the
+  target and conditions and require explicit confirmation before local changes.
 - „Einstellungen“ is accessible in sidebar, toolbar and mobile drawer. `/settings` shows the template
   library, as does `/settings/prompts`. Further completed areas can be added to `settingsSections`;
   there are no empty landing pages. The current area is marked in section navigation like the current

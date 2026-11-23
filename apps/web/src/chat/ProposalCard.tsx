@@ -1,10 +1,12 @@
-import { useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { chatProposalCancel, chatProposalConfirm, mailActionsUndo } from '../api/generated/sdk.gen'
 import type { ChatMessageOut, Proposal } from '../api/generated/types.gen'
 import { errorCode, unwrap } from '../api/unwrap'
-import { ConfirmCard, Notice } from '../ds'
+import { Button, ConfirmCard, Notice } from '../ds'
+import { foldersQuery } from '../settings/mailQueries'
+import { accountsQuery } from '../api/queries'
 import type { Catalogue } from '../i18n/catalogue'
 import { useI18n } from '../i18n/I18n'
 import { useRestartConversation } from './session'
@@ -104,6 +106,7 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
   if (proposal.kind === 'calendar') return <CalendarProposal message={message} />
   if (proposal.kind === 'task') return <Notice tone="success"><span>{texts.taskChat.done}</span>{result?.task_series_id && <> <Link className="le-link" to="/tasks/$taskId" params={{ taskId: result.task_series_id }}>{texts.tasks.detail}</Link></>}</Notice>
   if (proposal.kind === 'preference') return <Notice tone="success">{result?.preference_outcome === 'kept' ? texts.preferenceCandidates.kept : result?.preference_outcome === 'unchanged' ? texts.preferenceCandidates.unchanged : result?.preferences_enabled ? texts.preferences.saved : texts.preferences.savedOff}</Notice>
+  if (proposal.kind === 'filing' || proposal.kind === 'rule') return <Notice tone="success">{proposal.kind === 'filing' ? texts.mailFiling.filingDone : texts.mailFiling.ruleDone}</Notice>
   if (undone) return <Notice tone="info">{texts.proposal.undone}</Notice>
   const text = proposal.kind === 'unsubscribe' ? texts.proposal.results.unsubscribe(result?.done ?? 0, ids.length) : texts.proposal.results[proposal.kind](result?.done ?? 0)
   const failed = result?.failed ?? []
@@ -134,6 +137,8 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
   const current = updated?.id === message.id && !(updated.proposal_status === 'running' && message.proposal_status !== 'pending' && message.proposal_status !== 'running') ? updated : message
   const restart = useRestartConversation(current.conversation_id)
   const proposal = current.proposal
+  const destinations = useQuery({ ...foldersQuery(), enabled: proposal?.kind === 'filing' || proposal?.kind === 'rule' })
+  const accounts = useQuery({ ...accountsQuery(), enabled: proposal?.kind === 'rule' })
   useEffect(() => {
     if (current.proposal_status !== 'running') return
     let count = 0
@@ -157,6 +162,9 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
       client.setQueryData<ChatMessageOut[]>(['history', current.conversation_id], rows => rows?.map(row => row.id === result.id ? { ...result, context: result.context ?? row.context } : row))
       void client.invalidateQueries({ queryKey: ['history', current.conversation_id] })
       void client.invalidateQueries({ queryKey: ['summary'] })
+      if (proposal?.kind === 'filing' || proposal?.kind === 'rule') {
+        void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-rules'] })
+      }
       if (proposal?.kind === 'preference') {
         for (const key of ['preference-candidates', 'preferences', 'personalization']) void client.invalidateQueries({ queryKey: [key] })
       }
@@ -207,6 +215,30 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     confirm={preference_decision => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids: [], preference_decision }, throwOnError: true })), true) }}
     cancel={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }}
   /> : null
+  if (proposal.kind === 'rule') {
+    const rule = proposal.rule
+    if (!rule) return null
+    const folder = destinations.data?.find(row => row.id === rule.folder_id), label = destinations.data?.find(row => row.id === rule.label_id)
+    const account = accounts.data?.find(row => row.id === rule.account_id)
+    const unavailable = destinations.isPending || accounts.isPending || destinations.isError || accounts.isError || Boolean(rule.folder_id && !folder) || Boolean(rule.label_id && !label) || Boolean(rule.account_id && !account)
+    return <section className="le-confirm"><div className="le-confirm-head"><h3 className="le-confirm-title">{texts.mailFiling.ruleConfirm}</h3><span>{proposal.reason}</span></div>
+      <p>{rule.name}</p><p>{texts.mailFiling.account}: {account ? account.display_name || account.email_address : texts.mailFiling.allAccounts}</p>
+      {rule.sender_address && <p>{texts.mailFiling.sender}: {rule.sender_address}</p>}{rule.sender_domain && <p>{texts.mailFiling.domain}: {rule.sender_domain}</p>}{rule.subject_contains && <p>{texts.mailFiling.subject}: {rule.subject_contains}</p>}{rule.recipient && <p>{texts.mailFiling.recipient}: {rule.recipient}</p>}
+      {folder && <p>{texts.mailFiling.folder}: {folder.name}</p>}{label && <p>{texts.mailFiling.label}: {label.name}</p>}{rule.mark_read && <p>{texts.mailFiling.markRead}</p>}{rule.mark_unread && <p>{texts.mailFiling.markUnread}</p>}{rule.archive && <p>{texts.mailFiling.archive}</p>}
+      {unavailable && <Notice tone="info">{texts.mailFiling.error}</Notice>}{error && <Notice tone="danger">{failureText(error, proposal.kind, texts)}</Notice>}
+      <div className="le-confirm-foot"><Button variant="primary" disabled={busy || unavailable} onClick={() => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids: [] }, throwOnError: true })), true) }}>{texts.mailFiling.addRule}</Button><Button variant="ghost" disabled={busy} onClick={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }}>{texts.controls.cancel}</Button></div>
+    </section>
+  }
+  if (proposal.kind === 'filing') {
+    const command = proposal.filing
+    if (!command) return null
+    const saved = cardState(client, current.id), rows = destinations.data ?? []
+    const target = command.folder_id ? rows.find(row => row.id === command.folder_id) : undefined
+    const added = (command.add_labels ?? []).map(id => rows.find(row => row.id === id)), removed = (command.remove_labels ?? []).map(id => rows.find(row => row.id === id))
+    const unavailable = destinations.isPending || destinations.isError || Boolean(command.folder_id && !target) || added.some(row => !row) || removed.some(row => !row)
+    const details = [proposal.reason, command.set_folder ? target ? `${texts.mailFiling.folder}: ${target.name}` : texts.mailFiling.clearFolder : '', ...added.map(row => texts.mailFiling.addLabel(row?.name ?? '')), ...removed.map(row => texts.mailFiling.removeLabel(row?.name ?? ''))].filter(Boolean).join(' · ')
+    return <><ConfirmCard title={texts.mailFiling.filingConfirm} reason={details} items={proposal.items} confirmLabel={() => texts.mailFiling.file} deselected={saved.deselected ?? new Set<string>()} onDeselectedChange={value => { saved.deselected = value; refresh(n => n + 1) }} busy={busy || unavailable} onConfirm={selected_ids => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids }, throwOnError: true })), true) }} onCancel={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }} />{(error || unavailable) && <Notice tone="danger">{texts.mailFiling.error}</Notice>}</>
+  }
   const saved = cardState(client, current.id)
   const items = proposal.items.map(item => item.kind === 'sender' && !['one_click', 'one-click', 'post', 'mailto'].includes(item.method ?? '') ? { ...item, subtitle: `${item.subtitle} · ${texts.proposal.manualSubtitle}` } : item)
   const irreversibleNote = proposal.irreversible ? proposal.kind === 'unsubscribe' ? texts.proposal.irreversibleUnsubscribe : proposal.kind === 'send' ? texts.proposal.irreversibleSend : undefined : undefined

@@ -18,6 +18,26 @@ const ordinal = (day: number) => day + ({ one: 'st', two: 'nd', few: 'rd', other
 
 export const en = {
   offline: offline.en,
+  mailFiling: {
+    folders: 'Folders and labels', rules: 'Mail rules', folder: 'Folder', label: 'Label', name: 'Name',
+    add: 'Add', rename: 'Rename', remove: 'Delete', save: 'Save', cancel: 'Cancel',
+    removeName: name => `Delete ${name}`, removeTitle: 'Delete folder or label?',
+    removeDescription: 'Assignments are removed from emails. Nothing changes at the provider. First change any rules that use this item.',
+    empty: 'No folders or labels yet. Create one for your emails.',
+    localOnly: 'Folders and labels apply across accounts only in liam-e. A folder removes an email from the inbox; labels only mark it.',
+    loading: 'Loading …', error: 'The change couldn’t be completed. Try again.',
+    filters: 'Folders and labels', inbox: 'Inbox', file: 'File', clearFolder: 'Remove from folder',
+    addLabel: name => `Add label ${name}`, removeLabel: name => `Remove label ${name}`,
+    done: 'Filing saved.', selectMail: 'Select an email first.',
+    ruleName: 'Rule name', account: 'Account', allAccounts: 'All accounts', sender: 'Sender address', domain: 'Sender domain', subject: 'Subject contains', recipient: 'Recipient address',
+    none: 'None', markRead: 'Mark as read', markUnread: 'Mark as unread', archive: 'Archive at provider',
+    active: 'Rule active', priority: 'Order', addRule: 'Add rule', editRule: 'Edit rule', deleteRule: 'Delete rule',
+    ruleEmpty: 'No rules yet. Create a rule for new emails.', ruleDelay: 'Rules run after fetching mail. A sleeping Studio instance delays them until the next fetch.',
+    preview: 'Preview', matches: n => plural(n, { one: '# matching email', other: '# matching emails' }), apply: 'Apply to existing emails', applyTitle: 'Apply rule to existing emails?',
+    applyDescription: 'The rule applies to matching inbox emails. Provider actions run only when the account supports them.',
+    outcomes: 'Recent runs', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
+    ruleConfirm: 'Create rule?', filingConfirm: 'File emails?', ruleDone: 'Rule created.', filingDone: 'Emails filed.',
+  },
   preferences: {
     title: 'Preferences', empty: 'You haven’t saved any preferences yet. Choose how liam-e should write for you.',
     add: 'Add a preference', edit: 'Edit', pause: 'Pause', activate: 'Activate', remove: 'Delete',

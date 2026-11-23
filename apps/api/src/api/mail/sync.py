@@ -191,10 +191,17 @@ async def _apply_changes(account, changes, session, verified, native_moves):
     imap_moves = {}
     if changes.full_rebuild:
         retained = changes.confirmed_inbox | moved if label_folders else {uid for uid, (_, present) in native_moves.items() if graph and present}
+        # Keep only IDs proven to identify the same delivery across this rebuild.
+        candidates = {row["provider_uid"] for row in changes.upserts}
+        if (not connector and account.provider in (providers.GOOGLE, providers.MICROSOFT)) or (connector and verified):
+            retained.update(candidates)
+        elif imap_validity:
+            retained.update(await message_access.rebuild_imap_uids(session, account_id, candidates, imap_validity))
         if imap_validity and known:
             imap_moves = await message_access.imap_inbox_moves_in_generation(session, account_id, imap_validity)
             retained.update(imap_moves)
         await message_access.delete_folder(account_id, "INBOX", session=session, exclude_uids=retained)
+        known = {uid: local_id for uid, local_id in known.items() if uid in retained}
     for row in changes.imap_new_hidden:
         # A restore can publish this very delivery before the first page in its new generation.
         uid = row["provider_uid"].removeprefix(f"{imap_validity}:")
@@ -250,6 +257,7 @@ async def _apply_changes(account, changes, session, verified, native_moves):
             if connector:
                 updates["connector_labels"] = True
             await message_access.set_state(known[uid], **updates, session=session)
+    await mail_job.queue_mail_rules(session, account_id, new_ids)
     return new_ids, invalidated
 
 

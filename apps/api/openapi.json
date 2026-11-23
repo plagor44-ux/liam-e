@@ -357,6 +357,26 @@
         "title": "AccountsResult",
         "type": "object"
       },
+      "ApplyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_apply": {
+            "default": false,
+            "title": "Confirm Apply",
+            "type": "boolean"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "ApplyIn",
+        "type": "object"
+      },
       "AttachmentOut": {
         "properties": {
           "content_type": {
@@ -2142,6 +2162,31 @@
         "title": "DependencyStatus",
         "type": "object"
       },
+      "DestinationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "folder",
+              "label"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "DestinationIn",
+        "type": "object"
+      },
       "DeviceRecordingOut": {
         "properties": {
           "request_id": {
@@ -2604,6 +2649,90 @@
           "format_issues"
         ],
         "title": "FeedPreviewOut",
+        "type": "object"
+      },
+      "FilingCommand": {
+        "properties": {
+          "add_labels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Add Labels",
+            "type": "array"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "remove_labels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Remove Labels",
+            "type": "array"
+          },
+          "set_folder": {
+            "default": true,
+            "title": "Set Folder",
+            "type": "boolean"
+          }
+        },
+        "title": "FilingCommand",
+        "type": "object"
+      },
+      "FilingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "add_labels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Add Labels",
+            "type": "array"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Message Ids",
+            "type": "array"
+          },
+          "remove_labels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Remove Labels",
+            "type": "array"
+          }
+        },
+        "required": [
+          "message_ids"
+        ],
+        "title": "FilingIn",
         "type": "object"
       },
       "GoogleCalendarOut": {
@@ -3209,6 +3338,33 @@
         "title": "MailActionCapabilities",
         "type": "object"
       },
+      "MailFolder": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "MailFolder",
+        "type": "object"
+      },
       "MailRefOut": {
         "properties": {
           "account_id": {
@@ -3276,6 +3432,168 @@
           "is_flagged"
         ],
         "title": "MailRefOut",
+        "type": "object"
+      },
+      "MailRule": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "archive": {
+            "default": false,
+            "title": "Archive",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Id"
+          },
+          "mark_read": {
+            "default": false,
+            "title": "Mark Read",
+            "type": "boolean"
+          },
+          "mark_unread": {
+            "default": false,
+            "title": "Mark Unread",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "default": 0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "recipient": {
+            "default": "",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "sender_address": {
+            "default": "",
+            "title": "Sender Address",
+            "type": "string"
+          },
+          "sender_domain": {
+            "default": "",
+            "title": "Sender Domain",
+            "type": "string"
+          },
+          "subject_contains": {
+            "default": "",
+            "title": "Subject Contains",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "MailRule",
+        "type": "object"
+      },
+      "MailRuleRun": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "provider_results_json": {
+            "default": "{}",
+            "title": "Provider Results Json",
+            "type": "string"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "integer"
+          },
+          "status": {
+            "default": "queued",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "rule_version",
+          "message_id",
+          "account_id"
+        ],
+        "title": "MailRuleRun",
         "type": "object"
       },
       "MailSummaryOut": {
@@ -3419,6 +3737,24 @@
           "account_id": {
             "title": "Account Id",
             "type": "string"
+          },
+          "app_folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Folder Id"
+          },
+          "app_label_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "App Label Ids",
+            "type": "array"
           },
           "attachments": {
             "items": {
@@ -3661,6 +3997,24 @@
           "account_id": {
             "title": "Account Id",
             "type": "string"
+          },
+          "app_folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Folder Id"
+          },
+          "app_label_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "App Label Ids",
+            "type": "array"
           },
           "color_index": {
             "title": "Color Index",
@@ -4457,6 +4811,16 @@
               }
             ]
           },
+          "filing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilingCommand"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "irreversible": {
             "default": false,
             "title": "Irreversible",
@@ -4478,7 +4842,9 @@
               "unsubscribe",
               "task",
               "preference",
-              "calendar"
+              "calendar",
+              "filing",
+              "rule"
             ],
             "title": "Kind",
             "type": "string"
@@ -4501,6 +4867,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ProposalResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleIn"
               },
               {
                 "type": "null"
@@ -4781,6 +5157,17 @@
             ],
             "title": "Preferences Enabled"
           },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
           "task_series_id": {
             "anyOf": [
               {
@@ -4987,6 +5374,224 @@
           "skill_only"
         ],
         "title": "RegisteredToolOut",
+        "type": "object"
+      },
+      "RenameIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RenameIn",
+        "type": "object"
+      },
+      "RuleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "archive": {
+            "default": false,
+            "title": "Archive",
+            "type": "boolean"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Id"
+          },
+          "mark_read": {
+            "default": false,
+            "title": "Mark Read",
+            "type": "boolean"
+          },
+          "mark_unread": {
+            "default": false,
+            "title": "Mark Unread",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "default": 0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "recipient": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Recipient",
+            "type": "string"
+          },
+          "sender_address": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Sender Address",
+            "type": "string"
+          },
+          "sender_domain": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Sender Domain",
+            "type": "string"
+          },
+          "subject_contains": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Subject Contains",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RuleIn",
+        "type": "object"
+      },
+      "RuleUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "archive": {
+            "default": false,
+            "title": "Archive",
+            "type": "boolean"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Id"
+          },
+          "mark_read": {
+            "default": false,
+            "title": "Mark Read",
+            "type": "boolean"
+          },
+          "mark_unread": {
+            "default": false,
+            "title": "Mark Unread",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "default": 0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "recipient": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Recipient",
+            "type": "string"
+          },
+          "sender_address": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Sender Address",
+            "type": "string"
+          },
+          "sender_domain": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Sender Domain",
+            "type": "string"
+          },
+          "subject_contains": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Subject Contains",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "expected_version"
+        ],
+        "title": "RuleUpdate",
         "type": "object"
       },
       "ScheduleOut": {
@@ -10320,6 +10925,206 @@
         "summary": "List a connector's tools"
       }
     },
+    "/api/v1/mail/folders": {
+      "get": {
+        "operationId": "mail_folders_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MailFolder"
+                  },
+                  "title": "Response Mail Folders List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Destinations"
+      },
+      "post": {
+        "operationId": "mail_folder_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DestinationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailFolder"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Destination"
+      }
+    },
+    "/api/v1/mail/folders/assign": {
+      "post": {
+        "operationId": "mail_filing_assign",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Mail Filing Assign",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assign"
+      }
+    },
+    "/api/v1/mail/folders/{destination_id}": {
+      "delete": {
+        "operationId": "mail_folder_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "destination_id",
+            "required": true,
+            "schema": {
+              "title": "Destination Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_delete",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm Delete",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Mail Folder Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Destination"
+      },
+      "patch": {
+        "operationId": "mail_folder_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "destination_id",
+            "required": true,
+            "schema": {
+              "title": "Destination Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailFolder"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Destination"
+      }
+    },
     "/api/v1/mail/messages": {
       "get": {
         "description": "List messages with filters and an opaque cursor for the next page.",
@@ -10413,6 +11218,38 @@
               ],
               "title": "Folder",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "app_folder_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "App Folder Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "app_label_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "App Label Id"
             }
           }
         ],
@@ -10707,6 +11544,301 @@
           }
         },
         "summary": "Read the original headers and source of one message"
+      }
+    },
+    "/api/v1/mail/rules": {
+      "get": {
+        "operationId": "mail_rules_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MailRule"
+                  },
+                  "title": "Response Mail Rules List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Rules"
+      },
+      "post": {
+        "operationId": "mail_rule_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailRule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Rule"
+      }
+    },
+    "/api/v1/mail/rules/preview": {
+      "post": {
+        "operationId": "mail_rules_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Mail Rules Preview",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview"
+      }
+    },
+    "/api/v1/mail/rules/{rule_id}": {
+      "delete": {
+        "operationId": "mail_rule_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "title": "Expected Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Mail Rule Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Rule"
+      },
+      "patch": {
+        "operationId": "mail_rule_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailRule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Rule"
+      }
+    },
+    "/api/v1/mail/rules/{rule_id}/apply": {
+      "post": {
+        "operationId": "mail_rule_apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Mail Rule Apply",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Rule"
+      }
+    },
+    "/api/v1/mail/rules/{rule_id}/runs": {
+      "get": {
+        "operationId": "mail_rule_runs_list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MailRuleRun"
+                  },
+                  "title": "Response Mail Rule Runs List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Runs"
       }
     },
     "/api/v1/mail/summary": {

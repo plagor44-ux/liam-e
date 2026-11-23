@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 
 from db.accessors import mail_account as account_access
 from db.accessors import mail_insight as insight_access
+from db.accessors import mail_filing as filing_access
 from db.accessors import mail_message as message_access
 from db.accessors import mail_reference_snapshot
 from db.models.mail_insight import MailInsight
@@ -45,7 +46,7 @@ def decode_cursor(cursor: str) -> tuple[datetime, str]:
         raise refuse(422, "cursor_invalid", "Diese Seite konnte nicht geladen werden. Öffne den Posteingang noch einmal.") from error
 
 
-def list_item(message: MailMessage, colors: dict[str, int], insight: MailInsight | None) -> MessageListItemOut:
+def list_item(message: MailMessage, colors: dict[str, int], insight: MailInsight | None, filing: filing_access.Filing | None = None) -> MessageListItemOut:
     return MessageListItemOut(
         id=message.id, account_id=message.account_id,
         color_index=colors.get(message.account_id, 0), subject=message.subject,
@@ -55,6 +56,8 @@ def list_item(message: MailMessage, colors: dict[str, int], insight: MailInsight
         has_attachments=message.has_attachments,
         deadline=insight.deadline if insight else None,
         needs_reply=insight.needs_reply if insight else False,
+        app_folder_id=filing.folder_id if filing else None,
+        app_label_ids=filing.label_ids if filing else [],
     )
 
 
@@ -68,6 +71,8 @@ async def list_messages(
     attachments: bool = False,
     q: str = "",
     folder: Literal["INBOX", "ARCHIVE", "TRASH"] = "INBOX",
+    app_folder_id: str | None = None,
+    app_label_id: str | None = None,
 ) -> MessagePageOut:
     """List messages with filters and an opaque cursor for the next page."""
     before = decode_cursor(cursor) if cursor else None
@@ -75,11 +80,14 @@ async def list_messages(
         folder=folder, account_ids=account_id or None, unread_only=unread,
         important_only=important, with_attachments=attachments, query=q,
         before=before, limit=limit,
+        hide_filed=folder == "INBOX" and app_folder_id is None and app_label_id is None,
+        app_folder_id=app_folder_id, app_label_id=app_label_id,
     )
     insights = await insight_access.get_for_messages([message.id for message in messages])
+    filings = await filing_access.for_messages([message.id for message in messages])
     colors = color_indexes(await account_access.list_accounts())
     return MessagePageOut(
-        items=[list_item(message, colors, insights.get(message.id)) for message in messages],
+        items=[list_item(message, colors, insights.get(message.id), filings.get(message.id)) for message in messages],
         next_cursor=encode_cursor(messages[-1]) if len(messages) == limit else None,
     )
 
@@ -119,7 +127,8 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
                 message = await message_access.get_message(message_id)
                 if message is not None:
                     insights = await insight_access.get_for_messages([message.id])
-                    result.message = list_item(message, await colors(), insights.get(message.id))
+                    filing = await filing_access.for_messages([message.id])
+                    result.message = list_item(message, await colors(), insights.get(message.id), filing.get(message.id))
             except Exception as error:
                 logger.warning("Bulk action display failed: %s", type(error).__name__)
             return result
@@ -155,7 +164,8 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
         raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
     insights = await insight_access.get_for_messages([message.id])
     colors = color_indexes(await account_access.list_accounts())
-    return MessageActionOut(action_id=action.id, message=list_item(message, colors, insights.get(message.id)))
+    filing = await filing_access.for_messages([message.id])
+    return MessageActionOut(action_id=action.id, message=list_item(message, colors, insights.get(message.id), filing.get(message.id)))
 
 
 @router.get("/{message_id}/insight", operation_id="mail_message_insight", summary="Get a concise mail insight")
@@ -210,11 +220,12 @@ async def get_message(message_id: str) -> MessageDetailOut:
     if message is None:
         raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
     insights = {} if local_reference else await insight_access.get_for_messages([message.id])
+    filing = {} if local_reference else await filing_access.for_messages([message.id])
     accounts = await account_access.list_accounts()
     colors = color_indexes(accounts)
     account = next((account for account in accounts if account.id == message.account_id), None)
     return MessageDetailOut(
-        **list_item(message, colors, insights.get(message.id)).model_dump(),
+        **list_item(message, colors, insights.get(message.id), filing.get(message.id)).model_dump(),
         to=json.loads(message.recipients_json), cc=json.loads(message.cc_json),
         body_text=message.body_text, attachments=json.loads(message.attachments_json),
         thread_id=message.thread_id, can_unsubscribe=not local_reference and bool(message.list_unsubscribe),

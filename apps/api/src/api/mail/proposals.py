@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from api.mail import action_capabilities
+from api.mail.rule_schemas import RuleIn
 from api.mail import actions, connector_write_results as write_result, netguard, newsletters, send, service, transport
 from api.errors import refuse
 from api.tasks import patch as task_patch
@@ -28,7 +29,7 @@ from api.calendar.proposals import CalendarCommand
 from api.calendar import writes as calendar_writes
 
 logger = logging.getLogger(__name__)
-ProposalKind = Literal["send", "archive", "trash", "mark_read", "unsubscribe", "task", "preference", "calendar"]
+ProposalKind = Literal["send", "archive", "trash", "mark_read", "unsubscribe", "task", "preference", "calendar", "filing", "rule"]
 
 
 class ProposalItem(BaseModel):
@@ -55,6 +56,13 @@ class SendDraft(BaseModel):
     reply_to_message_id: str | None
 
 
+class FilingCommand(BaseModel):
+    folder_id: str | None = None
+    set_folder: bool = True
+    add_labels: list[str] = Field(default_factory=list, max_length=100)
+    remove_labels: list[str] = Field(default_factory=list, max_length=100)
+
+
 class ItemProblem(BaseModel):
     id: str
     code: str
@@ -75,6 +83,7 @@ class ProposalResult(BaseModel):
     preferences_enabled: bool | None = None
     calendar_write_id: str | None = None
     calendar_status: str | None = None
+    rule_id: str | None = None
 
 
 class Proposal(BaseModel):
@@ -85,11 +94,21 @@ class Proposal(BaseModel):
     task: task_proposals.TaskProposal | None = None
     preference: preference_candidates.PreferenceReference | None = None
     calendar: CalendarCommand | None = None
+    filing: FilingCommand | None = None
+    rule: RuleIn | None = None
     irreversible: bool = False
     result: ProposalResult | None = None
 
     @model_validator(mode="after")
     def validate_kind(self):
+        if (self.kind == "filing") != (self.filing is not None):
+            raise ValueError("filing requires one typed command")
+        if (self.kind == "rule") != (self.rule is not None):
+            raise ValueError("rule requires one typed command")
+        if self.kind in {"filing", "rule"} and (self.draft or self.task or self.preference or self.calendar):
+            raise ValueError("filing and rule commands cannot contain other actions")
+        if self.kind == "rule" and self.items:
+            raise ValueError("rule commands do not select mail items")
         self.irreversible = self.kind in {"send", "unsubscribe"} or (self.calendar is not None and self.calendar.action == "delete")
         if (self.kind == "calendar") != (self.calendar is not None):
             raise ValueError("calendar requires one typed command")
@@ -315,6 +334,69 @@ async def _confirm_task(message: ChatMessage, edit: task_proposals.TaskCreateCom
         return updated
 
 
+async def _confirm_filing(message: ChatMessage, selected_ids: list[str]) -> ChatMessage:
+    from db.accessors import mail_filing
+
+    async with get_session_maker()() as session:
+        claimed = await message_access.claim_proposal_in_session(session, message.id)
+        if claimed is None:
+            current = await message_access.get_message(message.id)
+            if current and current.proposal_status == "pending" and (not current.context_id or not await context_access.is_live(current.context_id)):
+                raise ProposalContextRevokedError
+            raise ProposalStateError
+        proposal = proposal_view(claimed)
+        assert proposal is not None and proposal.filing is not None
+        selected = set(selected_ids)
+        if not selected or not selected.issubset({item.id for item in proposal.items}):
+            raise ProposalSelectionError("selection_invalid")
+        context = await context_access.get_context_in_session(session, claimed.context_id) if claimed.context_id else None
+        if context is None or context.revoked or context.conversation_id != claimed.conversation_id:
+            raise ProposalContextRevokedError
+        permitted = json.loads(context.account_scope_json)["account_ids"]
+        command = proposal.filing
+        kwargs = {"add_labels": command.add_labels, "remove_labels": command.remove_labels}
+        if command.set_folder:
+            kwargs["folder_id"] = command.folder_id
+        try:
+            await mail_filing.assign(list(selected), session=session, account_ids=permitted, **kwargs)
+        except LookupError:
+            raise ProposalContextRevokedError from None
+        except ValueError:
+            raise refuse(409, "folder_not_found", "Der Ordner oder das Label ist nicht mehr verfügbar.") from None
+        proposal.result = ProposalResult(done=len(selected))
+        updated = await message_access.finish_proposal_in_session(session, claimed.id, proposal_json=proposal.model_dump_json())
+        await session.commit()
+        return updated
+
+
+async def _confirm_rule(message: ChatMessage) -> ChatMessage:
+    from db.accessors import mail_rule
+
+    async with get_session_maker()() as session:
+        claimed = await message_access.claim_proposal_in_session(session, message.id)
+        if claimed is None:
+            current = await message_access.get_message(message.id)
+            if current and current.proposal_status == "pending" and (not current.context_id or not await context_access.is_live(current.context_id)):
+                raise ProposalContextRevokedError
+            raise ProposalStateError
+        proposal = proposal_view(claimed)
+        assert proposal is not None and proposal.rule is not None
+        context = await context_access.get_context_in_session(session, claimed.context_id) if claimed.context_id else None
+        if context is None or context.revoked or context.conversation_id != claimed.conversation_id:
+            raise ProposalContextRevokedError
+        permitted = json.loads(context.account_scope_json)["account_ids"]
+        if not await mail_rule.scope_allows_rule(session, proposal.rule.account_id, permitted):
+            raise ProposalContextRevokedError
+        try:
+            rule = await mail_rule.create(session=session, **proposal.rule.model_dump())
+        except ValueError:
+            raise refuse(409, "rule_invalid", "Die Regel kann nicht mehr erstellt werden.") from None
+        proposal.result = ProposalResult(done=1, rule_id=rule.id)
+        updated = await message_access.finish_proposal_in_session(session, claimed.id, proposal_json=proposal.model_dump_json())
+        await session.commit()
+        return updated
+
+
 async def _store_calendar(message: ChatMessage, proposal: Proposal, outcome: calendar_writes.WriteOutcome) -> ChatMessage:
     code = outcome.error_code or ("calendar_write_not_applied" if outcome.status == "not_applied" else None)
     proposal.result = ProposalResult(done=int(outcome.status == "done"), calendar_write_id=outcome.write_id,
@@ -428,6 +510,14 @@ async def confirm(proposal_id: str, *, selected_ids: list[str], body: str | None
         if selected_ids or body is not None:
             raise ProposalSelectionError('selection_invalid')
         return await _confirm_task(message, task_edit)
+    if proposal.kind == 'filing':
+        if body is not None or task_edit is not None:
+            raise ProposalSelectionError('selection_invalid')
+        return await _confirm_filing(message, selected_ids)
+    if proposal.kind == 'rule':
+        if selected_ids or body is not None or task_edit is not None:
+            raise ProposalSelectionError('selection_invalid')
+        return await _confirm_rule(message)
     if task_edit is not None:
         raise ProposalSelectionError('selection_invalid')
     selected = set(selected_ids)

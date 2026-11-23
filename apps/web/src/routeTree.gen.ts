@@ -27,6 +27,7 @@ import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks/$taskId'
 import { Route as AppSettingsCalendarIndexRouteImport } from './routes/_app/settings/calendar/index'
 import { Route as AppSettingsChatIndexRouteImport } from './routes/_app/settings/chat/index'
 import { Route as AppSettingsControlsIndexRouteImport } from './routes/_app/settings/controls/index'
+import { Route as AppSettingsFoldersIndexRouteImport } from './routes/_app/settings/folders/index'
 import { Route as AppSettingsLanguageIndexRouteImport } from './routes/_app/settings/language/index'
 import { Route as AppSettingsPreferencesIndexRouteImport } from './routes/_app/settings/preferences/index'
 import { Route as AppSettingsPreferencesPreferenceIdRouteImport } from './routes/_app/settings/preferences/$preferenceId'
@@ -34,6 +35,7 @@ import { Route as AppSettingsPreferencesNewRouteImport } from './routes/_app/set
 import { Route as AppSettingsPromptsIndexRouteImport } from './routes/_app/settings/prompts/index'
 import { Route as AppSettingsPromptsPromptIdRouteImport } from './routes/_app/settings/prompts/$promptId'
 import { Route as AppSettingsPromptsNewRouteImport } from './routes/_app/settings/prompts/new'
+import { Route as AppSettingsRulesIndexRouteImport } from './routes/_app/settings/rules/index'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -126,6 +128,11 @@ const AppSettingsControlsIndexRoute =
     path: '/controls/',
     getParentRoute: () => AppSettingsRoute,
   } as any)
+const AppSettingsFoldersIndexRoute = AppSettingsFoldersIndexRouteImport.update({
+  id: '/folders/',
+  path: '/folders/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsLanguageIndexRoute =
   AppSettingsLanguageIndexRouteImport.update({
     id: '/language/',
@@ -166,6 +173,11 @@ const AppSettingsPromptsNewRoute = AppSettingsPromptsNewRouteImport.update({
   path: '/prompts/new',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsRulesIndexRoute = AppSettingsRulesIndexRouteImport.update({
+  id: '/rules/',
+  path: '/rules/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -189,9 +201,11 @@ export interface FileRoutesByFullPath {
   '/settings/calendar/': typeof AppSettingsCalendarIndexRoute
   '/settings/chat/': typeof AppSettingsChatIndexRoute
   '/settings/controls/': typeof AppSettingsControlsIndexRoute
+  '/settings/folders/': typeof AppSettingsFoldersIndexRoute
   '/settings/language/': typeof AppSettingsLanguageIndexRoute
   '/settings/preferences/': typeof AppSettingsPreferencesIndexRoute
   '/settings/prompts/': typeof AppSettingsPromptsIndexRoute
+  '/settings/rules/': typeof AppSettingsRulesIndexRoute
 }
 export interface FileRoutesByTo {
   '/audio-device-test': typeof AudioDeviceTestRoute
@@ -212,9 +226,11 @@ export interface FileRoutesByTo {
   '/settings/calendar': typeof AppSettingsCalendarIndexRoute
   '/settings/chat': typeof AppSettingsChatIndexRoute
   '/settings/controls': typeof AppSettingsControlsIndexRoute
+  '/settings/folders': typeof AppSettingsFoldersIndexRoute
   '/settings/language': typeof AppSettingsLanguageIndexRoute
   '/settings/preferences': typeof AppSettingsPreferencesIndexRoute
   '/settings/prompts': typeof AppSettingsPromptsIndexRoute
+  '/settings/rules': typeof AppSettingsRulesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -240,9 +256,11 @@ export interface FileRoutesById {
   '/_app/settings/calendar/': typeof AppSettingsCalendarIndexRoute
   '/_app/settings/chat/': typeof AppSettingsChatIndexRoute
   '/_app/settings/controls/': typeof AppSettingsControlsIndexRoute
+  '/_app/settings/folders/': typeof AppSettingsFoldersIndexRoute
   '/_app/settings/language/': typeof AppSettingsLanguageIndexRoute
   '/_app/settings/preferences/': typeof AppSettingsPreferencesIndexRoute
   '/_app/settings/prompts/': typeof AppSettingsPromptsIndexRoute
+  '/_app/settings/rules/': typeof AppSettingsRulesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -268,9 +286,11 @@ export interface FileRouteTypes {
     | '/settings/calendar/'
     | '/settings/chat/'
     | '/settings/controls/'
+    | '/settings/folders/'
     | '/settings/language/'
     | '/settings/preferences/'
     | '/settings/prompts/'
+    | '/settings/rules/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/audio-device-test'
@@ -291,9 +311,11 @@ export interface FileRouteTypes {
     | '/settings/calendar'
     | '/settings/chat'
     | '/settings/controls'
+    | '/settings/folders'
     | '/settings/language'
     | '/settings/preferences'
     | '/settings/prompts'
+    | '/settings/rules'
   id:
     | '__root__'
     | '/_app'
@@ -318,9 +340,11 @@ export interface FileRouteTypes {
     | '/_app/settings/calendar/'
     | '/_app/settings/chat/'
     | '/_app/settings/controls/'
+    | '/_app/settings/folders/'
     | '/_app/settings/language/'
     | '/_app/settings/preferences/'
     | '/_app/settings/prompts/'
+    | '/_app/settings/rules/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -456,6 +480,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsControlsIndexRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/folders/': {
+      id: '/_app/settings/folders/'
+      path: '/folders'
+      fullPath: '/settings/folders/'
+      preLoaderRoute: typeof AppSettingsFoldersIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/language/': {
       id: '/_app/settings/language/'
       path: '/language'
@@ -505,6 +536,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPromptsNewRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/rules/': {
+      id: '/_app/settings/rules/'
+      path: '/rules'
+      fullPath: '/settings/rules/'
+      preLoaderRoute: typeof AppSettingsRulesIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
   }
 }
 
@@ -544,9 +582,11 @@ interface AppSettingsRouteChildren {
   AppSettingsCalendarIndexRoute: typeof AppSettingsCalendarIndexRoute
   AppSettingsChatIndexRoute: typeof AppSettingsChatIndexRoute
   AppSettingsControlsIndexRoute: typeof AppSettingsControlsIndexRoute
+  AppSettingsFoldersIndexRoute: typeof AppSettingsFoldersIndexRoute
   AppSettingsLanguageIndexRoute: typeof AppSettingsLanguageIndexRoute
   AppSettingsPreferencesIndexRoute: typeof AppSettingsPreferencesIndexRoute
   AppSettingsPromptsIndexRoute: typeof AppSettingsPromptsIndexRoute
+  AppSettingsRulesIndexRoute: typeof AppSettingsRulesIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
@@ -559,9 +599,11 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsCalendarIndexRoute: AppSettingsCalendarIndexRoute,
   AppSettingsChatIndexRoute: AppSettingsChatIndexRoute,
   AppSettingsControlsIndexRoute: AppSettingsControlsIndexRoute,
+  AppSettingsFoldersIndexRoute: AppSettingsFoldersIndexRoute,
   AppSettingsLanguageIndexRoute: AppSettingsLanguageIndexRoute,
   AppSettingsPreferencesIndexRoute: AppSettingsPreferencesIndexRoute,
   AppSettingsPromptsIndexRoute: AppSettingsPromptsIndexRoute,
+  AppSettingsRulesIndexRoute: AppSettingsRulesIndexRoute,
 }
 
 const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(

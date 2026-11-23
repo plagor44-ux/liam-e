@@ -648,3 +648,32 @@ test('a settled card loaded from the history does not take the focus', async () 
   await screen.findByText('1 Newsletter abbestellt.')
   expect(document.activeElement).toBe(document.body)
 })
+
+test('app filing card names its destination and changes nothing until confirmed', async () => {
+  const initial = message()
+  initial.proposal = { kind: 'filing', reason: 'Einordnen', items: [{ id: 'm', kind: 'mail', title: 'Beispiel', subtitle: 'Anna' }], filing: { folder_id: 'f', set_folder: true, add_labels: [], remove_labels: [] } }
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', kind: 'folder', name: 'Projects' }] } as never)
+  const confirm = spyOn(sdk, 'chatProposalConfirm').mockImplementation((async () => ({ data: { ...initial, proposal_status: 'done', proposal: { ...initial.proposal!, result: { done: 1 } } } })) as never)
+  setup(initial)
+  expect(await screen.findByText(/Ordner: Projects/)).toBeTruthy()
+  expect(confirm).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Zuordnen' }))
+  await waitFor(() => expect(confirm).toHaveBeenCalledWith({ path: { proposal_id: 'p' }, body: { selected_ids: ['m'] }, throwOnError: true }))
+  expect(await screen.findByText('Mails zugeordnet.')).toBeTruthy()
+})
+
+test('rule card shows scope and actions before confirmation', async () => {
+  const initial = message()
+  initial.proposal = { kind: 'rule', reason: 'Automatisch', items: [], rule: { name: 'Projects', account_id: 'a', sender_domain: 'example.test', folder_id: 'f', mark_read: true } }
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', kind: 'folder', name: 'Projects folder' }] } as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [{ id: 'a', email_address: 'a@example.test', display_name: 'Work' }] } as never)
+  const confirm = spyOn(sdk, 'chatProposalConfirm').mockImplementation((async () => ({ data: { ...initial, proposal_status: 'done', proposal: { ...initial.proposal!, result: { done: 1 } } } })) as never)
+  setup(initial)
+  expect(await screen.findByText('Ordner: Projects folder')).toBeTruthy()
+  expect(screen.getByText('Konto: Work')).toBeTruthy()
+  expect(screen.getByText('Als gelesen markieren')).toBeTruthy()
+  expect(confirm).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Regel anlegen' }))
+  await waitFor(() => expect(confirm).toHaveBeenCalledWith({ path: { proposal_id: 'p' }, body: { selected_ids: [] }, throwOnError: true }))
+  expect(await screen.findByText('Regel erstellt.')).toBeTruthy()
+})

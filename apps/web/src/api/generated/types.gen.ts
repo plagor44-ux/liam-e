@@ -227,6 +227,20 @@ export type AccountsResult = {
 };
 
 /**
+ * ApplyIn
+ */
+export type ApplyIn = {
+    /**
+     * Confirm Apply
+     */
+    confirm_apply?: boolean;
+    /**
+     * Expected Version
+     */
+    expected_version: number;
+};
+
+/**
  * AttachmentOut
  */
 export type AttachmentOut = {
@@ -1148,6 +1162,20 @@ export type DependencyStatus = {
 };
 
 /**
+ * DestinationIn
+ */
+export type DestinationIn = {
+    /**
+     * Kind
+     */
+    kind: 'folder' | 'label';
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * DeviceRecordingOut
  */
 export type DeviceRecordingOut = {
@@ -1390,6 +1418,50 @@ export type FeedPreviewOut = {
      * Validation Id
      */
     validation_id: string;
+};
+
+/**
+ * FilingCommand
+ */
+export type FilingCommand = {
+    /**
+     * Add Labels
+     */
+    add_labels?: Array<string>;
+    /**
+     * Folder Id
+     */
+    folder_id?: string | null;
+    /**
+     * Remove Labels
+     */
+    remove_labels?: Array<string>;
+    /**
+     * Set Folder
+     */
+    set_folder?: boolean;
+};
+
+/**
+ * FilingIn
+ */
+export type FilingIn = {
+    /**
+     * Add Labels
+     */
+    add_labels?: Array<string>;
+    /**
+     * Folder Id
+     */
+    folder_id?: string | null;
+    /**
+     * Message Ids
+     */
+    message_ids: Array<string>;
+    /**
+     * Remove Labels
+     */
+    remove_labels?: Array<string>;
 };
 
 /**
@@ -1749,6 +1821,28 @@ export type MailActionCapabilities = {
 };
 
 /**
+ * MailFolder
+ */
+export type MailFolder = {
+    /**
+     * Created At
+     */
+    created_at?: string;
+    /**
+     * Id
+     */
+    id?: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * MailRefOut
  */
 export type MailRefOut = {
@@ -1788,6 +1882,122 @@ export type MailRefOut = {
      * Subject
      */
     subject: string;
+};
+
+/**
+ * MailRule
+ */
+export type MailRule = {
+    /**
+     * Account Id
+     */
+    account_id?: string | null;
+    /**
+     * Archive
+     */
+    archive?: boolean;
+    /**
+     * Created At
+     */
+    created_at?: string;
+    /**
+     * Folder Id
+     */
+    folder_id?: string | null;
+    /**
+     * Id
+     */
+    id?: string;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
+    /**
+     * Label Id
+     */
+    label_id?: string | null;
+    /**
+     * Mark Read
+     */
+    mark_read?: boolean;
+    /**
+     * Mark Unread
+     */
+    mark_unread?: boolean;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Position
+     */
+    position?: number;
+    /**
+     * Recipient
+     */
+    recipient?: string;
+    /**
+     * Sender Address
+     */
+    sender_address?: string;
+    /**
+     * Sender Domain
+     */
+    sender_domain?: string;
+    /**
+     * Subject Contains
+     */
+    subject_contains?: string;
+    /**
+     * Updated At
+     */
+    updated_at?: string;
+    /**
+     * Version
+     */
+    version?: number;
+};
+
+/**
+ * MailRuleRun
+ */
+export type MailRuleRun = {
+    /**
+     * Account Id
+     */
+    account_id: string;
+    /**
+     * Created At
+     */
+    created_at?: string;
+    /**
+     * Id
+     */
+    id?: string;
+    /**
+     * Message Id
+     */
+    message_id: string;
+    /**
+     * Provider Results Json
+     */
+    provider_results_json?: string;
+    /**
+     * Rule Id
+     */
+    rule_id: string;
+    /**
+     * Rule Version
+     */
+    rule_version: number;
+    /**
+     * Status
+     */
+    status?: string;
+    /**
+     * Updated At
+     */
+    updated_at?: string;
 };
 
 /**
@@ -1873,6 +2083,14 @@ export type MessageDetailOut = {
      * Account Id
      */
     account_id: string;
+    /**
+     * App Folder Id
+     */
+    app_folder_id?: string | null;
+    /**
+     * App Label Ids
+     */
+    app_label_ids?: Array<string>;
     /**
      * Attachments
      */
@@ -2033,6 +2251,14 @@ export type MessageListItemOut = {
      * Account Id
      */
     account_id: string;
+    /**
+     * App Folder Id
+     */
+    app_folder_id?: string | null;
+    /**
+     * App Label Ids
+     */
+    app_label_ids?: Array<string>;
     /**
      * Color Index
      */
@@ -2495,6 +2721,7 @@ export type PromptUpdate = {
 export type Proposal = {
     calendar?: CalendarCommand | null;
     draft?: SendDraft | null;
+    filing?: FilingCommand | null;
     /**
      * Irreversible
      */
@@ -2506,13 +2733,14 @@ export type Proposal = {
     /**
      * Kind
      */
-    kind: 'send' | 'archive' | 'trash' | 'mark_read' | 'unsubscribe' | 'task' | 'preference' | 'calendar';
+    kind: 'send' | 'archive' | 'trash' | 'mark_read' | 'unsubscribe' | 'task' | 'preference' | 'calendar' | 'filing' | 'rule';
     preference?: PreferenceReference | null;
     /**
      * Reason
      */
     reason: string;
     result?: ProposalResult | null;
+    rule?: RuleIn | null;
     /**
      * Task
      */
@@ -2632,6 +2860,10 @@ export type ProposalResult = {
      * Preferences Enabled
      */
     preferences_enabled?: boolean | null;
+    /**
+     * Rule Id
+     */
+    rule_id?: string | null;
     /**
      * Task Series Id
      */
@@ -2762,6 +2994,136 @@ export type RegisteredToolOut = {
      * Skill Only
      */
     skill_only: boolean;
+};
+
+/**
+ * RenameIn
+ */
+export type RenameIn = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * RuleIn
+ */
+export type RuleIn = {
+    /**
+     * Account Id
+     */
+    account_id?: string | null;
+    /**
+     * Archive
+     */
+    archive?: boolean;
+    /**
+     * Folder Id
+     */
+    folder_id?: string | null;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
+    /**
+     * Label Id
+     */
+    label_id?: string | null;
+    /**
+     * Mark Read
+     */
+    mark_read?: boolean;
+    /**
+     * Mark Unread
+     */
+    mark_unread?: boolean;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Position
+     */
+    position?: number;
+    /**
+     * Recipient
+     */
+    recipient?: string;
+    /**
+     * Sender Address
+     */
+    sender_address?: string;
+    /**
+     * Sender Domain
+     */
+    sender_domain?: string;
+    /**
+     * Subject Contains
+     */
+    subject_contains?: string;
+};
+
+/**
+ * RuleUpdate
+ */
+export type RuleUpdate = {
+    /**
+     * Account Id
+     */
+    account_id?: string | null;
+    /**
+     * Archive
+     */
+    archive?: boolean;
+    /**
+     * Expected Version
+     */
+    expected_version: number;
+    /**
+     * Folder Id
+     */
+    folder_id?: string | null;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
+    /**
+     * Label Id
+     */
+    label_id?: string | null;
+    /**
+     * Mark Read
+     */
+    mark_read?: boolean;
+    /**
+     * Mark Unread
+     */
+    mark_unread?: boolean;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Position
+     */
+    position?: number;
+    /**
+     * Recipient
+     */
+    recipient?: string;
+    /**
+     * Sender Address
+     */
+    sender_address?: string;
+    /**
+     * Sender Domain
+     */
+    sender_domain?: string;
+    /**
+     * Subject Contains
+     */
+    subject_contains?: string;
 };
 
 /**
@@ -5871,6 +6233,147 @@ export type MailConnectorToolsListResponses = {
 
 export type MailConnectorToolsListResponse = MailConnectorToolsListResponses[keyof MailConnectorToolsListResponses];
 
+export type MailFoldersListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/folders';
+};
+
+export type MailFoldersListResponses = {
+    /**
+     * Response Mail Folders List
+     *
+     * Successful Response
+     */
+    200: Array<MailFolder>;
+};
+
+export type MailFoldersListResponse = MailFoldersListResponses[keyof MailFoldersListResponses];
+
+export type MailFolderCreateData = {
+    body: DestinationIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/folders';
+};
+
+export type MailFolderCreateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailFolderCreateError = MailFolderCreateErrors[keyof MailFolderCreateErrors];
+
+export type MailFolderCreateResponses = {
+    /**
+     * Successful Response
+     */
+    200: MailFolder;
+};
+
+export type MailFolderCreateResponse = MailFolderCreateResponses[keyof MailFolderCreateResponses];
+
+export type MailFilingAssignData = {
+    body: FilingIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/folders/assign';
+};
+
+export type MailFilingAssignErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailFilingAssignError = MailFilingAssignErrors[keyof MailFilingAssignErrors];
+
+export type MailFilingAssignResponses = {
+    /**
+     * Response Mail Filing Assign
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: boolean;
+    };
+};
+
+export type MailFilingAssignResponse = MailFilingAssignResponses[keyof MailFilingAssignResponses];
+
+export type MailFolderDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Destination Id
+         */
+        destination_id: string;
+    };
+    query?: {
+        /**
+         * Confirm Delete
+         */
+        confirm_delete?: boolean;
+    };
+    url: '/api/v1/mail/folders/{destination_id}';
+};
+
+export type MailFolderDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailFolderDeleteError = MailFolderDeleteErrors[keyof MailFolderDeleteErrors];
+
+export type MailFolderDeleteResponses = {
+    /**
+     * Response Mail Folder Delete
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: boolean;
+    };
+};
+
+export type MailFolderDeleteResponse = MailFolderDeleteResponses[keyof MailFolderDeleteResponses];
+
+export type MailFolderUpdateData = {
+    body: RenameIn;
+    path: {
+        /**
+         * Destination Id
+         */
+        destination_id: string;
+    };
+    query?: never;
+    url: '/api/v1/mail/folders/{destination_id}';
+};
+
+export type MailFolderUpdateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailFolderUpdateError = MailFolderUpdateErrors[keyof MailFolderUpdateErrors];
+
+export type MailFolderUpdateResponses = {
+    /**
+     * Successful Response
+     */
+    200: MailFolder;
+};
+
+export type MailFolderUpdateResponse = MailFolderUpdateResponses[keyof MailFolderUpdateResponses];
+
 export type MailMessagesListData = {
     body?: never;
     path?: never;
@@ -5907,6 +6410,14 @@ export type MailMessagesListData = {
          * Folder
          */
         folder?: 'INBOX' | 'ARCHIVE' | 'TRASH';
+        /**
+         * App Folder Id
+         */
+        app_folder_id?: string | null;
+        /**
+         * App Label Id
+         */
+        app_label_id?: string | null;
     };
     url: '/api/v1/mail/messages';
 };
@@ -6108,6 +6619,213 @@ export type MailMessageOriginalResponses = {
 };
 
 export type MailMessageOriginalResponse = MailMessageOriginalResponses[keyof MailMessageOriginalResponses];
+
+export type MailRulesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/rules';
+};
+
+export type MailRulesListResponses = {
+    /**
+     * Response Mail Rules List
+     *
+     * Successful Response
+     */
+    200: Array<MailRule>;
+};
+
+export type MailRulesListResponse = MailRulesListResponses[keyof MailRulesListResponses];
+
+export type MailRuleCreateData = {
+    body: RuleIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/rules';
+};
+
+export type MailRuleCreateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailRuleCreateError = MailRuleCreateErrors[keyof MailRuleCreateErrors];
+
+export type MailRuleCreateResponses = {
+    /**
+     * Successful Response
+     */
+    200: MailRule;
+};
+
+export type MailRuleCreateResponse = MailRuleCreateResponses[keyof MailRuleCreateResponses];
+
+export type MailRulesPreviewData = {
+    body: RuleIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mail/rules/preview';
+};
+
+export type MailRulesPreviewErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailRulesPreviewError = MailRulesPreviewErrors[keyof MailRulesPreviewErrors];
+
+export type MailRulesPreviewResponses = {
+    /**
+     * Response Mail Rules Preview
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: number;
+    };
+};
+
+export type MailRulesPreviewResponse = MailRulesPreviewResponses[keyof MailRulesPreviewResponses];
+
+export type MailRuleDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Rule Id
+         */
+        rule_id: string;
+    };
+    query: {
+        /**
+         * Expected Version
+         */
+        expected_version: number;
+    };
+    url: '/api/v1/mail/rules/{rule_id}';
+};
+
+export type MailRuleDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailRuleDeleteError = MailRuleDeleteErrors[keyof MailRuleDeleteErrors];
+
+export type MailRuleDeleteResponses = {
+    /**
+     * Response Mail Rule Delete
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: boolean;
+    };
+};
+
+export type MailRuleDeleteResponse = MailRuleDeleteResponses[keyof MailRuleDeleteResponses];
+
+export type MailRuleUpdateData = {
+    body: RuleUpdate;
+    path: {
+        /**
+         * Rule Id
+         */
+        rule_id: string;
+    };
+    query?: never;
+    url: '/api/v1/mail/rules/{rule_id}';
+};
+
+export type MailRuleUpdateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailRuleUpdateError = MailRuleUpdateErrors[keyof MailRuleUpdateErrors];
+
+export type MailRuleUpdateResponses = {
+    /**
+     * Successful Response
+     */
+    200: MailRule;
+};
+
+export type MailRuleUpdateResponse = MailRuleUpdateResponses[keyof MailRuleUpdateResponses];
+
+export type MailRuleApplyData = {
+    body: ApplyIn;
+    path: {
+        /**
+         * Rule Id
+         */
+        rule_id: string;
+    };
+    query?: never;
+    url: '/api/v1/mail/rules/{rule_id}/apply';
+};
+
+export type MailRuleApplyErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailRuleApplyError = MailRuleApplyErrors[keyof MailRuleApplyErrors];
+
+export type MailRuleApplyResponses = {
+    /**
+     * Response Mail Rule Apply
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: number;
+    };
+};
+
+export type MailRuleApplyResponse = MailRuleApplyResponses[keyof MailRuleApplyResponses];
+
+export type MailRuleRunsListData = {
+    body?: never;
+    path: {
+        /**
+         * Rule Id
+         */
+        rule_id: string;
+    };
+    query?: never;
+    url: '/api/v1/mail/rules/{rule_id}/runs';
+};
+
+export type MailRuleRunsListErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailRuleRunsListError = MailRuleRunsListErrors[keyof MailRuleRunsListErrors];
+
+export type MailRuleRunsListResponses = {
+    /**
+     * Response Mail Rule Runs List
+     *
+     * Successful Response
+     */
+    200: Array<MailRuleRun>;
+};
+
+export type MailRuleRunsListResponse = MailRuleRunsListResponses[keyof MailRuleRunsListResponses];
 
 export type MailSummaryData = {
     body?: never;
