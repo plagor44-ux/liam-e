@@ -38,6 +38,7 @@
     --scrim: rgba(0, 0, 0, .6);
     --surface-ground: #0d1311;
     --surface: #161e1c;
+    --surface-mail-document: #161e1c;
     --surface-soft: #1d2725;
     --surface-overlay: #222d2b;
     --line: #2a3633;
@@ -72,6 +73,7 @@
   --scrim: rgba(0, 0, 0, .6);
   --surface-ground: #0d1311;
   --surface: #161e1c;
+  --surface-mail-document: #161e1c;
   --surface-soft: #1d2725;
   --surface-overlay: #222d2b;
   --line: #2a3633;

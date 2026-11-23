@@ -50,3 +50,21 @@ test('dark styles repair low contrast and reject unsupported CSS', () => {
   expect(result).toContain('background-color:#777777 !important;color:#000000 !important')
   expect(result).not.toContain('evil.test')
 })
+
+test('unterminated and nested CSS cannot cause backtracking or introduce rules', () => {
+  const raw = `<style>@media (prefers-color-scheme: dark) { ${'a{} '.repeat(5000)}</style>`
+  const start = performance.now()
+  const result = prepareMailDocument(raw, false, 'Unavailable', true).document
+  expect(performance.now() - start).toBeLessThan(1000)
+  expect(result).not.toContain('a{}')
+  const fake = '<!-- <style>@media (prefers-color-scheme:dark){.bad{color:red}}</style> --><p>Test</p>'
+  expect(prepareMailDocument(fake, false, 'Unavailable', true).document).not.toContain('.bad{')
+  const attr = '<p title="<style>@media (prefers-color-scheme:dark){.bad{color:red}}</style>">Test</p>'
+  expect(prepareMailDocument(attr, false, 'Unavailable', true).document).not.toContain('.bad{color:red !important}')
+})
+
+test('links remain legible on a preserved mid-dark background', () => {
+  const html = '<div style="background-color:#666666"><a href="https://example.test">Link</a></div>'
+  const doc = prepareMailDocument(html, false, 'Unavailable', true).document
+  expect(doc).toContain('color: rgb(232, 239, 236)')
+})

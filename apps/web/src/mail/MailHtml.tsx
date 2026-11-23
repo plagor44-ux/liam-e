@@ -13,7 +13,7 @@ export function MailHtml({ id, text, localOnly }: { id: string; text: string; lo
   const [images, setImages] = useState(false)
   const [original, setOriginal] = useState(false)
   const theme = useTheme()
-  const [systemDark, setSystemDark] = useState(false)
+  const [systemDark, setSystemDark] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const update = () => setSystemDark(media.matches)

@@ -4,6 +4,7 @@ type RGB = [number, number, number]
 const darkSurface: RGB = [34, 45, 43]
 const darkInk: RGB = [232, 239, 236]
 const lightInk: RGB = [27, 36, 34]
+const linkInk: RGB = [122, 211, 195]
 
 function rgb(value: string): RGB | null {
   const names: Record<string, string> = { white: '#ffffff', black: '#000000', transparent: '', red: '#ff0000', blue: '#0000ff', gray: '#808080', grey: '#808080' }
@@ -38,19 +39,43 @@ function readableInk(background: RGB): RGB {
   return contrast(background, white) >= contrast(background, black) ? white : black
 }
 
+// Visit each character once, discarding incomplete blocks. Callers bound both input and output.
+function blocks(input: string, limit: number): Array<[string, string]> {
+  const result: Array<[string, string]> = []
+  let start = 0, open = -1, depth = 0
+  for (let i = 0; i < input.length && result.length < limit; i++) {
+    if (input[i] === '{') {
+      if (depth === 0) open = i
+      depth++
+    } else if (input[i] === '}' && depth > 0) {
+      depth--
+      if (depth === 0 && open >= 0) {
+        result.push([input.slice(start, open).trim(), input.slice(open + 1, i)])
+        start = i + 1
+      }
+    }
+  }
+  return result
+}
+
 // Only simple selectors and literal colour declarations survive; arbitrary sender CSS
 // never reaches the frame. In particular URL-bearing declarations and at-rules are dropped.
-function darkRules(raw: string): string {
+function darkRules(stylesheets: string[]): string {
   const rules: string[] = []
-  for (const style of raw.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/giu)) {
-    for (const media of style[1]!.matchAll(/@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{((?:[^{}]*\{[^{}]*\}\s*)*)\}/giu)) {
-      for (const rule of media[1]!.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
-        const selector = rule[1]!.trim()
+  for (const style of stylesheets) {
+    for (const [header, media] of blocks(style, 128)) {
+      if (!/^@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)$/iu.test(header)) continue
+      for (const [selector, body] of blocks(media, 128 - rules.length)) {
         if (!/^[a-z0-9_.*#\-,\s>]+$/iu.test(selector)) continue
-        const declarations = rule[2]!.split(';').flatMap(declaration => {
-          const match = /^\s*(color|background|background-color)\s*:\s*([^;!]+)(?:!important)?\s*$/iu.exec(declaration)
-          if (!match || !rgb(match[2]!)) return []
-          return [`${match[1]!.toLowerCase() === 'background' ? 'background-color' : match[1]!.toLowerCase()}:${match[2]!.trim()} !important`]
+        const declarations = body.split(';').flatMap(declaration => {
+          const colon = declaration.indexOf(':')
+          if (colon < 0) return []
+          const name = declaration.slice(0, colon).trim().toLowerCase()
+          if (!['color', 'background', 'background-color'].includes(name)) return []
+          let value = declaration.slice(colon + 1).trim()
+          if (value.toLowerCase().endsWith('!important')) value = value.slice(0, -10).trim()
+          if (!rgb(value)) return []
+          return [`${name === 'background' ? 'background-color' : name}:${value} !important`]
         })
         const background = declarations.find(value => value.startsWith('background-color:'))?.split(':')[1]?.replace(' !important', '')
         const foreground = declarations.find(value => value.startsWith('color:'))?.split(':')[1]?.replace(' !important', '')
@@ -83,6 +108,22 @@ function darkRules(raw: string): string {
 export function prepareMailDocument(raw: string, images: boolean, placeholder: string, dark = false): { document: string; hasRemoteImages: boolean } {
   const purifier = createDOMPurify(window)
   let hasRemoteImages = false
+  const stylesheets: string[] = []
+  let cssBudget = 50_000
+  if (dark) {
+    // The detached sanitized fragment contains no image, frame, or link elements. Extract
+    // actual style nodes, never matches from comments or attribute strings.
+    const fragment = createDOMPurify(window).sanitize(raw.slice(0, 200_000), {
+      ALLOWED_TAGS: ['style'], ALLOWED_ATTR: [], FORCE_BODY: true,
+      RETURN_DOM_FRAGMENT: true,
+    })
+    for (const node of fragment.querySelectorAll('style')) {
+      if (cssBudget <= 0 || stylesheets.length >= 32) break
+      const css = (node.textContent ?? '').slice(0, cssBudget)
+      stylesheets.push(css)
+      cssBudget -= css.length
+    }
+  }
   const backgrounds = new WeakMap<Node, RGB>()
   const foregrounds = new WeakMap<Node, RGB>()
   const styles = new Set(['color', 'background-color', 'font-weight', 'font-style', 'font-size', 'text-align', 'text-decoration', 'padding', 'margin', 'border', 'border-color', 'border-width', 'border-style', 'width', 'max-width', 'height', 'vertical-align'])
@@ -108,10 +149,10 @@ export function prepareMailDocument(raw: string, images: boolean, placeholder: s
       const effective = background ? (luminance(background) > 0.35 ? darkSurface : background) : (parent ?? darkSurface)
       backgrounds.set(node, effective)
       if (background && (luminance(background) > 0.35 || !rgb(backgroundValue))) node.style.backgroundColor = hexColor(effective)
-      const foreground = rgb(node.style.color) ?? (node.parentNode ? foregrounds.get(node.parentNode) : undefined) ?? darkInk
+      const foreground = rgb(node.style.color) ?? (node.nodeName === 'A' ? linkInk : (node.parentNode ? foregrounds.get(node.parentNode) : undefined)) ?? darkInk
       const readable = contrast(foreground, effective) >= 4.5 ? foreground : readableInk(effective)
       foregrounds.set(node, readable)
-      if (readable !== foreground || (node.style.color && !rgb(node.style.color))) node.style.color = hexColor(readable)
+      if (node.nodeName === 'A' || readable !== foreground || (node.style.color && !rgb(node.style.color))) node.style.color = hexColor(readable)
     }
     if (node.nodeName === 'A' && node.hasAttribute('href')) {
       node.setAttribute('target', '_blank')
@@ -126,7 +167,7 @@ export function prepareMailDocument(raw: string, images: boolean, placeholder: s
   })
   const imagePolicy = images ? 'https: http:' : "'none'"
   const colors = dark ? `color-scheme:dark;background:#161e1c;color:#e8efec` : 'color-scheme:light;background:#fff;color:#171b1a'
-  return { document: `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imagePolicy}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;${colors};overflow-wrap:anywhere}body{padding:8px;font:16px/1.5 sans-serif}img{max-width:100%;height:auto}table{max-width:100%}${dark ? `a{color:#7ad3c3}${darkRules(raw)}` : ''}</style></head><body>${clean}</body></html>`, hasRemoteImages }
+  return { document: `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imagePolicy}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;${colors};overflow-wrap:anywhere}body{padding:8px;font:16px/1.5 sans-serif}img{max-width:100%;height:auto}table{max-width:100%}${dark ? darkRules(stylesheets) : ''}</style></head><body>${clean}</body></html>`, hasRemoteImages }
 }
 
 export function buildMailDocument(raw: string, images: boolean, placeholder: string): string {
