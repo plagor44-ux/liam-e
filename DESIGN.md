@@ -644,7 +644,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   that a sleeping Studio instance delays rule execution until the next fetch. After an IMAP mailbox
   rebuild, the run notice explains that rules were not applied automatically, can be applied manually,
   and unread mail remains eligible for normal summaries. The same notice is shown for an account's
-  initial import and its deferred historical messages, with the account identified.
+  initial import and its deferred historical messages, with the account identified. Mixed connector
+  pages during initial history and its unfinished overlapping scan are treated as ambiguous and may include new messages; the notice
+  offers manual rule application for them too.
 - The inbox filters global folders and labels across accounts. A selected mail or bulk selection
   can be filed without requiring provider write capabilities. Chat filing and rule cards show the
   target and conditions and require explicit confirmation before local changes.

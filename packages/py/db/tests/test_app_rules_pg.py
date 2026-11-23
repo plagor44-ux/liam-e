@@ -104,7 +104,105 @@ def test_graph_initial_pages_share_one_notice_and_skip_rules(pg_db, monkeypatch)
     asyncio.run(run())
 
 
+def test_graph_partial_import_resumes_after_failure_without_running_history(pg_db, monkeypatch):
+    async def run():
+        from unittest.mock import AsyncMock
+        from api.mail import actions, jobs, sync, sync_graph
+        from api.mail.sync_types import SyncChanges
+        from db.accessors import mail_filing, mail_rule, mail_rule_run, mail_sync_state
+        from db.engine import dispose_engine, get_session_maker
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='microsoft', auth_type='oauth2', email_address='a@example.test')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        rule = await mail_rule.create(name='File', folder_id=folder.id, mark_read=True)
+        monkeypatch.setattr(sync_graph, 'fetch_changes', AsyncMock(side_effect=[
+            SyncChanges(full_rebuild=True, initial_pending=True, cursor='next-page', upserts=[{'folder': 'INBOX', 'provider_uid': 'old-1'}]),
+            OSError('synthetic interruption'),
+            SyncChanges(cursor='delta', upserts=[{'folder': 'INBOX', 'provider_uid': 'old-2'}]),
+            SyncChanges(cursor='delta-2', upserts=[{'folder': 'INBOX', 'provider_uid': 'new'}]),
+        ]))
+        monkeypatch.setattr(sync, '_check_native_returns', AsyncMock(return_value={}))
+        monkeypatch.setattr(sync, 'refresh_bodies', AsyncMock(return_value=[]))
+        monkeypatch.setattr(sync, 'refresh_html_bodies', AsyncMock())
+        write = AsyncMock()
+        monkeypatch.setattr(actions, 'apply_action', write)
+        assert (await sync.sync_account(account.id)).status == 'ok'
+        before = await mail_sync_state.get_state(account.id)
+        assert before.cursor == 'next-page' and before.rules_initial_import
+        assert (await sync.sync_account(account.id)).status == 'error'
+        await dispose_engine()  # Reopen the pool to prove the import state is persisted.
+        after = await mail_sync_state.get_state(account.id)
+        assert (after.cursor, after.rules_initial_import) == (before.cursor, before.rules_initial_import)
+        resumed = await sync.sync_account(account.id)
+        assert resumed.status == 'ok' and len(resumed.new_message_ids) == 1
+        assert not await jobs.run_once()
+        write.assert_not_awaited()
+        runs = await mail_rule_run.list_for_rule(rule.id)
+        assert len(runs) == 1 and runs[0].status == 'skipped_initial_import'
+        delivery = await sync.sync_account(account.id)
+        assert await jobs.run_once()
+        write.assert_awaited_once_with(delivery.new_message_ids[0], 'mark_read')
+    asyncio.run(run())
+
+
 def test_connector_deferred_initial_history_is_skipped_but_new_mail_runs(pg_db, monkeypatch):
+    async def run():
+        from unittest.mock import AsyncMock
+        from api.mail import actions, jobs, sync, sync_connector
+        from api.mail.sync_types import SyncChanges
+        from db.accessors import mail_filing, mail_rule, mail_rule_run
+        from db.engine import dispose_engine, get_session_maker
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='gmail', auth_type='mistral_connector', email_address='example@connector.mistral')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        rule = await mail_rule.create(name='File', folder_id=folder.id, mark_read=True)
+        monkeypatch.setattr(sync_connector, 'fetch_changes', AsyncMock(side_effect=[
+            SyncChanges(cursor='initial:[100,"next"]', deferred_threads=['old-thread'], upserts=[{'folder': 'INBOX', 'provider_uid': 'old-1', 'thread_id': 'old-1-thread'}]),
+            SyncChanges(cursor='101:90:100', initial_history_uids={'old-3'}, upserts=[
+                {'folder': 'INBOX', 'provider_uid': 'new-1', 'thread_id': 'new-thread'},
+                {'folder': 'INBOX', 'provider_uid': 'old-3', 'thread_id': 'old-3-thread'},
+                {'folder': 'INBOX', 'provider_uid': 'old-2', 'thread_id': 'old-thread', 'labels_json': None},
+            ]),
+            SyncChanges(cursor='102', upserts=[{'folder': 'INBOX', 'provider_uid': 'mixed-gap', 'thread_id': 'mixed-gap-thread'}]),
+            SyncChanges(cursor='103', upserts=[{'folder': 'INBOX', 'provider_uid': 'new-2', 'thread_id': 'new-2-thread'}]),
+        ]))
+        monkeypatch.setattr(sync_connector, 'retry_threads', AsyncMock(return_value=SyncChanges(upserts=[
+            {'folder': 'INBOX', 'provider_uid': 'old-2', 'thread_id': 'old-thread', 'labels_json': None},
+        ])))
+        monkeypatch.setattr(sync, 'refresh_bodies', AsyncMock(return_value=[]))
+        monkeypatch.setattr(sync, 'refresh_html_bodies', AsyncMock())
+        write = AsyncMock()
+        monkeypatch.setattr(actions, 'apply_action', write)
+        first = await sync.sync_account(account.id)
+        assert first.status == 'ok' and len(first.new_message_ids) == 1
+        assert not await jobs.run_once()
+        await dispose_engine()  # Resume historical pagination with the persisted import marker.
+        second = await sync.sync_account(account.id)
+        assert second.status == 'ok' and len(second.new_message_ids) == 3
+        assert not await jobs.run_once()
+        third = await sync.sync_account(account.id)
+        assert third.status == 'ok' and len(third.new_message_ids) == 1
+        assert not await jobs.run_once()
+        fourth = await sync.sync_account(account.id)
+        assert fourth.status == 'ok' and len(fourth.new_message_ids) == 1
+        assert await jobs.run_once()
+        assert not await jobs.run_once()
+        write.assert_not_awaited()  # Studio Gmail has no provider write capability.
+        runs = await mail_rule_run.list_for_rule(rule.id)
+        notices = [row for row in runs if row.status == 'skipped_initial_import']
+        assert len(notices) == 1 and notices[0].account_id == account.id
+        applied_ids = {row.message_id for row in runs if row.status == 'done'}
+        assert applied_ids == {fourth.new_message_ids[0]}
+        for message_id in set(first.new_message_ids + second.new_message_ids + third.new_message_ids) - applied_ids:
+            assert (await mail_filing.for_message(message_id)).folder_id is None
+    asyncio.run(run())
+
+
+def test_connector_mixed_import_does_not_file_a_delta_item_without_delivery_proof(pg_db, monkeypatch):
     async def run():
         from unittest.mock import AsyncMock
         from api.mail import actions, jobs, sync, sync_connector
@@ -118,41 +216,55 @@ def test_connector_deferred_initial_history_is_skipped_but_new_mail_runs(pg_db, 
         folder = await mail_filing.create_destination('Projects', 'folder')
         rule = await mail_rule.create(name='File', folder_id=folder.id, mark_read=True)
         monkeypatch.setattr(sync_connector, 'fetch_changes', AsyncMock(side_effect=[
-            SyncChanges(cursor='initial:[100,"next"]', deferred_threads=['old-thread'], upserts=[{'folder': 'INBOX', 'provider_uid': 'old-1', 'thread_id': 'old-1-thread'}]),
-            SyncChanges(cursor='101', initial_history_uids={'old-3'}, upserts=[
-                {'folder': 'INBOX', 'provider_uid': 'new-1', 'thread_id': 'new-thread'},
-                {'folder': 'INBOX', 'provider_uid': 'old-3', 'thread_id': 'old-3-thread'},
-                {'folder': 'INBOX', 'provider_uid': 'old-2', 'thread_id': 'old-thread', 'labels_json': None},
-            ]),
-            SyncChanges(cursor='102', upserts=[{'folder': 'INBOX', 'provider_uid': 'new-2', 'thread_id': 'new-2-thread'}]),
+            SyncChanges(cursor='initial:[100,"next"]', upserts=[{'folder': 'INBOX', 'provider_uid': 'old-1', 'thread_id': 'old-1'}]),
+            # Delta-only here means absent from this historical page, not necessarily newly delivered.
+            SyncChanges(cursor='101', upserts=[{'folder': 'INBOX', 'provider_uid': 'ambiguous', 'thread_id': 'not-on-this-history-page'}]),
         ]))
-        monkeypatch.setattr(sync_connector, 'retry_threads', AsyncMock(return_value=SyncChanges(upserts=[
-            {'folder': 'INBOX', 'provider_uid': 'old-2', 'thread_id': 'old-thread', 'labels_json': None},
-        ])))
         monkeypatch.setattr(sync, 'refresh_bodies', AsyncMock(return_value=[]))
         monkeypatch.setattr(sync, 'refresh_html_bodies', AsyncMock())
         write = AsyncMock()
         monkeypatch.setattr(actions, 'apply_action', write)
-        first = await sync.sync_account(account.id)
-        assert first.status == 'ok' and len(first.new_message_ids) == 1
+        assert (await sync.sync_account(account.id)).status == 'ok'
+        resumed = await sync.sync_account(account.id)
+        assert resumed.status == 'ok' and len(resumed.new_message_ids) == 1
+        assert not await jobs.run_once()
+        write.assert_not_awaited()
+        assert (await mail_filing.for_message(resumed.new_message_ids[0])).folder_id is None
+        runs = await mail_rule_run.list_for_rule(rule.id)
+        assert len(runs) == 1 and runs[0].status == 'skipped_initial_import'
+    asyncio.run(run())
+
+
+def test_connector_steady_state_gap_is_not_suppressed_by_deferred_history(pg_db, monkeypatch):
+    async def run():
+        from unittest.mock import AsyncMock
+        from api.mail import jobs, sync, sync_connector
+        from api.mail.sync_types import SyncChanges
+        from db.accessors import mail_filing, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        account = MailAccount(id='account-a', provider='gmail', auth_type='mistral_connector', email_address='example@connector.mistral')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        rule = await mail_rule.create(name='File', folder_id=folder.id)
+        monkeypatch.setattr(sync_connector, 'fetch_changes', AsyncMock(side_effect=[
+            SyncChanges(cursor='100', deferred_threads=['old-thread'], upserts=[{'folder': 'INBOX', 'provider_uid': 'old-1', 'thread_id': 'old-1'}]),
+            SyncChanges(cursor='101:90:100', upserts=[{'folder': 'INBOX', 'provider_uid': 'new-1', 'thread_id': 'new-1'}]),
+            SyncChanges(cursor='102', upserts=[{'folder': 'INBOX', 'provider_uid': 'new-2', 'thread_id': 'new-2'}]),
+        ]))
+        monkeypatch.setattr(sync_connector, 'retry_threads', AsyncMock(return_value=SyncChanges(deferred_threads=['old-thread'])))
+        monkeypatch.setattr(sync, 'refresh_bodies', AsyncMock(return_value=[]))
+        monkeypatch.setattr(sync, 'refresh_html_bodies', AsyncMock())
+        assert (await sync.sync_account(account.id)).status == 'ok'
         assert not await jobs.run_once()
         second = await sync.sync_account(account.id)
-        assert second.status == 'ok' and len(second.new_message_ids) == 3
-        assert await jobs.run_once()
-        assert not await jobs.run_once()
+        assert second.status == 'ok' and await jobs.run_once()
         third = await sync.sync_account(account.id)
-        assert third.status == 'ok' and len(third.new_message_ids) == 1
-        assert await jobs.run_once()
-        assert not await jobs.run_once()
-        write.assert_not_awaited()  # Studio Gmail has no provider write capability.
+        assert third.status == 'ok' and await jobs.run_once()
         runs = await mail_rule_run.list_for_rule(rule.id)
-        notices = [row for row in runs if row.status == 'skipped_initial_import']
-        assert len(notices) == 1 and notices[0].account_id == account.id
-        applied_ids = {row.message_id for row in runs if row.status == 'done'}
-        assert len(applied_ids) == 2 and third.new_message_ids[0] in applied_ids
-        assert len(applied_ids.intersection(second.new_message_ids)) == 1
-        for message_id in set(first.new_message_ids + second.new_message_ids) - applied_ids:
-            assert (await mail_filing.for_message(message_id)).folder_id is None
+        assert {row.message_id for row in runs if row.status == 'done'} == {second.new_message_ids[0], third.new_message_ids[0]}
+        assert len([row for row in runs if row.status == 'skipped_initial_import']) == 1
     asyncio.run(run())
 
 

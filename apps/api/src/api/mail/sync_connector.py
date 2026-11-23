@@ -63,6 +63,12 @@ def incremental_cursor(progress: str) -> str:
     return progress or "0"
 
 
+def import_scan_pending(progress: str) -> bool:
+    """An initial history page or a bounded overlapping new-mail scan remains unfinished."""
+    parts = progress.split(':')
+    return progress.startswith('initial:') or (len(parts) == 3 and all(part.isdigit() for part in parts))
+
+
 async def fetch_changes(account: MailAccount, *, cursor: str, folders: list[str], limit: int, max_body_chars: int) -> SyncChanges:
     if not cursor.startswith("initial:"):
         return await _fetch_page(account, cursor=cursor, limit=limit, max_body_chars=max_body_chars)

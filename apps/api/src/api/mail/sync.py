@@ -101,12 +101,16 @@ async def sync_account(account_id: str) -> SyncResult:
             import_id = import_state.get('id', '')
             if not import_id and (first_import or (is_connector and progress.startswith('initial:'))):
                 import_id = str(previous.connector_generation)
-            continuing_connector = is_connector and bool(import_id) and not first_import
+            # Deferred history can outlive the initial scan. Do not suppress unrelated steady-state
+            # gaps after that scan has completed merely because a deferred thread is still pending.
+            scan_active = is_connector and (first_import or import_state.get('scan_pending', sync_connector.import_scan_pending(progress)))
+            # A moving watermark does not prove delivery freshness while the initial scan is active.
+            suppress_import_page = bool(import_id) and (not is_connector or scan_active)
             new_ids, invalidated = await _apply_changes(account, changes, session, verified, native_moves,
-                initial_import_id=import_id, suppress_import_page=bool(import_id) and not continuing_connector)
-            pending_import = changes.cursor.startswith('initial:') if is_connector else changes.initial_pending
+                initial_import_id=import_id, suppress_import_page=suppress_import_page)
+            pending_import = (scan_active and (sync_connector.import_scan_pending(changes.cursor) or not changes.cursor)) if is_connector else changes.initial_pending
             tracked_threads = changes.initial_deferred_threads if is_connector else set()
-            state.rules_initial_import = json.dumps({'id': import_id, 'threads': sorted(tracked_threads)}) if import_id and (pending_import or tracked_threads or not changes.cursor) else ''
+            state.rules_initial_import = json.dumps({'id': import_id, 'threads': sorted(tracked_threads), 'scan_pending': pending_import}) if import_id and (pending_import or tracked_threads or not changes.cursor) else ''
             if is_connector:
                 state.connector_deferred_threads = deferred
                 if verified:

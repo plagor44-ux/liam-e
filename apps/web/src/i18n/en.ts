@@ -41,7 +41,7 @@ export const en = {
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
     folderOverridden: 'Folder not assigned: a higher-priority rule takes precedence.',
     imapRebuild: 'Rules were not automatically applied to emails from this IMAP mailbox rebuild. You can apply them manually. Summaries for unread emails are filled as usual.',
-    initialImport: 'Rules were not automatically applied to emails imported for this account without saved sync progress. You can apply them manually. Summaries for unread emails are filled as usual.',
+    initialImport: 'Rules were not automatically applied to emails imported for this account without saved sync progress. This can also include new emails received during the import. You can apply the rules manually. Summaries for unread emails are filled as usual.',
     ruleConfirm: 'Create rule?', filingConfirm: 'File emails?', filingPending: 'Proposed filing — awaiting confirmation.', ruleDone: 'Rule created.', filingDone: 'Emails filed.',
   },
   preferences: {

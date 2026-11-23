@@ -272,8 +272,12 @@ unread rebuilt mail within its existing limits, including on a later sync. Messa
 delivery freshness. An account sync starting without a cursor likewise excludes the initial import
 from automatic rules, including Graph continuation pages and deferred Studio history. A durable notice
 per applicable rule and import identifies the account and offers manual application. Positively
-identified later connector deliveries and subsequent incremental syncs run rules normally; insight
-scheduling still uses the complete new-message list. An in-progress import and its deferred history
+identified later connector deliveries and subsequent incremental syncs run rules normally. During
+Studio connector history pagination and its unfinished overlapping scan, all mixed-page messages are
+treated as ambiguous, including genuinely new deliveries: the owner can apply rules manually. Once
+that scan completes, unrelated incremental messages run normally even if a deferred historical thread
+is still pending. Insight scheduling still uses the
+complete new-message list. An in-progress import and its deferred history
 are tracked in `mail_sync_state.rules_initial_import` and commit with the sync page and notice.
 Chat proposals require
 confirmation, recheck the saved account grant and commit the card with the local mutation. Rule
