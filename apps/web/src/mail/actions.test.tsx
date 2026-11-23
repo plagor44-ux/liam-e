@@ -53,6 +53,74 @@ test('a partial trash reconciles the inbox without a success toast or undo', asy
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
 })
 
+test('permission-denied partial trash keeps the reported trash row and explains both results', async () => {
+  spyOn(sdk, 'mailMessageAction').mockResolvedValue({
+    error: { detail: { code: 'provider_permission_missing', folder: 'TRASH' } }, response: { status: 409 },
+  } as never)
+  const { client } = setup()
+  const trashKey = ['messages', { folder: 'TRASH' }]
+  client.setQueryData<InfiniteData<MessagePageOut>>(trashKey, {
+    pages: [{ items: [rows[1]!], next_cursor: null }], pageParams: [undefined],
+  })
+  fireEvent.click(screen.getByText('trash 2'))
+  expect(await screen.findByText(`${de.inbox.providerPartial.TRASH} ${de.errors.provider_permission_missing}`)).toBeTruthy()
+  expect(screen.queryByText('Zweite:false')).toBeNull()
+  expect(screen.getByText('Erste:false')).toBeTruthy()
+  expect(client.getQueryData<InfiniteData<MessagePageOut>>(trashKey)?.pages[0]?.items.map(item => item.id)).toEqual(['2'])
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+})
+
+test('permission-denied trash rolls back the inbox and only shows the permission reason', async () => {
+  spyOn(sdk, 'mailMessageAction').mockResolvedValue({
+    error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 },
+  } as never)
+  setup()
+  fireEvent.click(screen.getByText('trash 2'))
+  expect((await screen.findByRole('status')).textContent).toBe(de.errors.provider_permission_missing)
+  expect(screen.getByText('Zweite:false')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+})
+
+test('bulk trash keeps a permission-denied row and adds the reason to the result', async () => {
+  spyOn(sdk, 'mailMessagesBulkAction').mockResolvedValue({
+    data: { results: [
+      { message_id: '1', status: 'done', action_id: 'trash-1' },
+      { message_id: '2', status: 'failed', error_code: 'provider_permission_missing' },
+    ] }, response: { ok: true },
+  } as never)
+  const undo = spyOn(sdk, 'mailActionsUndo').mockResolvedValue({ data: { restored: ['trash-1'] } } as never)
+  setup()
+  fireEvent.click(screen.getByText('bulk trash'))
+  expect((await screen.findByRole('status')).textContent).toContain(`${de.inbox.bulkResult('trash', 1, 2)} ${de.errors.provider_permission_missing}`)
+  expect(screen.queryByText('Erste:false')).toBeNull()
+  expect(screen.getByText('Zweite:false')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Rückgängig' }))
+  await screen.findByText('Erste:false')
+  expect(undo.mock.calls[0]?.[0]?.body).toEqual({ action_ids: ['trash-1'] })
+})
+
+test.each(['single', 'group'] as const)('permission-denied %s undo explains the refusal and leaves the failed row out', async scope => {
+  const group = scope === 'group'
+  success()
+  spyOn(sdk, 'mailMessagesBulkAction').mockResolvedValue({
+    data: { results: ['1', '2'].map(id => ({ message_id: id, status: 'done', action_id: `action-${id}` })) }, response: { ok: true },
+  } as never)
+  const undo = spyOn(sdk, 'mailActionsUndo').mockResolvedValue({
+    data: { restored: group ? ['action-2'] : [], failed: ['action-1'], skipped: [], expired: [], error_code: 'provider_permission_missing' },
+    response: { status: 200 },
+  } as never)
+  setup()
+  fireEvent.click(screen.getByText(group ? 'bulk archive' : 'archive 1'))
+  const undoButton = await screen.findByRole('button', { name: 'Rückgängig' })
+  expect(screen.queryByText('Erste:false')).toBeNull()
+  if (group) expect(screen.queryByText('Zweite:false')).toBeNull()
+  fireEvent.click(undoButton)
+  await screen.findByText(de.errors.provider_permission_missing)
+  expect(screen.queryByText('Erste:false')).toBeNull()
+  expect(screen.getByText('Zweite:false')).toBeTruthy()
+  expect(undo.mock.calls[0]?.[0]?.body).toEqual({ action_ids: group ? ['action-1', 'action-2'] : ['action-1'] })
+})
+
 test('bulk trash identifies partial moves and offers undo only for completed messages', async () => {
   spyOn(sdk, 'mailMessagesBulkAction').mockImplementation((async () => ({
     data: { results: [
