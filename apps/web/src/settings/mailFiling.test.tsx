@@ -149,7 +149,7 @@ test('rules display alphabetically with their stored priority and do not mutate 
 
 test('a mail offers editable rule conditions and saves only the selected ones', async () => {
   const { RuleSettings } = await import('./MailFiling')
-  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { id: 'canonical', account_id: 'account', sender_address: 'person@example.org', subject: 'Example subject' } } as never)
+  spyOn(sdk, 'mailMessageGet').mockResolvedValue({ data: { id: 'canonical', account_id: 'account', sender_name: 'Example Sender', sender_address: 'person@example.org', subject: 'Example subject' } } as never)
   const create = spyOn(sdk, 'mailRuleCreateFromMessage').mockResolvedValue({ data: { id: 'rule', name: 'Example' } } as never)
   api.setConfig({ baseUrl: window.location.origin })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -162,6 +162,8 @@ test('a mail offers editable rule conditions and saves only the selected ones', 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="old-id" /></QueryClientProvider>)
   await waitFor(() => expect((screen.getByLabelText('Absenderadresse') as HTMLInputElement).value).toBe('person@example.org'))
+  expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('Example Sender')
+  expect(screen.queryByRole('region', { name: 'Ungespeicherte Änderungen' })).toBeNull()
   expect((screen.getByLabelText('Absenderdomain') as HTMLInputElement).value).toBe('example.org')
   expect((screen.getByLabelText('Betreff enthält') as HTMLInputElement).value).toBe('Example subject')
   expect(screen.getByRole('switch', { name: 'Absenderdomain verwenden' }).getAttribute('aria-checked')).toBe('false')

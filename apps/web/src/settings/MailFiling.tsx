@@ -83,6 +83,8 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   const [sourceMissing, setSourceMissing] = useState(false)
   const [sourceEnabled, setSourceEnabled] = useState({ sender_address: true, sender_domain: false, subject_contains: false })
   const sourceLoaded = useRef<string | undefined>(undefined)
+  const formRef = useRef<HTMLFormElement>(null)
+  useEffect(() => { if (sourceMessageId) formRef.current?.scrollIntoView?.({ block: 'start' }) }, [sourceMessageId])
   const source = useQuery({ ...messageQuery(sourceMessageId ?? ''), enabled: Boolean(sourceMessageId && sourceActive), retry: false })
   const [editing, setEditing] = useState<MailRule>(), [applying, setApplying] = useState<MailRule>(), [deleting, setDeleting] = useState<MailRule>()
   const [showRuns, setShowRuns] = useState<string>(), [matched, setMatched] = useState<number>()
@@ -93,7 +95,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     if (!sourceActive || !sourceMessageId || !source.data || source.data.local_reference_only || sourceLoaded.current === sourceMessageId) return
     const address = source.data.sender_address.trim(), domain = address.includes('@') ? address.slice(address.lastIndexOf('@') + 1) : ''
     sourceLoaded.current = sourceMessageId
-    setDraft({ name: '', is_active: true, account_id: source.data.account_id, sender_address: address, sender_domain: domain, subject_contains: source.data.subject.slice(0, 200) })
+    setDraft({ name: (source.data.sender_name || address).slice(0, 120), is_active: true, account_id: source.data.account_id, sender_address: address, sender_domain: domain, subject_contains: source.data.subject.slice(0, 200) })
   }, [sourceActive, sourceMessageId, source.data])
   const runs = useQuery({ queryKey: ['mail-rule-runs', showRuns], enabled: Boolean(showRuns), refetchInterval: showRuns ? 3000 : false, queryFn: () => unwrap(mailRuleRunsList({ path: { rule_id: showRuns! }, throwOnError: true })) })
   const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-rules'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-rule-runs'] }) }
@@ -129,7 +131,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   const dirty = Boolean(editing || draft.name || draft.account_id || draft.sender_address || draft.sender_domain || draft.subject_contains || draft.recipient || draft.folder_id || draft.label_id || draft.mark_read || draft.mark_unread || draft.archive || draft.position)
   const enabledDraft = prepared()
   const sourceAccountAvailable = Boolean(source.data && accounts.data?.some(account => account.id === source.data?.account_id))
-  useSettingsSlice('mail-rule-form', { dirty, canSave: Boolean(draft.name.trim() && (enabledDraft.account_id || enabledDraft.sender_address || enabledDraft.sender_domain || enabledDraft.subject_contains || enabledDraft.recipient) && (draft.folder_id || draft.label_id) && (!sourceActive || editing || source.data && !source.data.local_reference_only && !sourceMissing && sourceAccountAvailable)), busy, save: () => execute('save'), discard })
+  useSettingsSlice('mail-rule-form', { dirty, hideBar: true, canSave: Boolean(draft.name.trim() && (enabledDraft.account_id || enabledDraft.sender_address || enabledDraft.sender_domain || enabledDraft.subject_contains || enabledDraft.recipient) && (draft.folder_id || draft.label_id) && (!sourceActive || editing || source.data && !source.data.local_reference_only && !sourceMissing && sourceAccountAvailable)), busy, save: () => execute('save'), discard })
   const rows = sortDestinations(destinations.data ?? [], locale)
   const choose = (key: 'account_id' | 'folder_id' | 'label_id', label: string, options: { id?: string; name: string }[]) => {
     const selected = options.find(row => row.id === draft[key])?.name ?? (key === 'account_id' ? t.allAccounts : t.none)
@@ -161,7 +163,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     return account?.display_name || account?.email_address || t.none
   }
   return <section className="le-prompts"><h2 className="heading">{t.rules}</h2><p>{t.ruleDelay}</p>
-    <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
+    <form ref={formRef} className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
       {sourceActive && !editing && <p>{t.sourceRuleHint}</p>}
       {sourceActive && !editing && source.isPending && <p role="status">{t.loading}</p>}
       {sourceActive && !editing && (sourceMissing || source.error instanceof MessageNotFoundError || source.data?.local_reference_only) && <Notice tone="danger">{t.sourceGone}</Notice>}

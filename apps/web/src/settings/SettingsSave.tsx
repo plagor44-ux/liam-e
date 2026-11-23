@@ -10,11 +10,13 @@ export interface SettingsSliceState {
   dirty: boolean
   canSave: boolean
   busy: boolean
+  hideBar?: boolean
   save: () => Promise<void>
   discard: () => void
 }
 
 interface SliceMeta {
+  hideBar?: boolean
   dirty: boolean
   canSave: boolean
   busy: boolean
@@ -26,6 +28,7 @@ interface SettingsSaveContextValue {
   dirty: boolean
   canSave: boolean
   busy: boolean
+  showBar: boolean
   saveAll: () => Promise<void>
   discardAll: () => void
 }
@@ -43,7 +46,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
     metaRef.current = { ...metaRef.current, [id]: meta }
     setSlices(prev => {
       const current = prev[id]
-      if (current && current.dirty === meta.dirty && current.canSave === meta.canSave && current.busy === meta.busy) {
+      if (current && current.dirty === meta.dirty && current.canSave === meta.canSave && current.busy === meta.busy && current.hideBar === meta.hideBar) {
         return prev
       }
       return { ...prev, [id]: meta }
@@ -69,6 +72,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
   const dirtyEntries = entries.filter(([, slice]) => slice.dirty)
   const dirty = dirtyEntries.length > 0
   const busy = entries.some(([, slice]) => slice.busy)
+  const showBar = entries.some(([, slice]) => !slice.hideBar && (slice.dirty || slice.busy))
   const canSave = dirty && !busy && dirtyEntries.some(([, slice]) => slice.canSave) && dirtyEntries.every(([, slice]) => slice.canSave)
 
   const saveAll = useCallback(async () => {
@@ -93,7 +97,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
   }, [dirty])
 
   const router = useRouter({ warn: false })
-  const value = useMemo(() => ({ register, unregister, dirty, canSave, busy, saveAll, discardAll }), [register, unregister, dirty, canSave, busy, saveAll, discardAll])
+  const value = useMemo(() => ({ register, unregister, dirty, canSave, busy, showBar, saveAll, discardAll }), [register, unregister, dirty, canSave, busy, showBar, saveAll, discardAll])
 
   return <SettingsSaveContext.Provider value={value}>
     {children}
@@ -138,7 +142,7 @@ function SettingsRouterBlocker({ dirty, onDiscard }: { dirty: boolean; onDiscard
 export function SettingsSaveBar() {
   const { texts } = useI18n()
   const context = useContext(SettingsSaveContext)
-  if (!context || (!context.dirty && !context.busy)) return null
+  if (!context || !context.showBar) return null
   return <div className="le-settings-bar" role="region" aria-label={texts.settingsUi.unsaved}>
     <span className="body-strong" role="status">{texts.settingsUi.unsaved}</span>
     <div className="le-settings-bar-actions">
@@ -167,10 +171,10 @@ export function useSettingsSlice(id: string, state: SettingsSliceState) {
     if (!register) return
     register(
       id,
-      { dirty: state.dirty, canSave: state.canSave, busy: state.busy },
+      { dirty: state.dirty, canSave: state.canSave, busy: state.busy, hideBar: state.hideBar },
       { save: () => saveRef.current(), discard: () => discardRef.current() },
     )
-  }, [register, id, state.dirty, state.canSave, state.busy])
+  }, [register, id, state.dirty, state.canSave, state.busy, state.hideBar])
 
   useLayoutEffect(() => () => { unregister?.(id) }, [unregister, id])
 }
