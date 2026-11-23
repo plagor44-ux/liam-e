@@ -3485,6 +3485,26 @@
         "title": "MessageHeaderOut",
         "type": "object"
       },
+      "MessageHtmlOut": {
+        "properties": {
+          "html": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Html"
+          }
+        },
+        "required": [
+          "html"
+        ],
+        "title": "MessageHtmlOut",
+        "type": "object"
+      },
       "MessageItem": {
         "properties": {
           "account_id": {
@@ -10452,6 +10472,45 @@
           }
         },
         "summary": "Apply an undoable message action"
+      }
+    },
+    "/api/v1/mail/messages/{message_id}/html": {
+      "get": {
+        "operationId": "mail_message_html_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageHtmlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read bounded HTML for a browser mail view"
       }
     },
     "/api/v1/mail/messages/{message_id}/insight": {

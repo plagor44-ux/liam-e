@@ -166,7 +166,13 @@ async def seed(now: datetime | None = None) -> SeedResult:
             messages.append(MailMessage(id=seed_id("mail", key), account_id=by_key[account].id,
                 provider_uid=f"seed-{key}", thread_id=f"seed-{key}", sender=formataddr((sender, f"newsletter@{slug}.example")),
                 sender_address=f"newsletter@{slug}.example", subject=f"{sender}: Ausgabe {number}",
-                snippet=snippet, body_text=snippet, recipients_json=json.dumps([by_key[account].email_address]),
+                snippet=snippet, body_text=snippet,
+                body_html=('<h1>Synthetischer Newsletter</h1><table><tr><th>Rubrik</th><th>Inhalt</th></tr>'
+                           '<tr><td>Neuigkeiten</td><td>Nur Testdaten</td></tr></table>'
+                           '<p><a href="https://example.test/news">Beispiel öffnen</a></p>'
+                           '<img src="https://example.test/tracking-pixel" width="1" height="1" alt="">'
+                           + '<p>Ein längerer synthetischer Abschnitt für den Lesebereich.</p>' * 30) if index == 0 else None,
+                html_status='available' if index == 0 else 'absent', html_version=1, recipients_json=json.dumps([by_key[account].email_address]),
                 list_unsubscribe=f"<mailto:abmelden@{slug}.example>", is_read=read,
                 internal_date=(local_now - timedelta(days=5 + 115 * index / 59)).astimezone(UTC)))
             index += 1

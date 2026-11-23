@@ -359,3 +359,21 @@ def test_insight_language_change_replaces_only_matching_body(pg_db):
         assert await store('de', 'stale', body='wrong body') is None
         assert (await mail_insight.get(message.id)).locale == 'en'
     asyncio.run(run())
+
+
+def test_html_backfill_is_independent_bounded_and_does_not_touch_text(pg_db):
+    async def run():
+        from db.accessors import mail_message as m
+        from sqlalchemy.exc import DBAPIError
+        initial = await m.upsert_message(account_id='a', folder='INBOX', provider_uid='html', body_text='plain', body_version=1)
+        archive = await m.upsert_message(account_id='a', folder='ARCHIVE', provider_uid='archive', body_text='old', body_version=1)
+        assert {row.id for row in await m.stale_html_bodies('a', 1, limit=10)} == {initial.id}
+        await m.set_html(initial.id, expected_uid='wrong', expected_message_id='', expected_uidvalidity=None, version=1, status='available', html='<p>wrong</p>')
+        assert (await m.get_message(initial.id)).html_version == 0
+        await m.set_html(initial.id, expected_uid='html', expected_message_id='', expected_uidvalidity=None, version=1, status='available', html='<p>ok</p>')
+        current = await m.get_message(initial.id)
+        assert (current.body_html, current.html_status, current.body_text, current.body_version) == ('<p>ok</p>', 'available', 'plain', 1)
+        assert (await m.get_message(archive.id)).html_status == 'pending'
+        with pytest.raises(DBAPIError):
+            await m.upsert_message(account_id='a', folder='INBOX', provider_uid='too-long', body_html='x' * 200001, html_version=1, html_status='available')
+    asyncio.run(run())

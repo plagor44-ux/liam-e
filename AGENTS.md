@@ -208,6 +208,7 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Mail / messages | GET | `/api/v1/mail/messages` | `mail_messages_list` |
 | Mail / messages | POST | `/api/v1/mail/messages/actions` | `mail_messages_bulk_action` |
 | Mail / messages | GET | `/api/v1/mail/messages/{message_id}` | `mail_message_get` |
+| Mail / messages | GET | `/api/v1/mail/messages/{message_id}/html` | `mail_message_html_get` |
 | Mail / messages | POST | `/api/v1/mail/messages/{message_id}/actions` | `mail_message_action` |
 | Mail / messages | GET | `/api/v1/mail/messages/{message_id}/insight` | `mail_message_insight` |
 | Mail / messages | GET | `/api/v1/mail/messages/{message_id}/original` | `mail_message_original` |
@@ -970,6 +971,12 @@ label, `send_email` takes `replyToMessageId`; the Outlook connector returned HTT
 - Never import liam-e as an HTTP connector in Studio, or import only these read-only operations: `calendar_occurrence_get`, `calendar_occurrences_list`, `calendar_sources_list`, `chat_conversations_list`, `chat_history`, `chat_models_list`, `health`, `liam_mail_accounts`, `liam_mail_read`, `liam_mail_search`, `liam_mail_summary`, `mail_account_options`, `mail_accounts_list`, `mail_connector_tools_list`, `mail_connectors_list`, `mail_message_get`, `mail_message_insight`, `mail_message_original`, `mail_messages_list`, `mail_summary`, `prompt_get`, `prompts_list`, `settings_ui_get`, `tasks_get`, `tasks_list`, `tasks_occurrences_list`
   `mail_message_insight` generates a missing summary with the model and stores it in `mail_insight` (model cost, no mail changes; never for seed accounts, where only seeded summaries are available).
   `mail_message_original` fetches the mail from the provider read-only, without marking it read, and stores nothing.
+  `mail_message_html_get` is browser-only and returns bounded, untrusted stored HTML; it is never
+  in the agent read list. HTML has its own version and state; only INBOX rows are backfilled by
+  the existing provider readers, with retry backoff and identity/revision checks. Archived rows
+  remain pending until restored to INBOX. Text search, insights, chat and speech use `body_text`.
+  The web view sanitizes HTML and uses a scriptless opaque-origin sandbox; remote images are off
+  until explicitly enabled for that view, and CID images are placeholders.
   `settings_ui_browser_locale_confirm` is browser-only; it stores the latest browser hint for jobs.
   `settings_ui_get` creates the default assignment in `ui_settings` once on the very first read; it never changes an existing assignment.
   The calendar write routes (`calendar_event_create`, `calendar_event_update`, `calendar_event_delete`, `calendar_write_check`), `chat_proposal_check`, `calendar_occurrence_live` and `calendar_write_get` are deliberately not in this list: they write to Google, resolve a write or read private live event data.

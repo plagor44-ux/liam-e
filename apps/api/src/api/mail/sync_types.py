@@ -84,6 +84,19 @@ def common(sender: str, headers: dict[str, str]) -> dict[str, Any]:
 
 # Bump whenever body extraction changes: sync re-reads indexed bodies stored with an older version.
 BODY_VERSION = 1
+# Independent HTML extraction revision; text search and insight versions remain unchanged.
+HTML_VERSION = 1
+HTML_MAX_CHARS = 200_000
+
+
+def html_body(parts: list[str]) -> tuple[str | None, str]:
+    present = [part for part in parts if part.strip()]
+    if not present:
+        return None, "absent"
+    if sum(map(len, present)) + len(present) - 1 > HTML_MAX_CHARS:
+        return None, "too_large"
+    content = "\n".join(present)
+    return content, "available"
 
 # Elements whose content is never readable text (style sheets, scripts, the document title). Mail
 # clients run no scripts, so <noscript> content is text.
@@ -207,7 +220,7 @@ def html_to_text(html: str, *, _retries: int = 2) -> str:
 Reread = dict[str, dict[str, Any] | None]
 
 
-async def reread_http(uids: list[str], get: Callable[[str], Awaitable[httpx.Response]], parse: Callable[[Any], dict[str, Any]]) -> Reread:
+async def reread_http(uids: list[str], get: Callable[[str], Awaitable[httpx.Response]], parse: Callable[[Any], dict[str, Any]], *, prepare: Callable[[dict], Awaitable[None]] | None = None) -> Reread:
     """Ask a REST provider for each mail; one failing mail never costs the others their result."""
     found: Reread = {}
     for uid in uids:
@@ -224,8 +237,11 @@ async def reread_http(uids: list[str], get: Callable[[str], Awaitable[httpx.Resp
         if not response.is_success:
             continue  # server error or timeout for this mail: asked again next run
         try:
-            found[uid] = parse(response.json())
-        except ValueError:
+            payload = response.json()
+            if prepare is not None:
+                await prepare(payload)
+            found[uid] = parse(payload)
+        except (ValueError, httpx.HTTPError):
             continue
     return found
 

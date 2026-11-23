@@ -1922,6 +1922,16 @@ export type MessageHeaderOut = {
 };
 
 /**
+ * MessageHtmlOut
+ */
+export type MessageHtmlOut = {
+    /**
+     * Html
+     */
+    html: string | null;
+};
+
+/**
  * MessageItem
  */
 export type MessageItem = {
@@ -5951,6 +5961,36 @@ export type MailMessageActionResponses = {
 };
 
 export type MailMessageActionResponse = MailMessageActionResponses[keyof MailMessageActionResponses];
+
+export type MailMessageHtmlGetData = {
+    body?: never;
+    path: {
+        /**
+         * Message Id
+         */
+        message_id: string;
+    };
+    query?: never;
+    url: '/api/v1/mail/messages/{message_id}/html';
+};
+
+export type MailMessageHtmlGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailMessageHtmlGetError = MailMessageHtmlGetErrors[keyof MailMessageHtmlGetErrors];
+
+export type MailMessageHtmlGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MessageHtmlOut;
+};
+
+export type MailMessageHtmlGetResponse = MailMessageHtmlGetResponses[keyof MailMessageHtmlGetResponses];
 
 export type MailMessageInsightData = {
     body?: never;

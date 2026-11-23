@@ -14,14 +14,14 @@ from db.accessors import mail_message as message_access
 from db.accessors import mail_reference_snapshot
 from db.models.mail_insight import MailInsight
 from db.models.mail_message import MailMessage
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from api.errors import refuse
 from api.locales import Locale
 from api.mail import actions, insights, original
 from api.mail.headers import sender_name
 from api.mail.state import color_indexes
-from api.routers.api.v1.mail.schemas import BulkMessageActionIn, BulkMessageActionOut, BulkMessageActionResult, InsightOut, MessageActionIn, MessageActionOut, MessageDetailOut, MessageListItemOut, MessageOriginalOut, MessagePageOut
+from api.routers.api.v1.mail.schemas import BulkMessageActionIn, BulkMessageActionOut, BulkMessageActionResult, InsightOut, MessageActionIn, MessageActionOut, MessageDetailOut, MessageHtmlOut, MessageListItemOut, MessageOriginalOut, MessagePageOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -176,6 +176,15 @@ async def message_original(message_id: str) -> MessageOriginalOut:
         logger.warning("Original fetch failed: %s", type(error).__name__)
         raise refuse(502, "provider_failed", "Das Original ließ sich beim Anbieter nicht abrufen. Versuch es gleich noch mal.") from None
     return MessageOriginalOut(**result)
+
+
+@router.get("/{message_id}/html", operation_id="mail_message_html_get", summary="Read bounded HTML for a browser mail view")
+async def get_message_html(message_id: str, response: Response) -> MessageHtmlOut:
+    message = await message_access.get_message(message_id)
+    if message is None:
+        raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
+    response.headers["Cache-Control"] = "no-store"
+    return MessageHtmlOut(html=message.body_html if message.html_status == "available" else None)
 
 
 @router.get("/{message_id}", operation_id="mail_message_get", summary="Read one synced message in full")

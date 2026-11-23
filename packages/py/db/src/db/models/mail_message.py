@@ -59,6 +59,9 @@ class MailMessage(SQLModel, table=True):
     recipients_json: str = "[]"
     snippet: str = ""
     body_text: str = ""
+    body_html: str | None = Field(default=None, sa_column=Column(String(200_000), nullable=True))
+    html_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
+    html_status: str = Field(default="pending", sa_column_kwargs={"server_default": "pending"})
     # Version of the text extraction that produced body_text (api.mail.sync_types.BODY_VERSION);
     # sync re-reads older bodies from the provider. 0 marks rows from before versioning.
     # Legacy Studio rows keep their ordinary inbox identity until a bound provider read verifies them.

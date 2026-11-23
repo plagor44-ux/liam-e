@@ -11,7 +11,7 @@ from db.models.mail_message import MailMessage
 
 from api.mail import service
 from api.mail.providers import GRAPH_API
-from api.mail.sync_types import Reread, SyncChanges, addresses, attachments, body_text, common, reread_http
+from api.mail.sync_types import HTML_VERSION, Reread, SyncChanges, addresses, attachments, body_text, html_body, common, reread_http
 
 
 def _safe_delta_url(url: str) -> bool:
@@ -120,6 +120,7 @@ def parse_message(message: dict[str, Any], *, folder: str, max_body_chars: int) 
     content = body.get('content') or ''
     html = body.get('contentType', '').lower() == 'html'
     text = body_text([] if html else [content], [content] if html else [])[:max_body_chars]
+    html_content, html_status = html_body([content] if html else [])
     sender = (message.get('from') or {}).get('emailAddress', {}).get('address', '')
     headers = {h['name'].lower(): h['value'] for h in message.get('internetMessageHeaders') or []}
     headers['message-id'] = message.get('internetMessageId') or headers.get('message-id', '')
@@ -131,7 +132,7 @@ def parse_message(message: dict[str, Any], *, folder: str, max_body_chars: int) 
     return {**common(sender, headers), 'folder': folder, 'provider_uid': message['id'],
             'thread_id': message.get('conversationId', ''), 'subject': message.get('subject') or '',
             'sender': sender, 'recipients_json': recipients('toRecipients'), 'cc_json': recipients('ccRecipients'), 'reply_to_json': reply_to,
-            'snippet': ' '.join(text.split())[:500], 'body_text': text,
+            'snippet': ' '.join(text.split())[:500], 'body_text': text, 'body_html': html_content, 'html_status': html_status if 'body' in message else 'pending', 'html_version': HTML_VERSION if 'body' in message else None,
             'internal_date': datetime.fromisoformat(received) if received else None,
             'has_attachments': bool(message.get('hasAttachments')), 'attachments_json': json.dumps(attachments(message.get('attachments') or [])),
             'is_read': bool(message.get('isRead')), 'is_flagged': (message.get('flag') or {}).get('flagStatus', '').lower() == 'flagged', 'labels_json': '[]'}

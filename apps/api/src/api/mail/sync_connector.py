@@ -19,7 +19,7 @@ from db.models.mail_account import MailAccount
 from db.models.mail_message import MailMessage
 
 from api.mail import connectors
-from api.mail.sync_types import Reread, SyncChanges, attachments, body_text, common, inbox_labels
+from api.mail.sync_types import HTML_VERSION, Reread, SyncChanges, attachments, body_text, html_body, common, inbox_labels
 
 
 logger = logging.getLogger(__name__)
@@ -460,12 +460,13 @@ async def fetch_bodies(account: MailAccount, messages: list[MailMessage], *, max
             break  # connector unreachable or refusing: the rest waits for the next run
         items = {item.get("id"): item for item in full.get("messages", []) if isinstance(item, dict)} if isinstance(full, dict) else {}
         for uid in uids:
-            found[uid] = parse_message(items[uid], thread_id=thread_id, folder="INBOX", max_body_chars=max_body_chars) if uid in items else None
+            found[uid] = parse_message({"htmlBody": None, **items[uid]}, thread_id=thread_id, folder="INBOX", max_body_chars=max_body_chars) if uid in items else None
     return found
 
 
 def parse_message(message: dict[str, Any], *, thread_id: str, folder: str, max_body_chars: int) -> dict[str, Any]:
     body = body_text([message.get('plaintextBody') or ''], [message.get('htmlBody') or ''])[:max_body_chars]
+    html, html_status = html_body([message.get('htmlBody') or ''])
     labels = message.get('labelIds') or []
     sender = message.get('sender') or ''
     try:
@@ -476,6 +477,6 @@ def parse_message(message: dict[str, Any], *, thread_id: str, folder: str, max_b
     return {**common(sender, {}), 'folder': folder, 'provider_uid': message['id'],
             'thread_id': thread_id, 'subject': message.get('subject') or '', 'sender': sender,
             'recipients_json': json.dumps(message.get('toRecipients') or []), 'cc_json': json.dumps(message.get('ccRecipients') or []),
-            'snippet': ' '.join((message.get('snippet') or body).split())[:500], 'body_text': body,
+            'snippet': ' '.join((message.get('snippet') or body).split())[:500], 'body_text': body, 'body_html': html, 'html_status': html_status if 'htmlBody' in message else 'pending', 'html_version': HTML_VERSION if 'htmlBody' in message else None,
             'internal_date': date, 'has_attachments': bool(message.get('attachmentIds') or files),
             'attachments_json': json.dumps(files), **_label_fields(labels)}

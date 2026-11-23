@@ -50,6 +50,10 @@ class MessageOriginalOut(BaseModel):
     truncated: bool
 
 
+class MessageHtmlOut(BaseModel):
+    html: str | None
+
+
 class MessageDetailOut(MessageListItemOut):
     local_reference_only: bool = False
     to: list[str]

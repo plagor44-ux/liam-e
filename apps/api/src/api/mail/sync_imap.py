@@ -16,7 +16,7 @@ from db.models.mail_message import MailMessage
 
 from api.mail import service, transport
 from api.mail.headers import sender_address
-from api.mail.sync_types import Reread, SyncChanges, addresses, body_text, common
+from api.mail.sync_types import HTML_VERSION, Reread, SyncChanges, addresses, body_text, html_body, common
 
 
 def _open_inbox(connection, email_address: str, password: str) -> None:
@@ -235,6 +235,7 @@ def parse_rfc822(raw: bytes, *, max_body_chars: int) -> dict[str, Any]:
         except Exception:
             pass
     body = body_text(texts["text/plain"], texts["text/html"])[:max_body_chars]
+    html, html_status = html_body(texts["text/html"])
     def header(key: str) -> str:
         try:
             return str(msg.get(key, ""))
@@ -269,7 +270,7 @@ def parse_rfc822(raw: bytes, *, max_body_chars: int) -> dict[str, Any]:
             "recipients_json": json.dumps(to_addresses) if to_addresses is not None else addresses(header("to")),
             "cc_json": json.dumps(cc_addresses) if cc_addresses is not None else addresses(header("cc")),
             "reply_to_json": json.dumps(reply_to_addresses) if reply_to_addresses is not None else addresses(header("reply-to")),
-            'snippet': ' '.join(body.split())[:500], 'body_text': body,
+            'snippet': ' '.join(body.split())[:500], 'body_text': body, 'body_html': html, 'html_status': html_status, 'html_version': HTML_VERSION,
             'internal_date': date, 'has_attachments': bool(files),
             'attachments_json': json.dumps(files), 'is_read': False,
             'is_flagged': False, 'labels_json': '[]'}

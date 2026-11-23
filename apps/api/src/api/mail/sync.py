@@ -15,7 +15,7 @@ from utils.mistral import MistralNotConfiguredError
 
 from api.mail import connector_mailbox, connectors, netguard, providers, secrets, service, sync_connector, sync_gmail, sync_graph, sync_imap, transport
 from api.mail.seed_ids import is_seed_account
-from api.mail.sync_types import BODY_VERSION, SyncResult
+from api.mail.sync_types import BODY_VERSION, HTML_VERSION, SyncResult
 
 logger = logging.getLogger(__name__)
 # Bodies re-read per run after the text extraction changed; a backlog drains over the next runs.
@@ -26,6 +26,7 @@ BODY_REFRESH_BATCH = 25
 REREAD_WAIT = timedelta(hours=1)
 REREAD_WAIT_MAX = timedelta(days=1)
 _reread_backoff: dict[str, tuple[int, datetime]] = {}
+_html_reread_backoff: dict[str, tuple[int, datetime]] = {}
 
 
 def _error_code(error: Exception) -> str:
@@ -105,6 +106,7 @@ async def sync_account(account_id: str) -> SyncResult:
             state.last_sync_at = state.updated_at = datetime.now(UTC)
         try:
             reread = await refresh_bodies(account, provider)
+            await refresh_html_bodies(account, provider)
         except (connector_mailbox.MailboxUnavailable, sync_state_access.StaleMailSync):
             raise
         except Exception as error:  # noqa: BLE001 — keep the completed page and retry body refresh
@@ -271,6 +273,41 @@ async def refresh_bodies(account, provider) -> list[str]:
             return dropped
     found = await provider.fetch_bodies(account, stale, max_body_chars=mail_env.mail_sync_max_body_chars)
     return await _apply_bodies(stale, found, now)
+
+
+async def refresh_html_bodies(account, provider) -> None:
+    """Backfill HTML independently of text; archive rows remain pending until INBOX."""
+    now = datetime.now(UTC)
+    waiting = [key for key, (_, retry_at) in _html_reread_backoff.items() if retry_at > now]
+    stale = await message_access.stale_html_bodies(account.id, HTML_VERSION, limit=BODY_REFRESH_BATCH, exclude=waiting)
+    if not stale:
+        return
+    if account.auth_type == connectors.CONNECTOR and not connector_mailbox.inbox_only(account):
+        state = await sync_state_access.get_state(account.id)
+        if state is None or not state.connector_verified:
+            raise connector_mailbox.MailboxUnavailable()
+        async with connector_mailbox.bound_mailbox(account, cursor=state.connector_cursor, generation=state.connector_generation, observed=state, check_after=True):
+            found = await provider.fetch_bodies(account, stale, max_body_chars=mail_env.mail_sync_max_body_chars)
+        async with sync_state_access.sync_transaction(account.id, state, verified=True) as (session, _):
+            await _apply_html_bodies(stale, found, now, session=session)
+    else:
+        found = await provider.fetch_bodies(account, stale, max_body_chars=mail_env.mail_sync_max_body_chars)
+        await _apply_html_bodies(stale, found, now)
+
+
+async def _apply_html_bodies(stale, found, now, *, session=None):
+    for message in stale:
+        if message.provider_uid not in found or (found[message.provider_uid] is not None and found[message.provider_uid].get("html_version") is None):
+            failures = _html_reread_backoff.get(message.id, (0, now))[0] + 1
+            _html_reread_backoff[message.id] = (failures, now + min(REREAD_WAIT * 2 ** min(failures - 1, 5), REREAD_WAIT_MAX))
+            continue
+        _html_reread_backoff.pop(message.id, None)
+        parsed = found[message.provider_uid]
+        if parsed is not None and message.rfc_message_id and parsed.get("rfc_message_id") and parsed["rfc_message_id"] != message.rfc_message_id:
+            parsed = None
+        status = parsed.get("html_status", "absent") if parsed is not None else "unavailable"
+        html = parsed.get("body_html") if parsed is not None else None
+        await message_access.set_html(message.id, expected_uid=message.provider_uid, expected_message_id=message.rfc_message_id, expected_uidvalidity=message.imap_uidvalidity, version=HTML_VERSION, status=status, html=html, **({"session": session} if session is not None else {}))
 
 
 async def _apply_bodies(stale, found, now, *, session=None):

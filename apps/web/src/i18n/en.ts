@@ -311,6 +311,7 @@ export const en = {
   },
   voiceModel: { title: 'Voice mode model', description: 'Choose the model for spoken conversations.', chat: 'Same as chat', chatDetail: 'Uses the model selected in the chat.', recommended: 'Recommended', unverified: 'The model list is currently unavailable.', unavailable: 'Unavailable. Voice mode uses the chat model.', small: 'Less expensive than Medium 3.5 and Large 4; reasoning can be disabled. May be less thorough on multi-step tasks.', medium: 'For varied tasks; the previous default. Higher cost and marked deprecated.', large: 'For demanding tasks; reasoning can be reduced but not disabled.' },
   voiceSelection: { title: 'Voices', description: 'Choose a voice for each language.', languages: { de: 'German', en: 'English' }, default: 'Default', other: 'Other languages', preview: 'Play sample', unavailable: 'This voice is no longer available; the default will be used.', mismatch: 'This voice is not designed for this language.', unverified: 'Voice list is currently unavailable.', previewError: 'The sample is unavailable.' },
+  mailHtml: { title: 'Mail content', showImages: 'Show images', imagePlaceholder: 'Image unavailable' },
   speechPace: { title: 'Speech speed', description: 'Experimental: Choose the speed of spoken replies. If it does not work, choose Normal.', options: { slow: 'Slow', normal: 'Normal', fast: 'Fast' }, save: 'Save speed', success: 'Speed saved.', conflict: 'Settings changed. Reload and review your choice.' },
   rootScreens: {
     lang: 'en', missingChunkTitle: 'liam-e was updated',

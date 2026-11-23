@@ -87,6 +87,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
 BROWSER_ONLY_GET_OPERATIONS: frozenset[str] = frozenset(
     {
         "audio_voices_list",
+        "mail_message_html_get",  # Browser-only untrusted markup.
         "audio_capabilities_get",  # Owner-only application capability.
         "audio_device_test_get",
         "audio_device_test_sample",

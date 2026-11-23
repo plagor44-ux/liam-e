@@ -13,7 +13,7 @@ import { toMessageFilters, type InboxSearch } from './filters'
 import { InsightBox } from './InsightBox'
 import { OriginalDialog } from './OriginalDialog'
 import { ActionToast } from './ActionToast'
-import { paragraphs } from './paragraphs'
+import { MailHtml } from './MailHtml'
 import { useMailActionsContext } from './useMailActions'
 
 export function MailView({ id }: { id: string }) {
@@ -91,7 +91,7 @@ export function MailView({ id }: { id: string }) {
       {message.isError && <div className="le-mail-error">{message.error instanceof MessageNotFoundError ? <Notice tone="danger" action={{ label: texts.mail.toInbox, onClick: back }}>{texts.proposalErrors.item_gone}</Notice> : <><Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void message.refetch() } }}>{texts.mail.loadError}</Notice><Button variant="secondary" className="le-mail-to-inbox" onClick={back}>{texts.mail.toInbox}</Button></>}</div>}
       {data && <article className="le-mail-article"><h1 className="title">{texts.mail.subjectText(data.subject)}</h1><div className="le-mail-header"><Avatar name={data.sender_name || data.sender_address} address={data.sender_address} colorIndex={data.color_index} size="lg" /><div className="le-mail-sender"><div className="body-strong">{data.sender_name || data.sender_address}</div>{breakpoint !== 'mobile' && <div className="small le-muted le-mail-address">{data.to.length ? texts.mail.addressTo(data.sender_address, data.to.join(', ')) : data.sender_address}</div>}</div>{account && <Tag tone="on-surface" dot={data.color_index}>{providerLabel(account)}</Tag>}{data.internal_date && <time className="small le-muted le-num" dateTime={data.internal_date}>{formatMailTime(new Date(data.internal_date), new Date(), undefined, locale)}</time>}</div>
         {data.local_reference_only ? <Notice tone="info">{texts.mail.localReference}</Notice> : <InsightBox id={id} onFollowup={start} />}
-        {data.body_text && <div className="le-mail-text body">{paragraphs(data.body_text).map((text, index) => <p key={index}>{text}</p>)}</div>}
+        <MailHtml key={id} id={id} text={data.body_text} localOnly={data.local_reference_only ?? false} />
         {data.attachments.length > 0 && <div className="le-mail-attachments">{data.attachments.map((attachment, index) => <span key={index} className="le-mail-attachment"><Icon name="paperclip" size="sm" /><span className="le-mail-attachment-name">{attachment.name}</span><span className="le-mail-attachment-size">{formatBytes(attachment.size, locale)}</span></span>)}</div>}
       </article>}
     </div>
