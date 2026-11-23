@@ -686,7 +686,7 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   chooses which suggested conditions to use; the rule is never created before Save. A missing source
   or duplicate name is explained, and unsaved rule edits use the settings leave guard.
   Destination choices and tags use locale-aware name order within each kind, ignoring case and
-  accents; fixed commands stay first. Rule rows sort by name and display the stored execution
+  accents and comparing digit runs numerically; fixed commands stay first. Rule rows sort by name and display the stored execution
   priority, which is independent of their visual order.
 - „Einstellungen“ is accessible in sidebar, toolbar and mobile drawer. `/settings` shows the template
   library, as does `/settings/prompts`. Further completed areas can be added to `settingsSections`;

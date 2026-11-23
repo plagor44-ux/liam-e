@@ -53,7 +53,7 @@ async def create_and_assign(message_id: str, name: str, kind: str, color: Destin
 
 async def list_destinations() -> list[MailFolder]:
     async with get_session_maker()() as session:
-        return list((await session.scalars(select(MailFolder).order_by(MailFolder.kind, MailFolder.name, MailFolder.id))).all())
+        return list((await session.scalars(select(MailFolder).order_by(MailFolder.id))).all())
 
 
 async def destination_page(cursor: str | None, limit: int) -> tuple[list[MailFolder], str | None]:
