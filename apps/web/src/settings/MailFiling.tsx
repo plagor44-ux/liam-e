@@ -33,16 +33,16 @@ export function FolderSettings() {
     catch { setError(true) } finally { setBusy(false) }
   }
   return <section className="le-prompts"><h2 className="heading">{t.folders}</h2><p>{t.localOnly}</p>
-    <form onSubmit={event => { event.preventDefault(); void save() }}>
+    <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void save() }}>
       <TextField label={t.name} value={name} maxLength={120} onChange={event => setName(event.target.value)} required />
-      {!editing && <label className="le-label">{t.folders}<select className="le-input" value={kind} onChange={event => setKind(event.target.value as 'folder' | 'label')}><option value="folder">{t.folder}</option><option value="label">{t.label}</option></select></label>}
+      {!editing && <label className="le-label">{t.kind}<select className="le-input" value={kind} onChange={event => setKind(event.target.value as 'folder' | 'label')}><option value="folder">{t.folder}</option><option value="label">{t.label}</option></select></label>}
       <Button type="submit" variant="primary" disabled={busy || !name.trim()}>{editing ? t.save : t.add}</Button>
       {editing && <Button type="button" variant="secondary" onClick={() => { setEditing(undefined); setName('') }}>{t.cancel}</Button>}
     </form>
     {query.isPending && <p role="status">{t.loading}</p>}
     {(query.isError || error) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { setError(false); void query.refetch() } }}>{t.error}</Notice>}
     {query.data?.length === 0 && <p>{t.empty}</p>}
-    {query.data?.map(row => <div className="le-prompt-row" key={row.id}><strong>{row.name}</strong><small>{row.kind === 'folder' ? t.folder : t.label}</small>
+    {query.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small>{row.kind === 'folder' ? t.folder : t.label}</small>
       <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name) }}>{t.rename}</Button>
       <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div>)}
     {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}
@@ -83,7 +83,7 @@ export function RuleSettings() {
   const rows = destinations.data ?? []
   const choose = (key: 'account_id' | 'folder_id' | 'label_id', label: string, options: { id?: string; name: string }[]) => <label className="le-label">{label}<select className="le-input" value={draft[key] ?? ''} onChange={event => update({ [key]: event.target.value || null })}><option value="">{key === 'account_id' ? t.allAccounts : t.none}</option>{options.filter(row => row.id).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
   return <section className="le-prompts"><h2 className="heading">{t.rules}</h2><p>{t.ruleDelay}</p>
-    <form onSubmit={event => { event.preventDefault(); void execute('save') }}>
+    <form className="le-filing-form" onSubmit={event => { event.preventDefault(); void execute('save') }}>
       <TextField label={t.ruleName} value={draft.name} onChange={event => update({ name: event.target.value })} maxLength={120} required />
       {choose('account_id', t.account, (accounts.data ?? []).map(account => ({ id: account.id, name: account.display_name || account.email_address })))}
       {(['sender_address', 'sender_domain', 'subject_contains', 'recipient'] as const).map((key, index) => <TextField key={key} label={[t.sender, t.domain, t.subject, t.recipient][index]!} value={draft[key] ?? ''} onChange={event => update({ [key]: event.target.value })} />)}
@@ -100,7 +100,7 @@ export function RuleSettings() {
     </form>
     {rules.isPending && <p role="status">{t.loading}</p>}{(error || rules.isError || destinations.isError || accounts.isError) && <Notice tone="danger">{t.error}</Notice>}
     {rules.data?.length === 0 && <p>{t.ruleEmpty}</p>}
-    {rules.data?.map(row => <div className="le-prompt-row" key={row.id}><strong>{row.name}</strong>
+    {rules.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>
       <Button variant="secondary" onClick={() => { setEditing(row); setDraft({ name: row.name, account_id: row.account_id, sender_address: row.sender_address, sender_domain: row.sender_domain, subject_contains: row.subject_contains, recipient: row.recipient, folder_id: row.folder_id, label_id: row.label_id, mark_read: row.mark_read, mark_unread: row.mark_unread, archive: row.archive, position: row.position, is_active: row.is_active }) }}>{t.editRule}</Button>
       <Button variant="secondary" onClick={() => setApplying(row)}>{t.apply}</Button><Button variant="secondary" onClick={() => setDeleting(row)}>{t.deleteRule}</Button>
       <Button variant="secondary" onClick={() => setShowRuns(showRuns === row.id ? undefined : row.id)}>{t.outcomes}</Button>

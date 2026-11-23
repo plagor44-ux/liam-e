@@ -4,11 +4,11 @@ import { useState } from 'react'
 import { mailFilingAssign } from '../api/generated/sdk.gen'
 import type { FilingIn } from '../api/generated/types.gen'
 import { unwrap } from '../api/unwrap'
-import { Button, Menu, Notice } from '../ds'
+import { Button, IconButton, Menu, Notice } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import { foldersQuery } from '../settings/mailQueries'
 
-export function FilingMenu({ ids, onDone }: { ids: string[]; onDone?: () => void }) {
+export function FilingMenu({ ids, onDone, compact = false }: { ids: string[]; onDone?: () => void; compact?: boolean }) {
   const { texts } = useI18n(), t = texts.mailFiling
   const query = useQuery(foldersQuery()), client = useQueryClient()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false), [done, setDone] = useState(false)
@@ -23,7 +23,7 @@ export function FilingMenu({ ids, onDone }: { ids: string[]; onDone?: () => void
     } catch { setError(true) } finally { setBusy(false) }
   }
   const rows = query.data ?? []
-  return <><Menu trigger={props => <Button {...props} variant="secondary" disabled={!ids.length || busy || query.isPending || query.isError}>{t.file}</Button>} items={[
+  return <><Menu trigger={props => compact ? <IconButton {...props} icon="folder" label={t.file} size="lg" disabled={!ids.length || busy || query.isPending || query.isError} /> : <Button {...props} variant="secondary" disabled={!ids.length || busy || query.isPending || query.isError}>{t.file}</Button>} items={[
     { label: t.clearFolder, onSelect: () => { void assign({ folder_id: null }) } },
     ...rows.filter(row => row.kind === 'folder' && row.id).map(row => ({ label: row.name, onSelect: () => { void assign({ folder_id: row.id }) } })),
     ...rows.filter(row => row.kind === 'label' && row.id).flatMap(row => [

@@ -5,6 +5,12 @@
 .le-prompts { display: grid; gap: var(--space-4); margin-top: var(--space-5); min-width: 0; }
 .le-prompt-row { display: grid; gap: var(--space-2); padding: var(--space-4); border-radius: var(--radius-md); background: var(--surface-soft); color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
 .le-prompt-row:hover { background: var(--accent-soft); }
+.le-filing-form { display: grid; gap: var(--space-3); }
+.le-filing-form > .le-label { display: flex; flex-direction: column; gap: var(--space-2); }
+.le-filing-form > .le-btn { justify-self: start; }
+.le-filing-row { display: flex; flex-wrap: wrap; align-items: center; }
+.le-filing-row > strong { flex: 1 1 12rem; }
+.le-filing-row > p { flex-basis: 100%; }
 .le-prompt-preview { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-muted); }
 .le-prompt-placeholder { height: var(--control-height-lg); background: var(--surface-soft); border-radius: var(--radius-sm); }
 /* Portal menu text must wrap independently of the page's containers. */
