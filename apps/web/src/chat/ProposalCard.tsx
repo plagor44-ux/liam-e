@@ -6,6 +6,7 @@ import type { ChatMessageOut, Proposal } from '../api/generated/types.gen'
 import { errorCode, unwrap } from '../api/unwrap'
 import { Button, ConfirmCard, Notice } from '../ds'
 import { foldersQuery } from '../settings/mailQueries'
+import { sortNamed } from '../mail/filingOrder'
 import { accountsQuery } from '../api/queries'
 import type { Catalogue } from '../i18n/catalogue'
 import { useI18n } from '../i18n/I18n'
@@ -123,7 +124,7 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
 }
 
 export function ProposalCard({ message, clock = systemClock, oldGrant = false, grantVersion, skillRevoked = false }: { message: ChatMessageOut; clock?: Clock; oldGrant?: boolean; grantVersion?: number | null; skillRevoked?: boolean }) {
-  const { texts } = useI18n()
+  const { texts, locale } = useI18n()
   const client = useQueryClient()
   const [updated, setUpdated] = useState<ChatMessageOut | null>(null)
   const [busy, setBusy] = useState(false)
@@ -241,7 +242,7 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     const added = (command.add_labels ?? []).map(id => rows.find(row => row.id === id)), removed = (command.remove_labels ?? []).map(id => rows.find(row => row.id === id))
     const missingDestination = !destinations.isPending && !destinations.isError && (Boolean(command.folder_id && !target) || added.some(row => !row) || removed.some(row => !row))
     const unavailable = destinations.isPending || destinations.isError || missingDestination
-    const details = [texts.mailFiling.filingPending, proposal.reason, command.set_folder ? command.folder_id ? target ? `${texts.mailFiling.folder}: ${target.name}` : '' : texts.mailFiling.clearFolder : '', ...added.map(row => row ? texts.mailFiling.addLabel(row.name) : ''), ...removed.map(row => row ? texts.mailFiling.removeLabel(row.name) : '')].filter(Boolean).join(' · ')
+    const details = [texts.mailFiling.filingPending, proposal.reason, command.set_folder ? command.folder_id ? target ? `${texts.mailFiling.folder}: ${target.name}` : '' : texts.mailFiling.clearFolder : '', ...sortNamed(added.filter(row => row !== undefined), locale).map(row => texts.mailFiling.addLabel(row.name)), ...sortNamed(removed.filter(row => row !== undefined), locale).map(row => texts.mailFiling.removeLabel(row.name))].filter(Boolean).join(' · ')
     return <><ConfirmCard title={texts.mailFiling.filingConfirm} reason={details} items={proposal.items} confirmLabel={() => texts.mailFiling.file} deselected={saved.deselected ?? new Set<string>()} onDeselectedChange={value => { saved.deselected = value; refresh(n => n + 1) }} busy={busy} confirmDisabled={unavailable} onConfirm={selected_ids => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids }, throwOnError: true })), true) }} onCancel={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }} />{(error || destinations.isError) && <Notice tone="danger">{texts.mailFiling.error}</Notice>}{missingDestination && <Notice tone="info">{texts.mailFiling.missingDestination}</Notice>}</>
   }
   const saved = cardState(client, current.id)

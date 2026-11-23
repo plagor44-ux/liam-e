@@ -7,9 +7,10 @@ import { unwrap } from '../api/unwrap'
 import { Button, IconButton, Menu, Notice } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import { foldersQuery } from '../settings/mailQueries'
+import { sortDestinations } from './filingOrder'
 
 export function FilingMenu({ ids, messages = [], onDone, compact = false }: { ids: string[]; messages?: MessageListItemOut[]; onDone?: () => void; compact?: boolean }) {
-  const { texts } = useI18n(), t = texts.mailFiling
+  const { texts, locale } = useI18n(), t = texts.mailFiling
   const query = useQuery(foldersQuery()), client = useQueryClient()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false), [done, setDone] = useState(false)
   const assign = async (change: Omit<FilingIn, 'message_ids'>) => {
@@ -22,7 +23,7 @@ export function FilingMenu({ ids, messages = [], onDone, compact = false }: { id
       onDone?.()
     } catch { setError(true) } finally { setBusy(false) }
   }
-  const rows = query.data ?? []
+  const rows = sortDestinations(query.data ?? [], locale)
   const hasState = messages.length === ids.length && ids.length > 0
   const allInFolder = (id: string | null) => hasState && messages.every(mail => (mail.app_folder_id ?? null) === id)
   const labelCount = (id: string) => messages.filter(mail => (mail.app_label_ids ?? []).includes(id)).length

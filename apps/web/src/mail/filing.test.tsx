@@ -6,6 +6,7 @@ import * as sdk from '../api/generated/sdk.gen'
 import { FilingMenu } from './FilingMenu'
 import { FilingTags } from './FilingTags'
 import type { MessageListItemOut } from '../api/generated/types.gen'
+import { I18nProvider } from '../i18n/I18n'
 
 afterEach(() => { cleanup() })
 
@@ -50,6 +51,23 @@ test('filing choices identify same-named destinations by kind', async () => {
   fireEvent.click(trigger)
   expect(await screen.findByRole('menuitem', { name: 'Ordner: Projects' })).toBeTruthy()
   expect(screen.getByRole('menuitem', { name: 'Label: Projects' })).toBeTruthy()
+  folders.mockRestore()
+})
+
+test.each(['de', 'en'] as const)('filing choices and tags share the active locale order (%s)', async locale => {
+  const data = [
+    { id: 'z', name: 'Zebra', kind: 'folder' }, { id: 'a', name: 'Äpfel', kind: 'folder' },
+    { id: 'l2', name: 'zeta', kind: 'label' }, { id: 'l1', name: 'Alpha', kind: 'label' },
+  ] as const
+  const folders = spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<I18nProvider locale={locale}><QueryClientProvider client={client}><FilingMenu ids={['a']} /><FilingTags folderId="a" labelIds={['l2', 'l1']} destinations={[...data]} /></QueryClientProvider></I18nProvider>)
+  const trigger = await screen.findByRole('button', { name: locale === 'de' ? 'Zuordnen' : 'File' }) as HTMLButtonElement
+  await waitFor(() => expect(trigger.disabled).toBe(false))
+  fireEvent.click(trigger)
+  const choices = screen.getAllByRole('menuitem').map(row => row.textContent)
+  expect(choices.slice(1)).toEqual(locale === 'de' ? ['Ordner: Äpfel', 'Ordner: Zebra', 'Label: Alpha', 'Label: zeta'] : ['Folder: Äpfel', 'Folder: Zebra', 'Label: Alpha', 'Label: zeta'])
+  expect(Array.from(document.querySelectorAll('.le-filing-tags .le-tag')).map(row => row.textContent)).toEqual(locale === 'de' ? ['Ordner: Äpfel', 'Label: Alpha', 'Label: zeta'] : ['Folder: Äpfel', 'Label: Alpha', 'Label: zeta'])
   folders.mockRestore()
 })
 

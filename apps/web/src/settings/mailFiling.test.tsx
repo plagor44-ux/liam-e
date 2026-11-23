@@ -27,6 +27,27 @@ test('folder deletion asks for confirmation and sends it explicitly', async () =
   await waitFor(() => expect(requests.some(request => request.method === 'DELETE' && request.url.includes('confirm_delete=true'))).toBe(true))
 })
 
+test('rules display alphabetically with their stored priority and do not mutate it', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  requests = []
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    requests.push({ method: req.method, url: req.url })
+    if (path.endsWith('/folders') || path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'z', name: 'Zebra', position: 1, version: 1 }, { id: 'a', name: 'Alpha', position: 9, version: 1 }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  await screen.findByText('Alpha')
+  const rows = Array.from(document.querySelectorAll('.le-filing-row'))
+  expect(rows.map(row => row.querySelector('strong')?.textContent)).toEqual(['Alpha', 'Zebra'])
+  expect(within(rows[0] as HTMLElement).getByText('Reihenfolge: 9')).toBeTruthy()
+  expect(within(rows[1] as HTMLElement).getByText('Reihenfolge: 1')).toBeTruthy()
+  expect(requests.every(request => request.method === 'GET')).toBe(true)
+})
+
 test('applying a rule to existing mail requires confirmation', async () => {
   const { RuleSettings } = await import('./MailFiling')
   requests = []

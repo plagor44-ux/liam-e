@@ -12,6 +12,7 @@ import { useBreakpoint, useCoarsePointer } from '../shell/useBreakpoint'
 import { useSwipeSettings } from '../settings/useSwipeSettings'
 import { foldersQuery } from '../settings/mailQueries'
 import { FilingMenu } from './FilingMenu'
+import { sortDestinations } from './filingOrder'
 import { hasActiveFilters, toMessageFilters, type InboxSearch } from './filters'
 import { groupByDay } from './groups'
 import { useInboxKeys } from './useInboxKeys'
@@ -203,7 +204,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
     <div className="le-inbox-filters"><Menu trigger={props => <Chip {...props} quiet>{accountLabel}<Icon name="chevron-down" size="sm" /></Chip>} items={[{ label: texts.controls.allAccounts, onSelect: () => changeSearch({ account: undefined }) }, ...accounts.map(account => ({ label: account.display_name || account.email_address, onSelect: () => changeSearch({ account: [account.id] }) }))]} />
       <Menu trigger={props => <Chip {...props} quiet>{selectedDestination ? destinationName(selectedDestination) : texts.mailFiling.filters}<Icon name="chevron-down" size="sm" /></Chip>} items={[
         { label: texts.mailFiling.inbox, onSelect: () => changeSearch({ app_folder: undefined, app_label: undefined }) },
-        ...(destinations.data ?? []).filter(row => row.id).map(row => ({ label: destinationName(row), icon: row.kind === 'folder' ? 'folder' as const : 'tag' as const, onSelect: () => changeSearch(row.kind === 'folder' ? { app_folder: row.id, app_label: undefined } : { app_folder: undefined, app_label: row.id }) })),
+        ...sortDestinations(destinations.data ?? [], locale).filter(row => row.id).map(row => ({ label: destinationName(row), icon: row.kind === 'folder' ? 'folder' as const : 'tag' as const, onSelect: () => changeSearch(row.kind === 'folder' ? { app_folder: row.id, app_label: undefined } : { app_folder: undefined, app_label: row.id }) })),
       ]} />
       {(['unread', 'important', 'attachments'] as const).map(key => <Chip key={key} pressed={Boolean(search[key])} quiet={!search[key]} onClick={() => changeSearch({ [key]: search[key] ? undefined : true })}>{texts.inbox[key]}</Chip>)}
     </div>

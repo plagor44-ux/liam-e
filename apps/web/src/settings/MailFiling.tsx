@@ -9,9 +9,10 @@ import { foldersQuery } from './mailQueries'
 import { Button, Chip, Icon, Menu, Notice, TextField } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import { PreferenceDialog } from './Preferences'
+import { sortDestinations, sortNamed } from '../mail/filingOrder'
 
 export function FolderSettings() {
-  const { texts } = useI18n(), t = texts.mailFiling
+  const { texts, locale } = useI18n(), t = texts.mailFiling
   const client = useQueryClient(), query = useQuery(foldersQuery())
   const [name, setName] = useState(''), [kind, setKind] = useState<'folder' | 'label'>('folder')
   const [editing, setEditing] = useState<MailFolder>(), [deleting, setDeleting] = useState<MailFolder>()
@@ -42,7 +43,7 @@ export function FolderSettings() {
     {query.isPending && <p role="status">{t.loading}</p>}
     {(query.isError || error) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { setError(false); void query.refetch() } }}>{t.error}</Notice>}
     {query.data?.length === 0 && <p>{t.empty}</p>}
-    {query.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label}</small>
+    {sortDestinations(query.data ?? [], locale).map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong><small><Icon name={row.kind === 'folder' ? 'folder' : 'tag'} size="sm" /> {row.kind === 'folder' ? t.folder : t.label}</small>
       <Button variant="secondary" onClick={() => { setEditing(row); setName(row.name) }}>{t.rename}</Button>
       <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div>)}
     {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}
@@ -50,7 +51,7 @@ export function FolderSettings() {
 }
 
 export function RuleSettings() {
-  const { texts } = useI18n(), t = texts.mailFiling
+  const { texts, locale } = useI18n(), t = texts.mailFiling
   const client = useQueryClient(), destinations = useQuery(foldersQuery()), accounts = useQuery(accountsQuery())
   const rules = useQuery({ queryKey: ['mail-rules'], queryFn: () => unwrap(mailRulesList({ throwOnError: true })) })
   const [draft, setDraft] = useState<RuleIn>({ name: '', is_active: true })
@@ -82,7 +83,7 @@ export function RuleSettings() {
       }
     } catch { setError(true) } finally { setBusy(false) }
   }
-  const rows = destinations.data ?? []
+  const rows = sortDestinations(destinations.data ?? [], locale)
   const choose = (key: 'account_id' | 'folder_id' | 'label_id', label: string, options: { id?: string; name: string }[]) => {
     const selected = options.find(row => row.id === draft[key])?.name ?? (key === 'account_id' ? t.allAccounts : t.none)
     return <div className="le-field"><span className="le-label">{label}</span><Menu trigger={props => <Chip {...props} quiet aria-label={`${label}: ${selected}`}>{selected}<Icon name="chevron-down" size="sm" /></Chip>} items={[
@@ -96,7 +97,7 @@ export function RuleSettings() {
     const conditions = [row.account_id && `${t.account}: ${account?.display_name || account?.email_address || t.none}`, row.sender_address && `${t.sender}: ${row.sender_address}`, row.sender_domain && `${t.domain}: ${row.sender_domain}`, row.subject_contains && `${t.subject}: ${row.subject_contains}`, row.recipient && `${t.recipient}: ${row.recipient}`].filter(Boolean)
     const actions = [folder && `${t.folder}: ${folder.name}`, label && `${t.label}: ${label.name}`,
       row.mark_read && t.markRead, row.mark_unread && t.markUnread, row.archive && t.archive].filter(Boolean)
-    return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.conditions}: {conditions.join(' · ')}</small><small>{t.targets}: {actions.join(' · ')}</small></div>
+    return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.priority}: {row.position ?? 0}</small><small>{t.conditions}: {conditions.join(' · ')}</small><small>{t.targets}: {actions.join(' · ')}</small></div>
   }
   const providerOutcomes = (value: string | undefined) => {
     try {
@@ -131,7 +132,7 @@ export function RuleSettings() {
     {queued !== undefined && <p role="status">{t.queued(queued)}</p>}
     {rules.isPending && <p role="status">{t.loading}</p>}{(error || rules.isError || destinations.isError || accounts.isError) && <Notice tone="danger">{t.error}</Notice>}
     {rules.data?.length === 0 && <p>{t.ruleEmpty}</p>}
-    {rules.data?.map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>{ruleSummary(row)}
+    {sortNamed(rules.data ?? [], locale).map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>{ruleSummary(row)}
       <Button variant="secondary" onClick={() => { setEditing(row); setDraft({ name: row.name, account_id: row.account_id, sender_address: row.sender_address, sender_domain: row.sender_domain, subject_contains: row.subject_contains, recipient: row.recipient, folder_id: row.folder_id, label_id: row.label_id, mark_read: row.mark_read, mark_unread: row.mark_unread, archive: row.archive, position: row.position, is_active: row.is_active }) }}>{t.editRule}</Button>
       <Button variant="secondary" onClick={() => setApplying(row)}>{t.apply}</Button><Button variant="secondary" onClick={() => setDeleting(row)}>{t.deleteRule}</Button>
       <Button variant="secondary" onClick={() => setShowRuns(showRuns === row.id ? undefined : row.id)}>{t.outcomes}</Button>
