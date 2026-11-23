@@ -2,7 +2,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from '@tanstack/react-router'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { client as api } from '../api/generated/client.gen'
 import * as sdk from '../api/generated/sdk.gen'
 import { spyOn, mock } from 'bun:test'
@@ -341,4 +341,68 @@ test.each([
   expect(await screen.findByText(notice)).toBeTruthy()
   expect(screen.getByText(/Zusammenfassungen für ungelesene Mails werden wie gewohnt erstellt/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' })).toBeTruthy()
+})
+
+
+test('source initialization blocks edits and later updates preserve the typed draft', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  let resolveSource!: (value: unknown) => void
+  spyOn(sdk, 'mailMessageGet').mockImplementation((() => new Promise(resolve => { resolveSource = resolve })) as never)
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'folder', name: 'Projects', kind: 'folder' }] } as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [{ id: 'account', display_name: 'Work' }] } as never)
+  spyOn(sdk, 'mailRulesList').mockResolvedValue({ data: [{ id: 'rule', name: 'Existing', version: 1 }] } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="mail" /></QueryClientProvider>)
+  const name = screen.getByLabelText('Name der Regel') as HTMLInputElement
+  expect(name.matches(':disabled')).toBe(true)
+  expect(await screen.findByRole('button', { name: 'Regel bearbeiten' })).toHaveProperty('disabled', true)
+  expect(screen.getAllByRole('status').some(node => node.textContent?.includes('Wird geladen'))).toBe(true)
+  const source = { id: 'mail', account_id: 'account', sender_name: 'Original', sender_address: 'person@example.org', subject: 'First' }
+  await act(async () => { resolveSource({ data: source }); await Promise.resolve() })
+  await waitFor(() => expect(name.matches(':disabled')).toBe(false))
+  fireEvent.change(name, { target: { value: 'My draft' } })
+  act(() => client.setQueryData(['message', 'mail'], { ...source, sender_name: 'Late response', subject: 'Changed' }))
+  expect(name.value).toBe('My draft')
+  expect((screen.getByLabelText('Betreff enthält') as HTMLInputElement).value).toBe('First')
+})
+
+test('late source updates never replace an existing rule draft or its save', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  let resolveSource!: (value: unknown) => void
+  spyOn(sdk, 'mailMessageGet').mockImplementation((() => new Promise(resolve => { resolveSource = resolve })) as never)
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'folder', name: 'Projects', kind: 'folder' }] } as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [{ id: 'account', display_name: 'Work' }] } as never)
+  spyOn(sdk, 'mailRulesList').mockResolvedValue({ data: [{ id: 'rule', name: 'Existing', version: 3, sender_domain: 'example.org', folder_id: 'folder', is_active: true }] } as never)
+  const update = spyOn(sdk, 'mailRuleUpdate').mockResolvedValue({ data: { id: 'rule' } } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="mail" /></QueryClientProvider>)
+  const edit = await screen.findByRole('button', { name: 'Regel bearbeiten' }) as HTMLButtonElement
+  expect(edit.disabled).toBe(true)
+  const source = { id: 'mail', account_id: 'account', sender_name: 'Source', sender_address: 'person@example.org', subject: 'Original' }
+  await act(async () => { resolveSource({ data: source }); await Promise.resolve() })
+  await waitFor(() => expect(edit.disabled).toBe(false))
+  fireEvent.click(edit)
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Edited existing' } })
+  act(() => client.setQueryData(['message', 'mail'], { ...source, sender_name: 'Late', subject: 'Unrelated' }))
+  expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('Edited existing')
+  expect((screen.getByLabelText('Absenderdomain') as HTMLInputElement).value).toBe('example.org')
+  fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await waitFor(() => expect(update).toHaveBeenCalledTimes(1))
+  expect(update.mock.calls[0]?.[0]?.body).toMatchObject({ name: 'Edited existing', expected_version: 3, sender_domain: 'example.org', folder_id: 'folder' })
+})
+
+test('source load failure unlocks an empty manual rule draft', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailMessageGet').mockRejectedValue(new Error('unavailable'))
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [] } as never)
+  spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [] } as never)
+  spyOn(sdk, 'mailRulesList').mockResolvedValue({ data: [] } as never)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings sourceMessageId="mail" /></QueryClientProvider>)
+  expect(await screen.findByText('Die Quellmail konnte nicht geladen werden. Du kannst die Regel manuell erstellen.')).toBeTruthy()
+  const name = screen.getByLabelText('Name der Regel') as HTMLInputElement
+  expect(name.matches(':disabled')).toBe(false)
+  expect(name.value).toBe('')
+  fireEvent.change(name, { target: { value: 'Manual' } })
+  expect(name.value).toBe('Manual')
 })

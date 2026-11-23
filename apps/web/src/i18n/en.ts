@@ -42,6 +42,7 @@ export const en = {
     createForMailHint: 'Save creates the destination and files this email.', destinationExists: 'This name already exists. Check the existing destination before trying again.', sourceGone: 'This email is no longer available. Nothing was saved.',
     createUnknown: 'The response is missing. Check the destination and email before trying again.',
     sourceAccountGone: 'This email’s account is no longer available. Create a new rule without this source if needed.',
+    sourceLoadManual: 'The source email could not be loaded. You can create the rule manually.',
     sourceRuleHint: 'Suggestions from this email: choose the conditions you want to use.', useCondition: name => `Use ${name}`,
     ruleTargetRequired: 'Choose a folder or label to create the rule.', ruleName: 'Rule name', account: 'Account', allAccounts: 'All accounts', sender: 'Sender address', domain: 'Sender domain', subject: 'Subject contains', recipient: 'Recipient address',
     none: 'None', markRead: 'Mark as read', markUnread: 'Mark as unread', archive: 'Archive at provider',

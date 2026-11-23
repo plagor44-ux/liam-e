@@ -35,6 +35,7 @@ export const de = {
     createForMailHint: 'Erst Speichern legt den Eintrag an und ordnet diese Mail zu.', destinationExists: 'Diesen Namen gibt es bereits. Prüfe den vorhandenen Eintrag, bevor du es erneut versuchst.', sourceGone: 'Diese Mail ist nicht mehr verfügbar. Es wurde nichts gespeichert.',
     createUnknown: 'Die Antwort fehlt. Prüfe den Eintrag und die Mail, bevor du es erneut versuchst.',
     sourceAccountGone: 'Das Konto dieser Mail ist nicht mehr verfügbar. Erstelle bei Bedarf eine neue Regel ohne diesen Bezug.',
+    sourceLoadManual: 'Die Quellmail konnte nicht geladen werden. Du kannst die Regel manuell erstellen.',
     sourceRuleHint: 'Vorschläge aus dieser Mail: Wähle die Bedingungen, die du verwenden möchtest.', useCondition: (name: string) => `${name} verwenden`,
     ruleTargetRequired: 'Wähle einen Ordner oder ein Label, um die Regel anzulegen.', ruleName: 'Name der Regel', account: 'Konto', allAccounts: 'Alle Konten', sender: 'Absenderadresse', domain: 'Absenderdomain', subject: 'Betreff enthält', recipient: 'Empfängeradresse',
     none: 'Keine Auswahl', markRead: 'Als gelesen markieren', markUnread: 'Als ungelesen markieren', archive: 'Beim Anbieter archivieren',
