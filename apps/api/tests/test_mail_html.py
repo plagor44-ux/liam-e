@@ -76,15 +76,12 @@ async def test_gmail_external_html_part_is_fetched_and_bounded():
     assert len(calls) == 1
 
 
-def test_html_endpoint_returns_only_bounded_stored_markup_and_no_store(monkeypatch):
+def test_html_endpoint_returns_only_bounded_stored_markup_and_no_store(monkeypatch, client):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from fastapi.testclient import TestClient
-    from conftest import build_app
     from api.routers.api.v1.mail import messages
     row = SimpleNamespace(body_html='<p>Synthetic</p>', html_status='available')
     monkeypatch.setattr(messages.message_access, 'get_message', AsyncMock(return_value=row))
-    client = TestClient(build_app())
     response = client.get('/api/v1/mail/messages/synthetic/html')
     assert response.status_code == 200 and response.json() == {'html': '<p>Synthetic</p>'}
     assert response.headers['cache-control'] == 'no-store'
