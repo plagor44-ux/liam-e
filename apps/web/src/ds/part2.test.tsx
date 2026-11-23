@@ -251,3 +251,14 @@ test('the empty snippet still has the stable toolbar slot', async () => {
   expect(css).toMatch(/\.le-mailrow-snippet-slot \{[^}]*height: 24px;/u)
   expect(css).toMatch(/\.le-mailrow-actions \{ position: absolute;[^}]*inset: 0;/u)
 })
+
+
+test('the snippet toolbar uses each row state background with a soft fade', async () => {
+  const css = await Bun.file(new URL('../styles/ds.css', import.meta.url)).text()
+  const app = await Bun.file(new URL('../styles/ds-app.css', import.meta.url)).text()
+  expect(css).toContain('--le-row-bg: var(--surface)')
+  expect(css).toContain('--le-row-bg: var(--surface-soft)')
+  expect(css).toContain('--le-row-bg: var(--accent-soft)')
+  expect(app).toMatch(/\.le-mailrow-swipe \.le-mailrow\.is-checked \{ --le-row-bg: var\(--accent-soft\);/u)
+  expect(css).toMatch(/\.le-mailrow-actions \{[^}]*linear-gradient\(to right, transparent, var\(--le-row-bg\) 12px\)/u)
+})

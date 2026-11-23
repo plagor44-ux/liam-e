@@ -49,5 +49,5 @@ export function MailRowWithQuickActions({ onQuickSuccess, ...props }: ComponentP
     icon: destination.kind === 'folder' ? 'folder' : 'tag', disabled: quick.busy,
     onSelect: () => { void quick.file(destination.id!, destination.kind) },
   }))
-  return <MailRow {...props} quickActions={<QuickActions messages={[props.mail]} onSuccess={onQuickSuccess} />} quickMenuItems={quickMenuItems} quickError={quick.error ? quick.t.quickError : undefined} />
+  return <MailRow {...props} quickActions={<QuickActions messages={[props.mail]} onSuccess={onQuickSuccess} limit={1} />} quickMenuItems={quickMenuItems} quickError={quick.error ? quick.t.quickError : undefined} />
 }

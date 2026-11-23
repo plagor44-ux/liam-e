@@ -174,9 +174,9 @@ small { font-size: var(--font-size-small); }
 
 /* Mail row (inbox list) */
 .le-mailrow-swipe { position: relative; overflow: hidden; border-radius: var(--radius-sm); touch-action: pan-y pinch-zoom; }
-.le-mailrow-swipe .le-mailrow { background-color: var(--surface); }
-.le-mailrow-swipe .le-mailrow:hover { background-color: var(--surface-soft); }
-.le-mailrow-swipe .le-mailrow[aria-current="true"] { background-color: var(--accent-soft); }
+.le-mailrow-swipe .le-mailrow { --le-row-bg: var(--surface); background-color: var(--le-row-bg); }
+.le-mailrow-swipe .le-mailrow:hover, .le-mailrow-swipe .le-mailrow:focus-within, .le-mailrow-swipe .le-mailrow.is-hover { --le-row-bg: var(--surface-soft); background-color: var(--le-row-bg); }
+.le-mailrow-swipe .le-mailrow[aria-current="true"] { --le-row-bg: var(--accent-soft); background-color: var(--le-row-bg); }
 .le-mailrow-preview { position: absolute; inset: 0; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); background: var(--accent-soft); color: var(--accent); }
 .le-mailrow-preview.is-danger { background: var(--danger-soft); color: var(--danger); }
 .le-mailrow-preview.is-left { justify-content: flex-end; }
@@ -217,11 +217,11 @@ small { font-size: var(--font-size-small); }
 .le-mailrow-time { font-size: var(--font-size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .le-mailrow.is-unread .le-mailrow-time { color: var(--accent); font-weight: 600; }
 /* The toolbar overlays only the snippet slot; its height is reserved in every row. */
-.le-mailrow-actions { position: absolute; z-index: 2; inset: 0; display: none; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: var(--space-1); background: var(--surface-overlay); }
+.le-mailrow-actions { position: absolute; z-index: 2; inset: 0; display: none; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: var(--space-1); background: linear-gradient(to right, transparent, var(--le-row-bg) 12px); }
 .le-mailrow-actions > .le-tooltip-anchor { flex: none; }
 .le-mailrow-actions .le-icon-btn { width: 24px; height: 24px; }
 .le-mailrow-actions .le-quick-actions { flex: 0 1 auto; min-width: 0; }
-.le-mailrow-actions .le-quick-actions .le-btn { min-height: 24px; height: 24px; max-width: 9rem; padding: 0 var(--space-2); }
+.le-mailrow-actions .le-quick-actions .le-btn { min-height: 24px; height: 24px; min-width: calc(10ch + 24px); max-width: 9rem; padding: 0 var(--space-2); }
 .le-mailrow:hover .le-mailrow-actions, .le-mailrow:focus-within .le-mailrow-actions, .le-mailrow.is-hover .le-mailrow-actions, .le-mailrow[aria-current="true"] .le-mailrow-actions { display: flex; }
 
 /* Confirm card */

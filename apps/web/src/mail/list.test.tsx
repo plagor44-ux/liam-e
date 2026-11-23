@@ -84,6 +84,26 @@ test('a quick action in a list row files without opening it', async () => {
   expect(router.state.location.pathname).toBe('/mail')
 })
 
+test('the row quick bar shows only the top suggestion with a focus tooltip', async () => {
+  const { client } = setup('row')
+  await screen.findByText('Termin')
+  await waitFor(() => expect(client.getQueryState(['mail-quick-actions'])?.status).toBe('success'))
+  act(() => client.setQueryData(['mail-quick-actions'], [
+    { destination: { id: 'folder', name: 'Long project destination', kind: 'folder' }, score: 5 },
+    { destination: { id: 'label', name: 'Other', kind: 'label' }, score: 3 },
+  ]))
+  const bar = document.querySelector('.le-mailrow-actions') as HTMLElement
+  const quick = await within(bar).findByRole('button', { name: 'Ordner: Long project destination' })
+  expect(within(bar).queryByRole('button', { name: 'Label: Other' })).toBeNull()
+  expect(quick.hasAttribute('title')).toBe(false)
+  fireEvent.mouseEnter(quick)
+  expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', 'Long project destination')
+  fireEvent.mouseLeave(quick)
+  fireEvent.keyDown(document.body, { key: 'Tab' })
+  act(() => quick.focus())
+  expect(await screen.findByRole('tooltip')).toHaveProperty('textContent', 'Long project destination')
+})
+
 test('mobile row menu offers a quick action without opening the mail', async () => {
   const assign = spyOn(sdk, 'mailFilingAssign').mockResolvedValue({ data: { ok: true } } as never)
   const { client, router } = setup('row', '/mail', true, true)

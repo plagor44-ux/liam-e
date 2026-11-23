@@ -271,11 +271,12 @@ deleting a destination removes its history. Expired entries are removed on reads
 hourly while the worker runs. The browser-only quick-action read ranks frequency with a 30-day age
 weight; the UI applies locale order to ties and shows at most five actions, fewer on narrow screens.
 Already-applied destinations are excluded. Desktop rows show quick actions in an out-of-flow overlay
-on hover, focus or selection, within the fixed-height snippet line;
+on hover, focus or selection, within the fixed-height snippet line, with one top-ranked destination;
 mobile rows expose them in the more menu. The selection bar and reader also offer compact actions.
 From an opened mail, create-and-assign creates the destination and files the verified source in one
 transaction; a missing source or duplicate name leaves no partial destination. The rule editor can
 prefill account, sender, domain and subject from that mail, proposing a rule name from the sender.
+The form waits for source initialization before edits and falls back to an empty manual draft on failure.
 The form has one explicit save action; it explains the required folder or label before enabling
 save, and unsaved changes retain the leave confirmation. Only selected conditions are saved, and
 the source and its account are rechecked under lock during creation, including verified aliases.

@@ -213,6 +213,7 @@
 .le-destination-berry { --filing-swatch-fill: var(--filing-berry-border); background: var(--filing-berry-background); border: 1px solid var(--filing-berry-border); color: var(--ink); }
 .le-filing-swatch[class*="le-destination-"] { background: var(--filing-swatch-fill); }
 .le-quick-actions { display: flex; flex-wrap: nowrap; gap: var(--space-1); min-width: 0; overflow: auto; }
+.le-quick-actions > .le-tooltip-anchor { flex: 0 1 auto; min-width: 0; max-width: 11rem; }
 .le-quick-actions .le-btn { flex: 0 1 auto; max-width: 11rem; min-width: 0; white-space: nowrap; font-size: var(--font-size-small); }
 .le-quick-actions .le-btn span { overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 639px), (pointer: coarse) { .le-quick-actions .le-btn, .le-menu--mailrow .le-menu-item { min-width: var(--control-height-lg); min-height: var(--control-height-lg); } }
@@ -224,7 +225,7 @@
 .le-shortcut-list small { display: block; color: var(--ink-muted); }
 .le-inbox-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); min-width: 0; max-width: 100%; }
 .le-inbox-selection-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); }
-.le-mailrow-swipe .le-mailrow.is-checked { background: var(--accent-soft); }
+.le-mailrow-swipe .le-mailrow.is-checked { --le-row-bg: var(--accent-soft); background: var(--le-row-bg); }
 .le-inbox-selection > * { flex: none; }
 .le-inbox-selection > .le-inbox-selection-count { flex: 1; white-space: nowrap; }
 .le-inbox-selection > .le-inbox-selection-actions { flex: 0 1 100%; min-width: 0; }
