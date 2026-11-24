@@ -224,7 +224,9 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
   if (current.proposal_status === 'running') return settled(<p className="le-hint">{texts.proposal.running}</p>)
   if (current.proposal_status === 'cancelled') return settled(<p className="le-hint">{texts.proposal.cancelled}</p>)
   if (current.proposal_status === 'failed' && !proposal.result?.failed?.some(item => item.outcome)) {
-    return settled(<Notice tone="danger">{failureText(proposal.result?.failed?.[0]?.code, proposal.kind, texts)}</Notice>)
+    const failures = proposal.result?.failed ?? []
+    const failure = failures.find(item => item.code === 'provider_permission_missing') ?? failures[0]
+    return settled(<Notice tone="danger">{failureText(failure?.code, proposal.kind, texts)}</Notice>)
   }
   if (current.proposal_status === 'done' || current.proposal_status === 'partial' || current.proposal_status === 'failed') return settled(<Result key={current.id} message={current} proposal={proposal} clock={clock} onUndone={() => outcome.current?.focus()} />)
   if (current.proposal_status !== 'pending') return null

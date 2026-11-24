@@ -757,3 +757,24 @@ test.each([
   expect(Boolean(screen.queryByText(/Für diese Aktion fehlt dem Connector die Berechtigung/))).toBe(code === 'provider_permission_missing')
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
 })
+
+test('a failed archive confirmation shows reconnection guidance when the second failure pauses Gmail', async () => {
+  const card = message()
+  card.proposal = { kind: 'archive', reason: 'Synthetic',
+    items: ['a', 'b'].map(id => ({ id, kind: 'mail', title: id, subtitle: '' })) }
+  const confirm = spyOn(sdk, 'chatProposalConfirm').mockResolvedValue({ data: {
+    ...card,
+    proposal_status: 'failed',
+    proposal: { ...card.proposal, result: {
+      done: 0,
+      failed: [{ id: 'a', code: 'action_failed' }, { id: 'b', code: 'provider_permission_missing' }],
+      undo_action_ids: [],
+      manual: [],
+    } },
+  } } as never)
+  setup(card)
+  fireEvent.click(await screen.findByRole('button', { name: '2 archivieren' }))
+  expect(await screen.findByText(/Melde das Konto in Mistral Studio erneut an.*unter Konten wieder erlauben/)).toBeTruthy()
+  expect(confirm).toHaveBeenCalledWith({ path: { proposal_id: 'p' }, body: { selected_ids: ['a', 'b'], body: undefined }, throwOnError: true })
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+})
