@@ -1886,7 +1886,46 @@ def test_gmail_restore_plans_from_the_live_source_and_undo_restores_it(pg_db, mo
     asyncio.run(run())
 
 
-def test_gmail_trash_undo_restores_the_observed_archive_source(pg_db, monkeypatch):
+@pytest.mark.parametrize("already_restored", [False, True], ids=["stale-inbox", "already-in-inbox"])
+def test_gmail_archive_undo_plans_from_the_saved_action_and_live_folder(pg_db, monkeypatch, already_restored):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].add("UNREAD")
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+
+        async with client() as browser:
+            archive = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "archive"})
+            assert archive.status_code == 200
+            token = archive.json()["action_id"]
+            assert provider.labels["target"] == {"UNREAD"}
+
+            # Another client changed read state and stars. The folder delivery can lag either way.
+            provider.labels["target"] = {"STARRED", "Label_synthetic"}
+            if already_restored:
+                provider.labels["target"].add("INBOX")
+            else:
+                await mail_message.set_state(target, folder="INBOX", labels_json='["INBOX", "UNREAD"]')
+            writes = len(provider.writes)
+
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
+            assert undo.status_code == 200
+            assert undo.json()["restored"] == [token]
+            assert undo.json()["failed"] == []
+            expected_writes = [] if already_restored else [("label_message", "target", ("INBOX",))]
+            assert provider.writes[writes:] == expected_writes
+            assert provider.labels["target"] == {"INBOX", "STARRED", "Label_synthetic"}
+            actual = await mail_message.get_message(target)
+            assert actual.folder == "INBOX" and actual.is_read and actual.is_flagged
+            assert set(json.loads(actual.labels_json)) == provider.labels["target"]
+            assert await listed(browser, "INBOX") == set(ids.values())
+            assert await mail_action.latest_open(target) is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("stale_index", [False, True])
+def test_gmail_trash_undo_restores_the_observed_archive_source(pg_db, monkeypatch, stale_index):
     async def run():
         provider = StudioMailbox()
         provider.labels["target"].add("UNREAD")
@@ -1902,8 +1941,12 @@ def test_gmail_trash_undo_restores_the_observed_archive_source(pg_db, monkeypatc
             assert prior["folder"] == "ARCHIVE"
             assert json.loads(prior["labels_json"]) == ["UNREAD"]
             assert not prior["is_read"]
+            if stale_index:
+                await mail_message.set_state(target, folder="ARCHIVE", labels_json='["UNREAD"]')
+            writes = len(provider.writes)
             undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
             assert undo.json()["restored"] == [token]
+            assert provider.writes[writes:] == [("unlabel_message", "target", ("TRASH",))]
             assert provider.labels["target"] == {"UNREAD"}
             assert await listed(browser, "ARCHIVE") == {target}
             assert await listed(browser, "INBOX") == {ids["sibling"]}

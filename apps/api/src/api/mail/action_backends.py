@@ -17,6 +17,15 @@ from api.mail.actions import FOLDER_ACTION_SOURCES, ActionKind, ActionUnsupporte
 from api.mail.seed_ids import is_seed_account
 
 
+_GMAIL_FOLDER_UNDO_ACTIONS: dict[tuple[ActionKind, str], ActionKind] = {
+    ("archive", "INBOX"): "restore",
+    ("trash", "INBOX"): "restore",
+    ("trash", "ARCHIVE"): "restore",
+    ("restore", "ARCHIVE"): "archive",
+    ("restore", "TRASH"): "trash",
+}
+
+
 class ProviderBackend(Protocol):
     async def apply(self, message: MailMessage, kind: ActionKind) -> dict: ...
     async def revert(self, message: MailMessage, previous: dict) -> dict: ...
@@ -76,6 +85,18 @@ class LabelBackend:
         return await self._change(message, current, set(desired), kind=kind)
 
     async def revert(self, message: MailMessage, previous: dict, *, kind: ActionKind | None = None) -> dict:
+        if gmail_studio(self.account):
+            if kind in {"mark_read", "mark_unread"}:
+                saved_read = previous["is_read"]
+                # A flag the original action left alone only needs a refresh.
+                read_status = saved_read if saved_read != (kind == "mark_read") else None
+                return await self._change(message, set(), set(), undo_action=kind, read_status=read_status)
+            destination = previous["folder"]
+            undo_action = _GMAIL_FOLDER_UNDO_ACTIONS.get((kind, destination)) if kind is not None else None
+            if undo_action is None:
+                raise ActionUnsupportedError()
+            return await self._change(message, set(), set(), undo_action=undo_action, destination=destination)
+
         current = set(json.loads(message.labels_json))
         desired = set(json.loads(previous["labels_json"]))
         if message.folder in ("INBOX", "TRASH", "SPAM"):
@@ -85,50 +106,32 @@ class LabelBackend:
             desired.add(previous["folder"])
         if not previous["is_read"]:
             desired.add("UNREAD")
-        if gmail_studio(self.account):
-            # Undo restores the labels controlled by this action and leaves other provider changes alone.
-            managed = {"UNREAD"} if kind in {"mark_read", "mark_unread"} else {"INBOX", "TRASH"}
-            destination = previous["folder"] if managed != {"UNREAD"} else None
-            read_status = previous["is_read"] if managed == {"UNREAD"} else None
-            if read_status is not None and read_status == (kind == "mark_read"):
-                # Refresh the live row. The original action left this flag alone.
-                return await self._change(message, current, current)
-            return await self._change(message, current, (current - managed) | (desired & managed),
-                                      destination=destination, read_status=read_status)
         await self._change(message, current, desired)
         return {"labels_json": previous["labels_json"]}
 
     async def _change(
         self, message: MailMessage, current: set[str], desired: set[str], *,
-        kind: ActionKind | None = None, destination: str | None = None, read_status: bool | None = None,
+        kind: ActionKind | None = None, undo_action: ActionKind | None = None,
+        destination: str | None = None, read_status: bool | None = None,
     ) -> dict:
-        is_gmail_studio = gmail_studio(self.account)
         trash_transition = ("TRASH" in desired) != (message.folder == "TRASH")
-        folder_restore = kind == "restore" or (kind is None and (destination is not None or not is_gmail_studio))
-        if kind == "trash" or (folder_restore and trash_transition):
+        if kind == "trash" or (undo_action is None and kind in (None, "restore") and trash_transition):
             # Reassert both folder labels. Legacy copies can contain contradictory labels.
             folder_labels = {"TRASH", "INBOX"}
             current = (current - folder_labels) | (folder_labels - desired)
         added, removed = sorted(desired - current), sorted(current - desired)
-        if is_gmail_studio:
-            action = kind
+        if gmail_studio(self.account):
+            action = kind or undo_action
+            if action is None:
+                raise ActionUnsupportedError()
             if read_status is not None:
                 action = "mark_read" if read_status else "mark_unread"
-            elif action is None:
-                if "TRASH" in added:
-                    action = "trash"
-                elif "INBOX" in added or "TRASH" in removed:
-                    action = "restore"
-                elif "INBOX" in removed:
-                    action = "archive"
-                else:
-                    action = "mark_unread" if "UNREAD" in added else "mark_read"
             if kind is not None:
                 destination = {"archive": "ARCHIVE", "trash": "TRASH", "restore": "INBOX"}.get(kind)
             before, labels = await connectors.change_gmail_labels(
                 self.account, message, added, removed, action=action, destination=destination,
                 source_folders=FOLDER_ACTION_SOURCES.get(action) if destination is not None else None,
-                read_status=read_status)
+                read_status=read_status, folder_undo=undo_action is not None and destination is not None)
             updates = {"folder": connectors.observed_folder(labels), "is_read": "UNREAD" not in labels,
                        "is_flagged": "STARRED" in labels, "labels_json": json.dumps(sorted(labels))}
             if kind is not None:

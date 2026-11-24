@@ -215,7 +215,7 @@ def observed_folder(labels: Collection[str]) -> str:
 
 async def change_gmail_labels(
     account, message, added: list[str], removed: list[str], *, action: str, destination: str | None = None,
-    source_folders: Collection[str] | None = None, read_status: bool | None = None,
+    source_folders: Collection[str] | None = None, read_status: bool | None = None, folder_undo: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Confirm only the verified Gmail operations on the same named binding and exact delivery."""
     from api.mail.connector_mailbox import MailboxUnavailable, bound_mailbox
@@ -240,9 +240,16 @@ async def change_gmail_labels(
             raise LabelChangeUnconfirmed(None)
         if source_folders is not None:
             live_folder = observed_folder(initial_labels)
+            if folder_undo and live_folder == destination:
+                return initial_labels, initial_labels
             if live_folder not in source_folders:
                 raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
-            if destination == "INBOX":
+            if folder_undo:
+                folder_labels = {"INBOX", "TRASH"}
+                current = folder_labels.intersection(initial_labels)
+                desired = folder_labels.intersection({destination})
+                added, removed = sorted(desired - current), sorted(current - desired)
+            elif destination == "INBOX":
                 # Restore changes only folder labels. The pinned read supplies the source.
                 added = ["INBOX"]
                 removed = ["TRASH"] if live_folder == "TRASH" else []
