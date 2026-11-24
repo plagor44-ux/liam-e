@@ -12,6 +12,7 @@ import { useBreakpoint, useCoarsePointer } from '../shell/useBreakpoint'
 import { toMessageFilters, type InboxSearch } from './filters'
 import { InsightBox } from './InsightBox'
 import { OriginalDialog } from './OriginalDialog'
+import { gmailActionHint } from './gmailActionHint'
 import { ActionToast } from './ActionToast'
 import { MailHtml } from './MailHtml'
 import { useMailActionsContext } from './useMailActions'
@@ -45,7 +46,9 @@ export function MailView({ id }: { id: string }) {
   const account = summary.data?.accounts.find(item => item.id === data?.account_id)
   const capabilities = account?.action_capabilities
   const readKind = data?.is_read ? 'mark_unread' : 'mark_read'
-  const hint = account?.provider_actions_blocked ? texts.accounts.gmailReauth : texts.errors.provider_action_unsupported
+  const actionHint = gmailActionHint(account, texts)
+  const unsupported = texts.errors.provider_action_unsupported
+  const hint = actionHint ?? unsupported
   useEffect(() => {
     if (!data || !summary.data || data.local_reference_only || opened.current.has(id)) return
     opened.current.add(id)
@@ -65,7 +68,7 @@ export function MailView({ id }: { id: string }) {
     void send({ text, context_message_id: id, account_id: data.account_id, task_source: 'none' })
   }
   const remove = (kind: 'archive' | 'trash' | 'spam') => {
-    if (capabilities?.[kind] === false) { notify(hint); return }
+    if (capabilities?.[kind] === false) { notify(kind === 'spam' ? unsupported : hint); return }
     if (!checkCapacity()) return
     const list = client.getQueryData<InfiniteData<MessagePageOut>>(messagesInfiniteQuery(toMessageFilters(search)).queryKey)
     const items = list?.pages.flatMap(page => page.items) ?? []
@@ -91,7 +94,7 @@ export function MailView({ id }: { id: string }) {
     <IconButton label={texts.controls.archive} icon="archive" size={iconSize} shortcut={split ? shortcutHint('archive', locale) : undefined} disabled={capabilities?.archive === false} tip={capabilities?.archive === false ? hint : undefined} onClick={() => remove('archive')} />
     <IconButton label={data.is_read ? texts.controls.markUnread : texts.controls.markRead} icon="mail-open" size={iconSize} shortcut={split ? shortcutHint('read', locale) : undefined} disabled={capabilities?.[readKind] === false} tip={capabilities?.[readKind] === false ? hint : undefined} onClick={() => { void run(id, readKind) }} />
     <IconButton label={texts.controls.trash} icon="trash-2" size={iconSize} tone="danger" shortcut={split ? shortcutHint('trash', locale) : undefined} disabled={capabilities?.trash === false} tip={capabilities?.trash === false ? hint : undefined} onClick={() => remove('trash')} />
-    <Menu placement={split ? 'down-start' : 'down-end'} trigger={props => <IconButton {...props} label={texts.mail.more} icon="more-horizontal" size={iconSize} disabled={busy} />} items={[{ label: texts.taskChat.ask, icon: 'check', onSelect: proposeTask }, { label: texts.mailFiling.createFolderForMail, icon: 'folder', onSelect: () => setCreateFiling({ messageId: id, kind: 'folder' }) }, { label: texts.mailFiling.createLabelForMail, icon: 'tag', onSelect: () => setCreateFiling({ messageId: id, kind: 'label' }) }, { label: texts.mailFiling.createRuleForMail, icon: 'list-checks', onSelect: () => { void navigate({ to: '/settings/rules', search: { source_mail: id } }) } }, { label: texts.mail.forward, icon: 'forward', onSelect: () => start(texts.mail.forwardPrompt) }, { label: texts.mail.unsubscribe, icon: 'newspaper', disabled: !data.can_unsubscribe, hint: data.can_unsubscribe ? undefined : texts.mail.unsubscribeUnavailable, onSelect: () => start(texts.mail.unsubscribePrompt) }, { label: texts.mail.spam, icon: 'ban', disabled: capabilities?.spam === false, hint: capabilities?.spam === false ? hint : undefined, onSelect: () => remove('spam') }, { label: texts.mail.original, icon: 'file-code', disabled: !data.can_show_original, hint: data.can_show_original ? undefined : texts.mail.originalUnavailable, onSelect: () => setOriginal(id) }]} />
+    <Menu placement={split ? 'down-start' : 'down-end'} trigger={props => <IconButton {...props} label={texts.mail.more} icon="more-horizontal" size={iconSize} disabled={busy} />} items={[{ label: texts.taskChat.ask, icon: 'check', onSelect: proposeTask }, { label: texts.mailFiling.createFolderForMail, icon: 'folder', onSelect: () => setCreateFiling({ messageId: id, kind: 'folder' }) }, { label: texts.mailFiling.createLabelForMail, icon: 'tag', onSelect: () => setCreateFiling({ messageId: id, kind: 'label' }) }, { label: texts.mailFiling.createRuleForMail, icon: 'list-checks', onSelect: () => { void navigate({ to: '/settings/rules', search: { source_mail: id } }) } }, { label: texts.mail.forward, icon: 'forward', onSelect: () => start(texts.mail.forwardPrompt) }, { label: texts.mail.unsubscribe, icon: 'newspaper', disabled: !data.can_unsubscribe, hint: data.can_unsubscribe ? undefined : texts.mail.unsubscribeUnavailable, onSelect: () => start(texts.mail.unsubscribePrompt) }, { label: texts.mail.spam, icon: 'ban', disabled: capabilities?.spam === false, hint: capabilities?.spam === false ? unsupported : undefined, onSelect: () => remove('spam') }, { label: texts.mail.original, icon: 'file-code', disabled: !data.can_show_original, hint: data.can_show_original ? undefined : texts.mail.originalUnavailable, onSelect: () => setOriginal(id) }]} />
   </>
   const chatButtons = data && !data.local_reference_only && <>
     <Tooltip content={texts.mail.askTip}><Button variant="secondary" icon="message-circle" className={split ? 'le-btn--sm' : ''} disabled={busy} onClick={ask}>{texts.mail.askInChat}</Button></Tooltip>
@@ -101,7 +104,11 @@ export function MailView({ id }: { id: string }) {
     <div className="le-topbar le-mail-topbar">{!split && <IconButton label={texts.mail.back} icon="arrow-left" size="lg" onClick={back} />}{!split && <span className="le-grow" />}{actions}{split && <><span className="le-grow" />{data && chatButtons}</>}</div>
     {data && !data.local_reference_only && <div className="le-mail-quick"><QuickActions messages={[data]} showEmpty onSuccess={() => notify(texts.mailFiling.done, 'success')} /></div>}
     <div className="le-mail-scroll">
-      {data && !data.local_reference_only && capabilities && Object.values(capabilities).every(supported => !supported) && <Notice tone="info">{account?.provider_actions_blocked ? texts.accounts.gmailReauth : texts.mail.studioGmailActionsUnavailable}</Notice>}
+      {data && !data.local_reference_only && actionHint && capabilities && Object.values(capabilities).every(supported => !supported) && <div className="le-mail-action-notice">
+        <Notice tone="info" action={account?.provider_actions_blocked ? { label: texts.shell.accounts, onClick: () => { void navigate({ to: '/accounts' }) } } : undefined}>
+          {account?.provider_actions_blocked ? actionHint : texts.mail.studioGmailActionsUnavailable}
+        </Notice>
+      </div>}
       {started && state.phase === 'error' && !state.conversationId && <Notice tone="danger" action={state.errorCode === 'preferences_unavailable' ? { label: texts.preferences.continueWithout, onClick: () => { void retryWithoutPreferences() } } : state.errorCode === 'chat_account_not_granted' ? { label: texts.chatAccounts.section, onClick: () => { void navigate({ to: '/settings/chat' }) } } : { label: texts.chat.retry, onClick: () => { void retry() } }}>{texts.errors[state.errorCode ?? 'internal']}</Notice>}
       {message.isPending && <><span className="le-sr" role="status">{texts.mail.loading}</span><div className="le-mail-placeholder" aria-hidden="true"><div className="le-mail-placeholder-head"><span /><div><span /><span /></div></div><span /><span /><span /><span /></div></>}
       {message.isError && <div className="le-mail-error">{message.error instanceof MessageNotFoundError ? <Notice tone="danger" action={{ label: texts.mail.toInbox, onClick: back }}>{texts.proposalErrors.item_gone}</Notice> : <><Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void message.refetch() } }}>{texts.mail.loadError}</Notice><Button variant="secondary" className="le-mail-to-inbox" onClick={back}>{texts.mail.toInbox}</Button></>}</div>}

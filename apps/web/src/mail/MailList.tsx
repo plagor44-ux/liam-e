@@ -20,6 +20,7 @@ import { MailRowWithQuickActions } from '../ds/MailRow'
 import { hasActiveFilters, toMessageFilters, type InboxSearch } from './filters'
 import { groupByDay } from './groups'
 import { useInboxKeys } from './useInboxKeys'
+import { gmailActionHint } from './gmailActionHint'
 import { ActionToast } from './ActionToast'
 import { useMailActionsContext } from './useMailActions'
 
@@ -50,8 +51,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   const searchRef = useRef<HTMLDivElement>(null), sentinel = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<string, HTMLLIElement>())
   const scrollRef = useRef<HTMLDivElement>(null)
-  // When a removed row held the focus, it moves to the neighbouring row, else to the list.
-  const focusAfter = useRef<{ removed: string; target?: string } | null>(null)
+  const [focusAfter, setFocusAfter] = useState<{ removed: string; target?: string; restored: boolean }>()
   const selected = messageId ?? localSelected
   const items = messages.data?.pages.flatMap(page => page.items) ?? []
   const selectedIndex = items.findIndex(item => item.id === selected)
@@ -85,16 +85,17 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   const supports = (mail: MessageListItemOut, kind: keyof MailActionCapabilities) => listedAccounts.get(mail.account_id)?.action_capabilities?.[kind] !== false
   const allow = (mail: MessageListItemOut, kind: ListAction) => {
     if (supports(mail, kind)) return true
-    notify(listedAccounts.get(mail.account_id)?.provider_actions_blocked ? texts.accounts.gmailReauth : texts.errors.provider_action_unsupported)
+    const hint = gmailActionHint(listedAccounts.get(mail.account_id), texts)
+    notify(hint ?? texts.errors.provider_action_unsupported, 'danger', Boolean(hint))
     return false
   }
   const selectedMails = items.filter(item => selection.has(item.id))
   const bulkBlocked = (kind: ListAction) => selectedMails.some(mail => !supports(mail, kind))
-  const selectionHint = selectedMails.some(mail => listedAccounts.get(mail.account_id)?.provider_actions_blocked)
-    ? texts.accounts.gmailReauth : texts.inbox.unsupportedSelection
+  const selectionPaused = selectedMails.some(mail => listedAccounts.get(mail.account_id)?.provider_actions_blocked)
+  const selectionHint = selectionPaused ? texts.mail.gmailActionsPaused : texts.inbox.unsupportedSelection
   const bulkRead = !selectedMails.length || selectedMails.some(item => !item.is_read) ? 'mark_read' : 'mark_unread'
   const bulk = (kind: ListAction) => {
-    if (bulkBlocked(kind)) { notify(selectionHint); return }
+    if (bulkBlocked(kind)) { notify(selectionHint, 'danger', selectionPaused); return }
     if (!selectedMails.length || !checkCapacity()) return
     void runBulk(selectedMails.map(item => item.id), kind)
     endSelection()
@@ -111,12 +112,12 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   useEffect(() => { if (searchOpen) searchRef.current?.querySelector('input')?.focus() }, [searchOpen])
   useEffect(() => { if (selected) rowRefs.current.get(selected)?.scrollIntoView?.({ block: 'nearest' }) }, [selected])
   useEffect(() => {
-    const pending = focusAfter.current
-    if (!pending || items.some(item => item.id === pending.removed)) return
-    focusAfter.current = null
-    const link = pending.target ? rowRefs.current.get(pending.target)?.querySelector<HTMLElement>('.le-mailrow-link') : null
-    ;(link ?? scrollRef.current)?.focus()
-  }, [items])
+    if (!focusAfter || rowRefs.current.has(focusAfter.removed) !== focusAfter.restored) return
+    setFocusAfter(undefined)
+    if (document.activeElement !== document.body) return
+    const link = focusAfter.target ? rowRefs.current.get(focusAfter.target)?.querySelector<HTMLElement>('.le-mailrow-link') : null
+    ;(link ?? scrollRef.current)?.focus({ preventScroll: true })
+  }, [focusAfter, items])
   useEffect(() => {
     const node = sentinel.current
     if (!node || typeof IntersectionObserver === 'undefined') return
@@ -130,10 +131,8 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   const remove = (mail: MessageListItemOut, kind: 'archive' | 'trash') => {
     if (!allow(mail, kind) || !checkCapacity()) return
     const active = typeof document === 'undefined' ? null : document.activeElement
-    if (active && rowRefs.current.get(mail.id)?.contains(active)) {
-      const index = items.findIndex(item => item.id === mail.id)
-      focusAfter.current = { removed: mail.id, target: items[index + 1]?.id ?? items[index - 1]?.id }
-    }
+    const hadFocus = active && rowRefs.current.get(mail.id)?.contains(active)
+    const focusedIndex = hadFocus ? items.findIndex(item => item.id === mail.id) : -1
     const moved = selected === mail.id
     const next = items[selectedIndex + 1]?.id ?? items[selectedIndex - 1]?.id
     if (moved) {
@@ -144,6 +143,10 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
       }
     }
     void run(mail.id, kind).then(restored => {
+      if (hadFocus) {
+        const target = restored ? mail.id : items[focusedIndex + 1]?.id ?? items[focusedIndex - 1]?.id
+        setFocusAfter({ removed: mail.id, target, restored: restored === true })
+      }
       if (!restored || !moved) return
       if (!messageId) setLocalSelected(current => current === next ? mail.id : current)
       else {
@@ -238,7 +241,7 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
       {messages.isPending && <><span className="le-sr" role="status">{texts.inbox.loading}</span><div aria-hidden="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="le-mailrow le-mailrow--placeholder"><span /><span /></div>)}</div></>}
       {messages.isError && !messages.data && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void messages.refetch() } }}>{texts.inbox.loadError}</Notice>}
       {messages.data && !items.length && <p className="le-hint">{hasActiveFilters(search) ? texts.inbox.emptyFiltered : texts.inbox.empty}</p>}
-      {groups.map(group => <div key={group.label}><div className="le-side-label">{group.label}</div><ul className="le-maillist" aria-label={group.label}>{group.items.map(mail => <li key={mail.id} ref={node => { if (node) rowRefs.current.set(mail.id, node); else rowRefs.current.delete(mail.id) }}><MailRowWithQuickActions mail={mail} onQuickSuccess={() => notify(texts.mailFiling.done, 'success')} filingDestinations={destinations.data ?? []} actionCapabilities={listedAccounts.get(mail.account_id)?.action_capabilities} providerActionsBlocked={listedAccounts.get(mail.account_id)?.provider_actions_blocked} selected={selected === mail.id} selectionMode={selectionMode} checked={selection.has(mail.id)} onSelect={shift => toggleSelection(mail.id, shift)} coarse={coarse} shortcutsEnabled={breakpoint === 'desktop' || breakpoint === 'wide'} onAsk={breakpoint === 'mobile' || coarse ? () => { void navigate({ to: '/', search: { about: mail.id } }) } : undefined} accountLabel={labels.get(mail.account_id)} onOpen={() => { setLocalSelected(mail.id); onOpen(mail.id) }} onArchive={() => remove(mail, 'archive')} onToggleRead={() => toggleRead(mail)} onTrash={() => remove(mail, 'trash')} swipe={{ basis: swipeSettings.assignment && swipeSettings.revision !== undefined ? { id: mail.id, isRead: mail.is_read, revision: swipeSettings.revision, ...swipeSettings.assignment } : undefined, enabled: !selectionMode && swipeSettings.status === 'ready' && (swipeSettings.assignment?.left !== 'none' || swipeSettings.assignment?.right !== 'none') && capacityAvailable && !isBusy(mail.id), navigation: location.href, valid: basis => { const settings = client.getQueryData<UiSettingsOut>(['ui-settings']); const data = client.getQueryData<InfiniteData<MessagePageOut>>(messagesInfiniteQuery(toMessageFilters(search)).queryKey); const currentMail = data?.pages.flatMap(page => page.items).find(item => item.id === basis.id); return client.getQueryState(['ui-settings'])?.status === 'success' && settings?.revision === basis.revision && settings.swipe_left === basis.left && settings.swipe_right === basis.right && currentMail?.is_read === basis.isRead && !isBusy(basis.id) && checkCapacity() }, run: action => { if (isBusy(mail.id) || !checkCapacity()) return; if (action === 'archive' || action === 'trash') remove(mail, action); else if (allow(mail, action)) void run(mail.id, action) } }} /></li>)}</ul></div>)}
+      {groups.map(group => <div key={group.label}><div className="le-side-label">{group.label}</div><ul className="le-maillist" aria-label={group.label}>{group.items.map(mail => <li key={mail.id} ref={node => { if (node) rowRefs.current.set(mail.id, node); else rowRefs.current.delete(mail.id) }}><MailRowWithQuickActions mail={mail} onQuickSuccess={() => notify(texts.mailFiling.done, 'success')} filingDestinations={destinations.data ?? []} actionCapabilities={listedAccounts.get(mail.account_id)?.action_capabilities} providerActionHint={gmailActionHint(listedAccounts.get(mail.account_id), texts)} selected={selected === mail.id} selectionMode={selectionMode} checked={selection.has(mail.id)} onSelect={shift => toggleSelection(mail.id, shift)} coarse={coarse} shortcutsEnabled={breakpoint === 'desktop' || breakpoint === 'wide'} onAsk={breakpoint === 'mobile' || coarse ? () => { void navigate({ to: '/', search: { about: mail.id } }) } : undefined} accountLabel={labels.get(mail.account_id)} onOpen={() => { setLocalSelected(mail.id); onOpen(mail.id) }} onArchive={() => remove(mail, 'archive')} onToggleRead={() => toggleRead(mail)} onTrash={() => remove(mail, 'trash')} swipe={{ basis: swipeSettings.assignment && swipeSettings.revision !== undefined ? { id: mail.id, isRead: mail.is_read, revision: swipeSettings.revision, ...swipeSettings.assignment } : undefined, enabled: !selectionMode && swipeSettings.status === 'ready' && (swipeSettings.assignment?.left !== 'none' || swipeSettings.assignment?.right !== 'none') && capacityAvailable && !isBusy(mail.id), navigation: location.href, valid: basis => { const settings = client.getQueryData<UiSettingsOut>(['ui-settings']); const data = client.getQueryData<InfiniteData<MessagePageOut>>(messagesInfiniteQuery(toMessageFilters(search)).queryKey); const currentMail = data?.pages.flatMap(page => page.items).find(item => item.id === basis.id); return client.getQueryState(['ui-settings'])?.status === 'success' && settings?.revision === basis.revision && settings.swipe_left === basis.left && settings.swipe_right === basis.right && currentMail?.is_read === basis.isRead && !isBusy(basis.id) && checkCapacity() }, run: action => { if (isBusy(mail.id) || !checkCapacity()) return; if (action === 'archive' || action === 'trash') remove(mail, action); else if (allow(mail, action)) void run(mail.id, action) } }} /></li>)}</ul></div>)}
       <div ref={sentinel} />{messages.isFetchingNextPage && <p className="le-hint">{texts.inbox.loadingMore}</p>}
     </div>
     <ActionToast />

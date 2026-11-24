@@ -12,10 +12,10 @@ const systemClock: Clock = { now: () => Date.now(), setTimeout: (fn, ms) => setT
 type Removal = 'archive' | 'trash' | 'spam'
 type Kind = Removal | 'mark_read' | 'mark_unread'
 const removes = (kind: Kind | 'remove'): kind is Removal => kind === 'archive' || kind === 'trash' || kind === 'spam'
-type Toast = { tone: 'success' | 'danger'; text: string; undoable: boolean }
+type Toast = { tone: 'success' | 'danger'; text: string; undoable: boolean; wrap?: boolean }
 type Change = { key: QueryKey; page: number; index: number; row: MessageListItemOut }
 type GroupItem = { actionId: string; messageId: string; changes: Change[]; previousRead?: boolean }
-export type UndoEntry = { actionId: string; messageId: string; kind: Kind; changes: Change[]; previousRead?: boolean; group?: GroupItem[]; partial?: boolean; text: string; label: string; deadline: number; pending: boolean }
+export type UndoEntry = { actionId: string; messageId: string; kind: Kind; changes: Change[]; previousRead?: boolean; group?: GroupItem[]; partial?: boolean; wrap?: boolean; text: string; label: string; deadline: number; pending: boolean }
 const LIMIT = 20
 const partialFolder = z.object({ detail: z.object({ folder: z.enum(['INBOX', 'TRASH', 'ARCHIVE', 'SPAM']) }) })
 const inFolder = ({ key }: Change, folder: string) => {
@@ -32,7 +32,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
   const breakpoint = useBreakpoint()
   const [entries, setEntries] = useState<UndoEntry[]>([])
   const entriesRef = useRef<UndoEntry[]>([])
-  const [notice, setNotice] = useState<{ text: string; tone: 'danger' | 'success' } | null>(null)
+  const [notice, setNotice] = useState<Omit<Toast, 'undoable'> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const reservations = useRef(0)
@@ -61,8 +61,8 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     setEntries(next)
     schedule(next)
   }
-  const notify = (text: string, tone: 'danger' | 'success' = 'danger') => {
-    setNotice({ text, tone })
+  const notify = (text: string, tone: 'danger' | 'success' = 'danger', wrap = false) => {
+    setNotice({ text, tone, wrap })
     if (noticeTimer.current !== undefined) clock.clearTimeout(noticeTimer.current)
     noticeTimer.current = clock.setTimeout(() => { noticeTimer.current = undefined; setNotice(null) }, 10_000)
   }
@@ -160,7 +160,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         if (retained) restore(retained, removal)
         reconcile.current = true
         const partial = folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial
-        if (!options?.silent) notify(code === 'provider_permission_missing' ? `${partial} ${texts.errors.provider_permission_missing}` : partial)
+        if (!options?.silent) notify(code === 'provider_permission_missing' ? `${partial} ${texts.errors.provider_permission_missing}` : partial, 'danger', code === 'provider_permission_missing')
         void client.invalidateQueries({ queryKey: ['summary'] })
         void client.invalidateQueries({ queryKey: ['message', id] })
         return Boolean(retained?.length)
@@ -172,7 +172,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         rollback()
         const notice = code === 'provider_permission_missing' ? texts.errors.provider_permission_missing
           : result.response?.status === 502 && code === 'provider_failed' ? texts.errors.provider_failed : texts.errors.action_uncertain
-        if (!options?.silent || code === 'provider_permission_missing') notify(notice)
+        if (!options?.silent || code === 'provider_permission_missing') notify(notice, 'danger', code === 'provider_permission_missing')
         return changes.length > 0
       } else {
         if (removal) reconcile.current = true
@@ -234,7 +234,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
             void client.invalidateQueries({ queryKey: ['accounts'] })
             void client.invalidateQueries({ queryKey: ['summary'] })
           }
-          notify(code === 'provider_permission_missing' ? texts.errors.provider_permission_missing : texts.inbox.unsupportedSelection)
+          notify(code === 'provider_permission_missing' ? texts.errors.provider_permission_missing : texts.inbox.unsupportedSelection, 'danger', code === 'provider_permission_missing')
           return
         }
         if (!result.data || !result.response?.ok) throw new Error('bulk action failed') // i18n-exempt
@@ -256,8 +256,8 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           permissionMissing ? texts.errors.provider_permission_missing : ''].filter(Boolean).join(' ')
         if (group.length) {
           setNotice(null)
-          publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
-        } else notify(text)
+          publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, wrap: permissionMissing, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
+        } else notify(text, 'danger', permissionMissing)
         reconcile.current = true
         void client.invalidateQueries({ queryKey: ['summary'] })
       } catch {
@@ -301,13 +301,13 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           restore(restored.flatMap(item => item.changes).sort((a, b) => a.page - b.page || a.index - b.index), removes(selected.kind))
           for (const item of restored) if (!removes(selected.kind) && item.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', item.messageId], data => data && { ...data, is_read: item.previousRead! })
           if (restored.length !== group.length) notify(result.data.error_code === 'provider_permission_missing'
-            ? texts.errors.provider_permission_missing : texts.inbox.bulkUndoFailed(group.length - restored.length))
+            ? texts.errors.provider_permission_missing : texts.inbox.bulkUndoFailed(group.length - restored.length), 'danger', code === 'provider_permission_missing')
         } else if (result.data?.restored.includes(selected.actionId)) {
           restore(selected.changes, removes(selected.kind))
           if (!removes(selected.kind) && selected.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', selected.messageId], data => data && { ...data, is_read: selected.previousRead! })
         } else if (result.data?.skipped.includes(selected.actionId)) notify(texts.inbox.undoSkipped)
         else if (result.data?.expired.includes(selected.actionId)) notify(texts.inbox.undoExpired)
-        else if (code === 'provider_permission_missing') notify(texts.errors.provider_permission_missing)
+        else if (code === 'provider_permission_missing') notify(texts.errors.provider_permission_missing, 'danger', true)
         else if (code === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported)
         else if (result.data?.failed.includes(selected.actionId)) notify(texts.inbox.undoFailed)
         else notify(texts.inbox.undoUncertain)
@@ -332,7 +332,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     return work
   }
   const latest = entries.at(-1)
-  const toast: Toast | null = notice ? { tone: notice.tone, text: notice.text, undoable: false } : latest ? { tone: latest.partial ? 'danger' : 'success', text: latest.text, undoable: true } : null
+  const toast: Toast | null = notice ? { ...notice, undoable: false } : latest ? { tone: latest.partial ? 'danger' : 'success', text: latest.text, wrap: latest.wrap, undoable: true } : null
   return { run, runBulk, undo, notify, toast, entries, checkCapacity, isBusy: (id: string) => queues.current.has(id), capacityAvailable: entries.filter(entry => entry.pending || entry.deadline > clock.now()).length + reserved < LIMIT }
 }
 

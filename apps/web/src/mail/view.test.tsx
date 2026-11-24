@@ -20,7 +20,7 @@ function StartPageTasks({ scope }: { scope?: TaskScope }) {
   useEffect(() => { if (scope) setTaskScope('new', scope) }, [])
   return null
 }
-function setup({ mobile = false, unread = false, referenceOnly = false, missing = false, loading = false, failed = false, path = '/mail/m1', stream = false, insight, startTasks, preferencesFail = false, limited = false }: { mobile?: boolean; unread?: boolean; referenceOnly?: boolean; missing?: boolean; loading?: boolean; failed?: boolean; path?: string; stream?: boolean; insight?: () => Promise<{ data: InsightOut }>; startTasks?: TaskScope; preferencesFail?: boolean; limited?: boolean } = {}) {
+function setup({ mobile = false, unread = false, referenceOnly = false, missing = false, loading = false, failed = false, path = '/mail/m1', stream = false, insight, startTasks, preferencesFail = false, limited = false, paused = false }: { mobile?: boolean; unread?: boolean; referenceOnly?: boolean; missing?: boolean; loading?: boolean; failed?: boolean; path?: string; stream?: boolean; insight?: () => Promise<{ data: InsightOut }>; startTasks?: TaskScope; preferencesFail?: boolean; limited?: boolean; paused?: boolean } = {}) {
   spyOn(sdk, 'mailFilingQuickActions').mockResolvedValue({ data: [] } as never)
   window.matchMedia = ((q: string) => ({ matches: !mobile && (q.includes('1024px') || q.includes('640px')), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   let request: Record<string, unknown> | undefined
@@ -34,7 +34,7 @@ function setup({ mobile = false, unread = false, referenceOnly = false, missing 
   const rows = [{ ...mail, is_read: !unread }, { ...mail, id: 'm2', subject: 'Zweite', is_read: !unread }]
   const getInsight = spyOn(sdk, 'mailMessageInsight').mockImplementation((insight ?? (async () => ({ data: { points: [], deadline: null, followups: [], needs_reply: false, model: '', created_at: '' } }))) as never)
   spyOn(sdk, 'chatSettingsGet').mockResolvedValue({ data: { version: 3, account_ids: ['a'] } } as never)
-  spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', action_capabilities: mailCapabilities(!limited), color_index: 0, state: 'ok' }], unread_total: unread ? 1 : 0, last_sync_at: null } })) as never)
+  spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', connection: limited ? 'connector' : 'oauth', provider_actions_blocked: paused, action_capabilities: mailCapabilities(!limited), color_index: 0, state: 'ok' }], unread_total: unread ? 1 : 0, last_sync_at: null } })) as never)
   spyOn(sdk, 'mailMessagesList').mockImplementation((async () => ({ data: { items: rows, next_cursor: null } })) as never)
   const get = spyOn(sdk, 'mailMessageGet').mockImplementation((async (options: { path: { message_id: string } }) => { if (missing) return { error: { detail: 'Mail nicht gefunden.' }, response: new Response(null, { status: 404 }) }; if (failed) return { error: { detail: 'down' }, response: new Response(null, { status: 500 }) }; if (loading) return await new Promise(() => {}); if (referenceOnly) return { data: { ...mail, id: options.path.message_id, is_read: false, local_reference_only: true, can_unsubscribe: false, can_show_original: false } }; return { data: rows.find(row => row.id === options.path.message_id) ?? mail } }) as never)
   const action = spyOn(sdk, 'mailMessageAction').mockImplementation((async (options: { path: { message_id: string } }) => ({ data: { action_id: 'act', message: rows.find(row => row.id === options.path.message_id) }, response: { status: 200 } })) as never)
@@ -46,7 +46,8 @@ function setup({ mobile = false, unread = false, referenceOnly = false, missing 
   const home = createRoute({ getParentRoute: () => root, path: '/', validateSearch: (s: Record<string, unknown>) => s, component: () => <div>Home</div> })
   const rules = createRoute({ getParentRoute: () => root, path: '/settings/rules', validateSearch: (s: Record<string, unknown>) => s, component: () => <div>Rule editor</div> })
   const chat = createRoute({ getParentRoute: () => root, path: '/chat/$conversationId', component: () => <div>Chat</div> })
-  const router = createRouter({ routeTree: root.addChildren([home, inbox.addChildren([index, detail]), chat, rules]), history: createMemoryHistory({ initialEntries: [path] }) })
+  const accounts = createRoute({ getParentRoute: () => root, path: '/accounts', component: () => <div>Accounts</div> })
+  const router = createRouter({ routeTree: root.addChildren([home, inbox.addChildren([index, detail]), chat, rules, accounts]), history: createMemoryHistory({ initialEntries: [path] }) })
   const view = render(<RouterProvider router={router} />)
   return { client, router, view, action, get, getInsight, request: () => request, requests }
 }
@@ -625,4 +626,20 @@ test('reading Gmail Studio mail leaves UNREAD untouched and disables label actio
   const controls = screen.getByRole('button', { name: 'Weitere Aktionen' })
   fireEvent.click(controls)
   expect((await screen.findByRole('menuitem', { name: /Als Spam markieren/ })).getAttribute('aria-disabled')).toBe('true')
+})
+
+test('the paused mail notice opens Accounts and Spam keeps its unsupported reason', async () => {
+  const { router, action } = setup({ limited: true, paused: true })
+  const hint = await screen.findByText('Mail-Aktionen für dieses Konto sind pausiert.')
+  const notice = hint.closest<HTMLElement>('[role="status"]')!
+  expect(notice.textContent).not.toContain('erneut an')
+  fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen' }))
+  const spam = await screen.findByRole('menuitem', { name: /Als Spam markieren/ })
+  expect(spam.getAttribute('aria-disabled')).toBe('true')
+  expect(spam.textContent).toContain(de.errors.provider_action_unsupported)
+  expect(spam.textContent).not.toContain('pausiert')
+  fireEvent.keyDown(spam, { key: 'Escape' })
+  fireEvent.click(within(notice).getByRole('button', { name: 'Konten' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/accounts'))
+  expect(action).not.toHaveBeenCalled()
 })

@@ -405,9 +405,10 @@ test('a permission pause gives Gmail reconnection instructions and an explicit l
     response: new Response(),
   } as never)
   const action = await screen.findByRole('button', { name: 'Mail-Aktionen erneut erlauben' })
-  expect(screen.getByText(/Kontext → Connectors → Gmail/)).toBeTruthy()
+  expect(screen.getByText(/Kontext\s→\sConnectors\s→\sGmail/).textContent).toContain('Kontext\u00a0→\u00a0Connectors\u00a0→\u00a0Gmail')
   expect(retry).not.toHaveBeenCalled()
   fireEvent.click(action)
   await waitFor(() => expect(retry).toHaveBeenCalledWith({ path: { account_id: gmail.id } }))
   expect((client.getQueryData<AccountOut[]>(['accounts']) ?? [])[0]?.provider_actions_blocked).toBe(false)
+  expect(await screen.findByText('Mail-Aktionen wieder erlaubt.')).toBeTruthy()
 })

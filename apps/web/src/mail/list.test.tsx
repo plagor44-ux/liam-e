@@ -9,11 +9,11 @@ import { inboxSearchSchema } from './filters'
 
 const originalMatchMedia = window.matchMedia
 const row = { id: 'm1', account_id: 'a', color_index: 0, sender_name: 'Anna', sender_address: 'anna@example.com', subject: 'Termin', snippet: '', internal_date: null, deadline: null, has_attachments: false, is_flagged: false, is_read: false, needs_reply: false }
-function setup(mode: 'empty' | 'error' | 'loading' | 'row' | 'rows' | 'many' = 'empty', path = '/mail', coarse = false, mobile = false, limited = false) {
+function setup(mode: 'empty' | 'error' | 'loading' | 'row' | 'rows' | 'many' = 'empty', path = '/mail', coarse = false, mobile = false, limited = false, paused = false) {
   spyOn(sdk, 'mailFilingQuickActions').mockResolvedValue({ data: [] } as never)
   spyOn(sdk, 'mailFoldersList').mockImplementation((async () => ({ data: [{ id: 'folder', name: 'Projects', kind: 'folder' }, { id: 'label', name: 'Projects', kind: 'label' }] })) as never)
   window.matchMedia = ((query: string) => ({ matches: (!mobile && query.includes('1024px')) || (coarse && query.includes('pointer: coarse')), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
-  spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', color_index: 0, state: 'ok' }, ...(limited ? [{ id: 'limited', display_name: 'Studio', email_address: 'studio@example.test', provider: 'gmail', connection: 'connector', color_index: 1, state: 'ok', action_capabilities: mailCapabilities(false) }] : [])], unread_total: 1, last_sync_at: null } })) as never)
+  spyOn(sdk, 'mailSummary').mockImplementation((async () => ({ data: { accounts: [{ id: 'a', display_name: '', email_address: 'ich@example.com', provider: 'gmail', color_index: 0, state: 'ok' }, ...(limited ? [{ id: 'limited', display_name: 'Studio', email_address: 'studio@example.test', provider: 'gmail', connection: 'connector', color_index: 1, state: 'ok', provider_actions_blocked: paused, action_capabilities: mailCapabilities(false) }] : [])], unread_total: 1, last_sync_at: null } })) as never)
   const list = spyOn(sdk, 'mailMessagesList').mockImplementation((async () => {
     if (mode === 'loading') return await new Promise(() => {})
     if (mode === 'error') throw new Error('unavailable')
@@ -320,6 +320,39 @@ function archivingServer(list: ReturnType<typeof setup>['list'], mode: 'row' | '
   return spyOn(sdk, 'mailMessageAction').mockImplementation((async (options: { path: { message_id: string } }) => { removed.add(options.path.message_id); return { data: { action_id: 'act', message: row }, response: { status: 200 } } }) as never)
 }
 
+test.each([false, true])('a refused archive restores focus to its row and wraps the permission toast (mobile: %s)', async mobile => {
+  let refuse!: () => void
+  spyOn(sdk, 'mailMessageAction').mockImplementation((() => new Promise(resolve => {
+    refuse = () => resolve({ error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 } })
+  })) as never)
+  const { client } = setup('rows', '/mail', mobile, mobile)
+  const row = await rowOf('Zweite')
+  if (mobile) {
+    fireEvent.click(within(row).getByRole('button', { name: 'Weitere Aktionen zu Zweite' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Archivieren' }))
+  } else archiveFrom(row)
+  await waitFor(() => expect(screen.queryByText('Zweite')).toBeNull())
+  act(() => refuse())
+  await rowOf('Zweite')
+  await waitFor(() => expect(document.activeElement === linkOf('Zweite')).toBe(true))
+  const toast = await screen.findByRole('alert')
+  expect(toast.querySelector('.le-inbox-toast-text--wrap')?.textContent).toContain('unter Konten')
+  await settleFetches(client)
+})
+
+test.each([false, true])('the mobile row menu shows one shared Gmail hint (paused: %s)', async paused => {
+  setup('rows', '/mail', true, true, true, paused)
+  const row = await rowOf('Zweite')
+  fireEvent.click(within(row).getByRole('button', { name: 'Weitere Aktionen zu Zweite' }))
+  const menu = await screen.findByRole('menu')
+  const hint = paused ? 'Mail-Aktionen für dieses Konto sind pausiert.' : 'Verfügbar, sobald die Verbindung geprüft ist.'
+  expect(within(menu).getAllByText(hint)).toHaveLength(1)
+  for (const label of ['Archivieren', 'Als gelesen markieren', 'In den Papierkorb']) {
+    expect(within(menu).getByRole('menuitem', { name: label }).getAttribute('aria-disabled')).toBe('true')
+  }
+})
+
+
 test('removing a focused row moves the focus to the next row', async () => {
   const { list, client } = setup('rows'); archivingServer(list, 'rows')
   archiveFrom(await rowOf('Zweite'))
@@ -476,7 +509,7 @@ test('a Gmail Studio row explains unavailable actions on hover and focus', async
   const action = spyOn(sdk, 'mailMessageAction')
   setup('rows', '/mail', false, false, true)
   const row = (await screen.findByText('Zweite')).closest<HTMLElement>('.le-mailrow')!
-  const hint = 'Diese Aktion ist für dieses Gmail-Konto in Mistral Studio nicht verfügbar.'
+  const hint = 'Verfügbar, sobald die Verbindung geprüft ist.'
   expect(within(row).queryByText(hint)).toBeNull()
   const archive = within(row).getByRole('button', { name: 'Archivieren' })
   expect(archive.getAttribute('aria-disabled')).toBe('true')
@@ -508,7 +541,7 @@ test('a swipe on Gmail Studio explains the restriction without an action', async
     fireEvent(element, event)
   }
   pointer('pointerdown', 200); pointer('pointermove', 300); pointer('pointerup', 300)
-  const hint = 'Diese Aktion ist für dieses Gmail-Konto in Mistral Studio nicht verfügbar.'
+  const hint = 'Verfügbar, sobald die Verbindung geprüft ist.'
   expect((await screen.findByRole('alert')).textContent).toBe(hint)
   expect(screen.getAllByText(hint)).toHaveLength(1)
   expect(action).not.toHaveBeenCalled()
