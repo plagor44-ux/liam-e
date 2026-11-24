@@ -90,6 +90,9 @@ class LabelBackend:
             managed = {"UNREAD"} if kind in {"mark_read", "mark_unread"} else {"INBOX", "TRASH"}
             destination = previous["folder"] if managed != {"UNREAD"} else None
             read_status = previous["is_read"] if managed == {"UNREAD"} else None
+            if read_status is not None and read_status == (kind == "mark_read"):
+                # Refresh the live row. The original action left this flag alone.
+                return await self._change(message, current, current)
             return await self._change(message, current, (current - managed) | (desired & managed),
                                       destination=destination, read_status=read_status)
         await self._change(message, current, desired)
@@ -99,13 +102,15 @@ class LabelBackend:
         self, message: MailMessage, current: set[str], desired: set[str], *,
         kind: ActionKind | None = None, destination: str | None = None, read_status: bool | None = None,
     ) -> dict:
+        is_gmail_studio = gmail_studio(self.account)
         trash_transition = ("TRASH" in desired) != (message.folder == "TRASH")
-        if kind == "trash" or (kind in (None, "restore") and trash_transition):
+        folder_restore = kind == "restore" or (kind is None and (destination is not None or not is_gmail_studio))
+        if kind == "trash" or (folder_restore and trash_transition):
             # Reassert both folder labels. Legacy copies can contain contradictory labels.
             folder_labels = {"TRASH", "INBOX"}
             current = (current - folder_labels) | (folder_labels - desired)
         added, removed = sorted(desired - current), sorted(current - desired)
-        if gmail_studio(self.account):
+        if is_gmail_studio:
             action = kind
             if read_status is not None:
                 action = "mark_read" if read_status else "mark_unread"
@@ -122,7 +127,7 @@ class LabelBackend:
                 destination = {"archive": "ARCHIVE", "trash": "TRASH", "restore": "INBOX"}.get(kind)
             before, labels = await connectors.change_gmail_labels(
                 self.account, message, added, removed, action=action, destination=destination,
-                source_folders=FOLDER_ACTION_SOURCES.get(kind) if kind is not None else None,
+                source_folders=FOLDER_ACTION_SOURCES.get(action) if destination is not None else None,
                 read_status=read_status)
             updates = {"folder": connectors.observed_folder(labels), "is_read": "UNREAD" not in labels,
                        "is_flagged": "STARRED" in labels, "labels_json": json.dumps(sorted(labels))}
