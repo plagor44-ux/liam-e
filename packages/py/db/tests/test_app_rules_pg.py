@@ -1122,6 +1122,35 @@ def test_manual_apply_reports_mail_changed_after_preview(pg_db):
     asyncio.run(run())
 
 
+def test_manual_apply_ignores_paused_higher_priority_folder_rule(pg_db):
+    async def run():
+        import json
+        from api.routers.api.v1.mail.rules import ApplyIn, RulePreviewIn, apply_rule, preview
+        from db.accessors import mail_filing, mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
+        paused_folder = await mail_filing.create_destination('Paused', 'folder')
+        active_folder = await mail_filing.create_destination('Active', 'folder')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org')
+        await mail_rule.create(name='Paused', sender_domain='example.org', folder_id=paused_folder.id, position=1, is_active=False)
+        rule = await mail_rule.create(name='Active', sender_domain='example.org', folder_id=active_folder.id, position=2)
+        body = RulePreviewIn(name=rule.name, sender_domain=rule.sender_domain, folder_id=rule.folder_id,
+                             position=rule.position, saved_rule_id=rule.id, expected_version=rule.version)
+        estimate = await preview(body)
+        assert estimate['matched'] == 1 and estimate['message_ids'] == [message.id]
+        result = await apply_rule(rule.id, ApplyIn(expected_version=rule.version, confirm_apply=True,
+                                                   preview_message_ids=estimate['message_ids']))
+        assert result == {'matched': 1, 'app_changed': 1, 'provider_skipped': 0, 'provider_queued': 0, 'conflicts': 0}
+        assert (await mail_filing.for_message(message.id)).folder_id == active_folder.id
+        runs = await mail_rule_run.list_for_rule(rule.id)
+        assert len(runs) == 1 and runs[0].status == 'done'
+        assert '_folder' not in json.loads(runs[0].provider_results_json)
+    asyncio.run(run())
+
+
 def test_manual_batch_rechecks_rule_version_inside_transaction(pg_db, monkeypatch):
     async def run():
         from fastapi import HTTPException

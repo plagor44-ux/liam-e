@@ -157,7 +157,8 @@ async def apply_manual(rule_id: str, version: int, candidates, matcher, preview_
             raise LookupError('Rule not found')
         if rule.version != version:
             raise mail_rule.VersionConflict()
-        snapshot = [[item.id, item.version] for item in rules if item.is_active]
+        active_rules = [item for item in rules if item.is_active]
+        snapshot = [[item.id, item.version] for item in active_rules]
         for candidate in candidates:
             original, created = runs[candidate.id]
             run = by_run_id[original.id]
@@ -167,7 +168,7 @@ async def apply_manual(rule_id: str, version: int, candidates, matcher, preview_
                 if created:
                     await session.delete(run)
                 continue
-            winner, changed = await _apply_assignments(session, message, rule, rules, matcher)
+            winner, changed = await _apply_assignments(session, message, rule, active_rules, matcher)
             provider = {kind: 'pending' for kind, enabled in (('mark_read', rule.mark_read), ('mark_unread', rule.mark_unread), ('archive', rule.archive)) if enabled}
             if not created:
                 states = json.loads(run.provider_results_json)
