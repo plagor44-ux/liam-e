@@ -308,7 +308,10 @@ filters include filed and unfiled mail. App filters include the indexed inbox an
 trash remains separate. Filing works across accounts regardless of provider capabilities.
 Deleting a destination requires confirmation; deleting a folder is blocked while a rule references it.
 Deleting a label removes it from rules and increments their versions; a rule with no remaining
-folder or labels is paused so it cannot run provider actions without a filing target. Removing
+folder or labels is paused so it cannot run provider actions without a filing target. Rule creation,
+updates and filing lock target destinations by ID. Rule updates take these locks before any rule
+row; deletion locks the destination before its affected rules. Workers lock multiple rule rows by ID, then evaluate them in priority order.
+Updates recheck the rule version after acquiring the destination locks. Removing
 an account also removes rules scoped to it and their runs, without widening those rules to other accounts.
 
 Rules match account, sender address or domain, subject and recipient, in ascending priority. The

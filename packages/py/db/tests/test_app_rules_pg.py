@@ -809,3 +809,123 @@ def test_rule_api_validates_multiple_destinations_and_versions(pg_db):
             assert changed.status_code == 200 and changed.json()['label_ids'] == [second.id]
             assert (await client.patch('/rules/' + row['id'], json=body | {'expected_version': row['version']})).status_code == 409
     asyncio.run(run())
+
+
+def test_concurrent_rule_update_and_label_deletion_do_not_deadlock(pg_db, monkeypatch):
+    async def run():
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from db.accessors import mail_filing, mail_rule
+        from db.models.mail_folder import MailFolder
+
+        label = await mail_filing.create_destination('Concurrent', 'label')
+        folder = await mail_filing.create_destination('Folder', 'folder')
+        rule = await mail_rule.create(name='Original', folder_id=folder.id, label_ids=[label.id])
+        in_update, release_update, deletion_has_label = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        original_check = mail_rule._check_targets
+        original_scalars = AsyncSession.scalars
+
+        async def paused_check(session, draft, *args):
+            if asyncio.current_task().get_name() == 'rule-update':
+                in_update.set()
+                await release_update.wait()
+            return await original_check(session, draft, *args)
+
+        async def observe_scalars(session, statement, *args, **kwargs):
+            result = await original_scalars(session, statement, *args, **kwargs)
+            if (asyncio.current_task().get_name() == 'label-delete'
+                    and statement.column_descriptions[0].get('entity') is MailFolder):
+                deletion_has_label.set()
+            return result
+
+        monkeypatch.setattr(mail_rule, '_check_targets', paused_check)
+        monkeypatch.setattr(AsyncSession, 'scalars', observe_scalars)
+        updating = asyncio.create_task(mail_rule.update(rule.id, rule.version, name='Updated', label_ids=[label.id]), name='rule-update')
+        await asyncio.wait_for(in_update.wait(), 5)
+        deleting = asyncio.create_task(mail_filing.delete_destination(label.id), name='label-delete')
+        try:
+            await asyncio.wait_for(deletion_has_label.wait(), 0.5)
+        except TimeoutError:
+            pass  # The update holds the destination lock first.
+        finally:
+            release_update.set()
+        await asyncio.wait_for(asyncio.gather(updating, deleting), 5)
+        updated = await mail_rule.get(rule.id)
+        assert updated.name == 'Updated'
+        assert updated.label_ids == [] and updated.version == rule.version + 2
+        assert updated.is_active  # The folder is still present.
+
+    asyncio.run(run())
+
+
+def test_label_deletion_racing_new_rule_target_never_leaves_a_dangling_id(pg_db, monkeypatch):
+    async def run():
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from db.accessors import mail_filing, mail_rule
+        from db.models.mail_folder import MailFolder
+
+        deleted = await mail_filing.create_destination('Delete', 'label')
+        retained = await mail_filing.create_destination('Retain', 'label')
+        rule = await mail_rule.create(name='Example', label_ids=[retained.id])
+        deletion_has_label, release_delete, update_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        original_scalars, original_locks = AsyncSession.scalars, mail_rule._lock_targets
+
+        async def pause_delete(session, statement, *args, **kwargs):
+            result = await original_scalars(session, statement, *args, **kwargs)
+            if (asyncio.current_task().get_name() == 'label-delete'
+                    and statement.column_descriptions[0].get('entity') is MailFolder):
+                deletion_has_label.set()
+                await release_delete.wait()
+            return result
+
+        async def observe_update(session, draft):
+            if asyncio.current_task().get_name() == 'rule-update':
+                update_started.set()
+            return await original_locks(session, draft)
+
+        monkeypatch.setattr(AsyncSession, 'scalars', pause_delete)
+        monkeypatch.setattr(mail_rule, '_lock_targets', observe_update)
+        deleting = asyncio.create_task(mail_filing.delete_destination(deleted.id), name='label-delete')
+        await asyncio.wait_for(deletion_has_label.wait(), 5)
+        updating = asyncio.create_task(mail_rule.update(rule.id, rule.version, label_ids=[retained.id, deleted.id]), name='rule-update')
+        await asyncio.wait_for(update_started.wait(), 5)
+        release_delete.set()
+        await asyncio.wait_for(deleting, 5)
+        with pytest.raises(ValueError, match='Invalid destination'):
+            await asyncio.wait_for(updating, 5)
+        saved = await mail_rule.get(rule.id)
+        assert saved.label_ids == [retained.id] and saved.version == rule.version
+
+    asyncio.run(run())
+
+
+def test_rule_update_rechecks_version_after_waiting_for_destination(pg_db, monkeypatch):
+    async def run():
+        from sqlalchemy import select
+        from db.accessors import mail_filing, mail_rule
+        from db.engine import get_session_maker
+        from db.models.mail_folder import MailFolder
+
+        existing = await mail_filing.create_destination('Existing', 'label')
+        blocked = await mail_filing.create_destination('Blocked', 'label')
+        rule = await mail_rule.create(name='Original', label_ids=[existing.id])
+        waiting = asyncio.Event()
+        original_locks = mail_rule._lock_targets
+
+        async def observe_locks(session, draft):
+            if asyncio.current_task().get_name() == 'waiting-update':
+                waiting.set()
+            return await original_locks(session, draft)
+
+        monkeypatch.setattr(mail_rule, '_lock_targets', observe_locks)
+        async with get_session_maker().begin() as session:
+            await session.scalars(select(MailFolder).where(MailFolder.id == blocked.id).with_for_update())
+            stale = asyncio.create_task(mail_rule.update(rule.id, rule.version, name='Stale', label_ids=[blocked.id]), name='waiting-update')
+            await asyncio.wait_for(waiting.wait(), 5)
+            fresh = await asyncio.wait_for(mail_rule.update(rule.id, rule.version, name='Fresh'), 5)
+            assert fresh.version == rule.version + 1
+        with pytest.raises(mail_rule.VersionConflict):
+            await asyncio.wait_for(stale, 5)
+        saved = await mail_rule.get(rule.id)
+        assert saved.name == 'Fresh' and saved.label_ids == [existing.id]
+
+    asyncio.run(run())

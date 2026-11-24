@@ -14,13 +14,24 @@ class VersionConflict(Exception):
     pass
 
 
-async def _check_targets(session, rule: MailRule) -> None:
+async def _lock_targets(session, rule: MailRule) -> dict[str, MailFolder]:
+    """Lock all proposed destinations in one order before acquiring any rule lock."""
+    ids = {destination_id for destination_id in [rule.folder_id, *rule.label_ids] if destination_id}
+    if not ids:
+        return {}
+    rows = (await session.scalars(select(MailFolder).where(MailFolder.id.in_(ids))
+                                  .order_by(MailFolder.id).with_for_update())).all()
+    return {row.id: row for row in rows}
+
+
+async def _check_targets(session, rule: MailRule, locked: dict[str, MailFolder] | None = None) -> None:
     rule.label_ids = list(dict.fromkeys(rule.label_ids))
     if len(rule.label_ids) > 20 or any(not label_id for label_id in rule.label_ids):
-        raise ValueError("Too many labels")
-    for destination_id, kind in [(rule.folder_id, "folder"), *((label_id, "label") for label_id in sorted(rule.label_ids))]:
+        raise ValueError("Invalid labels")
+    destinations = await _lock_targets(session, rule) if locked is None else locked
+    for destination_id, kind in [(rule.folder_id, "folder"), *((label_id, "label") for label_id in rule.label_ids)]:
         if destination_id:
-            row = (await session.scalars(select(MailFolder).where(MailFolder.id == destination_id).with_for_update())).one_or_none()
+            row = destinations.get(destination_id)
             if row is None or row.kind != kind:
                 raise ValueError("Invalid destination")
     if rule.account_id and await session.get(MailAccount, rule.account_id) is None:
@@ -78,18 +89,27 @@ async def list_rules() -> list[MailRule]:
 
 
 async def update(rule_id: str, expected_version: int, **values) -> MailRule:
+    allowed = {"name", "account_id", "sender_address", "sender_domain", "subject_contains", "recipient", "folder_id", "label_ids", "mark_read", "mark_unread", "archive", "position", "is_active"}
     async with get_session_maker().begin() as session:
-        rule = (await session.scalars(select(MailRule).where(MailRule.id == rule_id).with_for_update())).one_or_none()
+        previous = await session.get(MailRule, rule_id)
+        if previous is None:
+            raise LookupError("Rule not found")
+        if previous.version != expected_version:
+            raise VersionConflict()
+        if values.keys() - allowed:
+            raise ValueError("Invalid rule fields")
+        # Preview without mutating the attached row: autoflush would lock the rule too early.
+        draft = MailRule.model_validate(previous.model_dump() | values)
+        destinations = await _lock_targets(session, draft)
+        rule = (await session.scalars(select(MailRule).where(MailRule.id == rule_id)
+                                      .with_for_update().execution_options(populate_existing=True))).one_or_none()
         if rule is None:
             raise LookupError("Rule not found")
         if rule.version != expected_version:
             raise VersionConflict()
-        allowed = {"name", "account_id", "sender_address", "sender_domain", "subject_contains", "recipient", "folder_id", "label_ids", "mark_read", "mark_unread", "archive", "position", "is_active"}
-        if values.keys() - allowed:
-            raise ValueError("Invalid rule fields")
         for key, value in values.items():
             setattr(rule, key, value)
-        await _check_targets(session, rule)
+        await _check_targets(session, rule, destinations)
         rule.version += 1
         rule.updated_at = utcnow()
         return rule

@@ -151,7 +151,7 @@ async def assign(message_ids: list[str], *, folder_id: str | None | object = _UN
             raise LookupError("Message not found")
         ids = sorted({resolved[message_id] for message_id in ids})
         destinations = ([folder_id] if isinstance(folder_id, str) else []) + labels + removed
-        rows = (await session.scalars(select(MailFolder).where(MailFolder.id.in_(destinations)).with_for_update())).all()
+        rows = (await session.scalars(select(MailFolder).where(MailFolder.id.in_(destinations)).order_by(MailFolder.id).with_for_update())).all()
         kinds = {row.id: row.kind for row in rows}
         if isinstance(folder_id, str) and kinds.get(folder_id) != "folder":
             raise ValueError("Folder not found")
