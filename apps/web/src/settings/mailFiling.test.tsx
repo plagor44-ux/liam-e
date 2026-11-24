@@ -740,6 +740,69 @@ test('previewing an edited saved rule sends its identity and current draft', asy
   expect(await screen.findByText('1 passende Mail')).toBeTruthy()
 })
 
+for (const stage of ['preview', 'save'] as const) {
+  for (const choice of ['keep', 'discard'] as const) {
+    test(`rule ${stage} conflict lets the owner ${choice} a draft against the latest version`, async () => {
+      const { RuleSettings } = await import('./MailFiling')
+      let current = { id: 'rule', name: 'Original', sender_domain: 'example.org', folder_id: 'folder', version: 1, is_active: true }
+      spyOn(sdk, 'mailRulesList').mockImplementation((async () => ({ data: [current] })) as never)
+      const preview = spyOn(sdk, 'mailRulesPreview').mockImplementation((async (options: { body: { expected_version: number } }) => {
+        if (options.body.expected_version !== current.version) throw { detail: { code: 'rule_version_conflict' } }
+        return { data: { matched: 1, already_filed: 0, message_ids: [] } }
+      }) as never)
+      const update = spyOn(sdk, 'mailRuleUpdate').mockImplementation((async (options: { body: { expected_version: number } }) => {
+        if (options.body.expected_version !== current.version) throw { detail: { code: 'rule_version_conflict' } }
+        return { data: current }
+      }) as never)
+      api.setConfig({ baseUrl: window.location.origin })
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL((input instanceof Request ? input : new Request(input, init)).url).pathname
+        return Response.json(path.endsWith('/folders') ? [{ id: 'folder', name: 'Projects', kind: 'folder' }] : [])
+      }) as typeof fetch
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+      fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'My draft' } })
+      current = { ...current, name: 'Changed elsewhere', version: 2 }
+      fireEvent.click(screen.getByRole('button', { name: stage === 'preview' ? 'Vorschau' : 'Speichern' }))
+      expect(await screen.findByText(/Die Regel wurde an anderer Stelle geändert/u)).toBeTruthy()
+      expect((screen.getByRole('button', { name: 'Speichern' }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByRole('button', { name: 'Vorschau' }) as HTMLButtonElement).disabled).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: choice === 'keep' ? 'Entwurf behalten' : 'Gespeicherte Regel laden' }))
+      await waitFor(() => expect(screen.queryByText(/Die Regel wurde an anderer Stelle geändert/u)).toBeNull())
+      expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe(choice === 'keep' ? 'My draft' : 'Changed elsewhere')
+      fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+      expect(await screen.findByText('1 passende Mail')).toBeTruthy()
+      expect(preview.mock.calls.at(-1)?.[0]?.body).toMatchObject({ expected_version: 2, name: choice === 'keep' ? 'My draft' : 'Changed elsewhere' })
+      fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+      await waitFor(() => expect(update.mock.calls.at(-1)?.[0]?.body).toMatchObject({ expected_version: 2, name: choice === 'keep' ? 'My draft' : 'Changed elsewhere' }))
+    })
+  }
+}
+
+test('a failed conflict reload preserves the draft and blocks save', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  let missing = false
+  spyOn(sdk, 'mailRulesList').mockImplementation((async () => ({ data: missing ? [] : [{ id: 'rule', name: 'Original', sender_domain: 'example.org', folder_id: 'folder', version: 1, is_active: true }] })) as never)
+  spyOn(sdk, 'mailRulesPreview').mockRejectedValue({ detail: { code: 'rule_version_conflict' } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL((input instanceof Request ? input : new Request(input, init)).url).pathname
+    return Response.json(path.endsWith('/folders') ? [{ id: 'folder', name: 'Projects', kind: 'folder' }] : [])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'My draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+  await screen.findByText(/Die Regel wurde an anderer Stelle geändert/u)
+  missing = true
+  fireEvent.click(screen.getByRole('button', { name: 'Entwurf behalten' }))
+  expect(await screen.findByText(/Die Regel ist nicht mehr vorhanden/u)).toBeTruthy()
+  expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('My draft')
+  expect((screen.getByRole('button', { name: 'Speichern' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
 test('label group describes its hint and keeps the label prefix with a long name', async () => {
   const { RuleSettings } = await import('./MailFiling')
   const longName = 'SyntheticLongLabel'.repeat(4)

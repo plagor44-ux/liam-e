@@ -52,6 +52,8 @@ export const en = {
     queued: n => plural(n, { one: '# email queued for processing.', other: '# emails queued for processing.' }),
     applyResult: (changed, skipped, pending, conflicts) => `App filings changed: ${changed}. Provider actions previously handled or unknown: ${skipped}; queued or in progress: ${pending}. Conflicts: ${conflicts} (emails changed since the preview; not overwritten).`,
     applyConflict: 'The preview is out of date or unavailable. Reload it.',
+    editorConflict: 'The rule was changed elsewhere. Load the saved rule and discard your draft, or keep your draft. The next save will replace the newer version.',
+    editorLoadSaved: 'Load saved rule', editorKeepDraft: 'Keep draft', editorRuleMissing: 'The rule no longer exists. Your draft is retained; you can cancel it.', editorLoadFailed: 'The saved rule could not be loaded. Try again.',
     ruleInactive: 'The rule is paused. Activate it to continue.',
     applyDescription: 'The preview shows the current state. Provider actions are queued only once and run only if the account supports them.',
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', providerIncomplete: 'Provider action incomplete', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
