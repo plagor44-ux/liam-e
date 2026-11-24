@@ -665,7 +665,10 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   the user on an invalid page. Empty inventories and searches with no matches have distinct text.
 - `/settings/rules` manages ordered, versioned rules with account, sender, domain, subject and
   recipient conditions. Each rule can select up to 20 labels using clearly labelled checkboxes;
-  rule summaries and chat confirmation cards show every selected label. Preview counts provider-inbox
+  label-group hint is linked as its accessible description; long names wrap without horizontal
+  overflow, focus rings have space and label prefixes stay with names. Empty action summaries are
+  omitted, and the required-target hint distinguishes creating from editing. Rule summaries and
+  chat confirmation cards show every selected label. Preview counts provider-inbox
   matches and identifies already-filed mail whose folder stays while selected labels are added.
   Applying to existing mail needs a separate dialog and
   confirms the number queued for background processing. Rule rows summarize their conditions, targets

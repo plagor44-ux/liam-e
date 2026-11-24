@@ -84,7 +84,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   const [sourceLoadFailed, setSourceLoadFailed] = useState(false)
   const draftTouched = useRef(false)
   const [sourceEnabled, setSourceEnabled] = useState({ sender_address: true, sender_domain: false, subject_contains: false })
-  const targetHintId = useId()
+  const targetHintId = useId(), labelHintId = useId()
   const sourceLoaded = useRef<string | undefined>(undefined)
   const [sourceReadyId, setSourceReadyId] = useState<string>()
   const formRef = useRef<HTMLFormElement>(null)
@@ -159,9 +159,9 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     const account = (accounts.data ?? []).find(item => item.id === row.account_id)
     const folder = rows.find(item => item.id === row.folder_id), labels = rows.filter(item => row.label_ids?.includes(item.id ?? ''))
     const conditions = [row.account_id && `${t.account}: ${account?.display_name || account?.email_address || t.none}`, row.sender_address && `${t.sender}: ${row.sender_address}`, row.sender_domain && `${t.domain}: ${row.sender_domain}`, row.subject_contains && `${t.subject}: ${row.subject_contains}`, row.recipient && `${t.recipient}: ${row.recipient}`].filter(Boolean)
-    const actions = [folder && `${t.folder}: ${folder.name}`, ...labels.map(label => `${t.label}: ${label.name}`),
+    const actions = [folder && `${t.folder}: ${folder.name}`, ...labels.map(label => `${t.label}:\u00a0${label.name}`),
       row.mark_read && t.markRead, row.mark_unread && t.markUnread, row.archive && t.archive].filter(Boolean)
-    return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.priority}: {row.position ?? 0}</small><small>{t.conditions}: {conditions.join(' · ')}</small><small>{t.targets}: {actions.join(' · ')}</small></div>
+    return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.priority}: {row.position ?? 0}</small><small>{t.conditions}: {conditions.join(' · ')}</small>{actions.length > 0 && <small>{t.targets}: {actions.join(' · ')}</small>}</div>
   }
   const providerOutcomes = (value: string | undefined) => {
     try {
@@ -196,7 +196,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       {choose('account_id', t.account, (accounts.data ?? []).map(account => ({ id: account.id, name: account.display_name || account.email_address })))}
       {(['sender_address', 'sender_domain', 'subject_contains', 'recipient'] as const).map((key, index) => <div key={key}><TextField label={[t.sender, t.domain, t.subject, t.recipient][index]!} value={draft[key] ?? ''} onChange={event => update({ [key]: event.target.value })} />{sourceActive && !editing && key !== 'recipient' && <Button type="button" variant={sourceEnabled[key] ? 'primary' : 'secondary'} role="switch" aria-label={t.useCondition([t.sender, t.domain, t.subject][index]!)} aria-checked={sourceEnabled[key]} onClick={() => { setSourceEnabled(old => ({ ...old, [key]: !old[key] })); setMatched(undefined) }}>{sourceEnabled[key] ? t.on : t.off}</Button>}</div>)}
       {choose('folder_id', t.folder, rows.filter(row => row.kind === 'folder'))}
-      <fieldset className="le-field le-rule-labels"><legend className="le-label">{t.ruleLabels}</legend><span className="le-hint">{t.ruleLabelsHint}</span>{rows.filter(row => row.kind === 'label' && row.id).map(row => <label key={row.id}><input className="le-check" type="checkbox" checked={draft.label_ids?.includes(row.id!) ?? false} disabled={!draft.label_ids?.includes(row.id!) && (draft.label_ids?.length ?? 0) >= 20} onChange={event => update({ label_ids: event.target.checked ? [...(draft.label_ids ?? []), row.id!] : (draft.label_ids ?? []).filter(id => id !== row.id) })} /> {row.name}</label>)}</fieldset>
+      <fieldset className="le-field le-rule-labels" aria-describedby={labelHintId}><legend className="le-label">{t.ruleLabels}</legend><span id={labelHintId} className="le-hint">{t.ruleLabelsHint}</span>{rows.filter(row => row.kind === 'label' && row.id).map(row => <label key={row.id}><input className="le-check" type="checkbox" checked={draft.label_ids?.includes(row.id!) ?? false} disabled={!draft.label_ids?.includes(row.id!) && (draft.label_ids?.length ?? 0) >= 20} onChange={event => update({ label_ids: event.target.checked ? [...(draft.label_ids ?? []), row.id!] : (draft.label_ids ?? []).filter(id => id !== row.id) })} /><span>{row.name}</span></label>)}</fieldset>
       <div className="le-prompt-actions">{([['mark_read', t.markRead], ['mark_unread', t.markUnread], ['archive', t.archive], ['is_active', t.active]] as const).map(([key, label]) => {
         const checked = key === 'is_active' ? draft.is_active ?? true : draft[key] ?? false
         return <Button key={key} type="button" variant={checked ? 'primary' : 'secondary'} role="switch" aria-checked={checked} onClick={() => update(key === 'mark_read' ? { mark_read: !checked, mark_unread: false } : key === 'mark_unread' ? { mark_unread: !checked, mark_read: false } : { [key]: !checked })}>{label} · {checked ? t.on : t.off}</Button>
@@ -205,7 +205,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       <div className="le-prompt-actions"><Button type="submit" variant="primary" aria-describedby={!draft.folder_id && !draft.label_ids?.length ? targetHintId : undefined} disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_ids?.length) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
       {(editing || sourceActive) && !sourceInitializing && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
-      {!draft.folder_id && !draft.label_ids?.length && <p id={targetHintId} className="le-hint">{t.ruleTargetRequired}</p>}
+      {!draft.folder_id && !draft.label_ids?.length && <p id={targetHintId} className="le-hint">{editing ? t.ruleTargetRequiredEdit : t.ruleTargetRequired}</p>}
       {matched !== undefined && <div role="status"><p>{t.matches(matched.matched)}</p>{matched.already_filed > 0 && <p>{t.alreadyFiledMatches(matched.already_filed)}</p>}</div>}
       </fieldset>
     </form>

@@ -7,6 +7,7 @@ import { client as api } from '../api/generated/client.gen'
 import * as sdk from '../api/generated/sdk.gen'
 import { spyOn, mock } from 'bun:test'
 import { FolderSettings } from './MailFiling'
+import { I18nProvider } from '../i18n/I18n'
 
 const original = globalThis.fetch, config = api.getConfig()
 let requests: { method: string; url: string; body?: unknown }[] = []
@@ -509,4 +510,70 @@ test('rule preview explains already-filed matches keep their folders', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
   expect(await screen.findByText('3 passende Mails')).toBeTruthy()
   expect(screen.getByText('2 bereits zugeordnet: Gewählte Labels werden ergänzt, der Ordner bleibt erhalten. Anbieteraktionen gelten wie ausgewählt.')).toBeTruthy()
+})
+
+test('label group describes its hint and keeps the label prefix with a long name', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const longName = 'SyntheticLongLabel'.repeat(4)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'label', name: longName, kind: 'label' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Active', is_active: true, label_ids: ['label'], version: 1 }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  expect(await screen.findByRole('checkbox', { name: longName })).toBeTruthy()
+  const group = screen.getByRole('group', { name: 'Labels' })
+  const hint = screen.getByText('Wähle bis zu 20 Labels.')
+  expect(group.getAttribute('aria-describedby')).toBe(hint.id)
+  const row = screen.getByText('Active').closest('.le-filing-row') as HTMLElement
+  expect(row.textContent).toContain(`Label:\u00a0${longName}`)
+})
+
+test('paused rules omit empty actions and editing explains the save requirement', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders') || path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Paused', is_active: false, label_ids: [], version: 1 }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  const row = (await screen.findByText('Paused')).closest('.le-filing-row') as HTMLElement
+  expect(within(row).queryByText(/^Aktionen:/u)).toBeNull()
+  fireEvent.click(within(row).getByRole('button', { name: 'Regel bearbeiten' }))
+  const hint = screen.getByText('Wähle einen Ordner oder ein Label, um die Regel zu speichern.')
+  expect(screen.getByRole('button', { name: 'Speichern' }).getAttribute('aria-describedby')).toBe(hint.id)
+})
+
+test('rule label and summary styles allow long words and leave focus-ring space', async () => {
+  const css = await Bun.file(new URL('../styles/ds.css', import.meta.url)).text()
+  const settingsCss = await Bun.file(new URL('../prompts/prompts.css', import.meta.url)).text()
+  expect(css).toMatch(/\.le-rule-labels label\s*\{[^}]*gap:\s*var\(--space-2\)[^}]*min-width:\s*0/u)
+  expect(css).toMatch(/\.le-rule-labels label span\s*\{[^}]*overflow-wrap:\s*anywhere/u)
+  expect(settingsCss).toMatch(/\.le-filing-summary\s*\{[^}]*min-width:\s*0/u)
+})
+
+
+test('English rule editing uses the save hint and describes the label group', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders') || path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Paused', is_active: false, label_ids: [], version: 1 }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<I18nProvider locale="en"><QueryClientProvider client={client}><RuleSettings /></QueryClientProvider></I18nProvider>)
+  const group = screen.getByRole('group', { name: 'Labels' })
+  expect(group.getAttribute('aria-describedby')).toBe(screen.getByText('Choose up to 20 labels.').id)
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit rule' }))
+  expect(screen.getByText('Choose a folder or label to save the rule.')).toBeTruthy()
+  expect(screen.queryByText('Actions:')).toBeNull()
 })
