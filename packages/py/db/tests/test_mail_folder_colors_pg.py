@@ -40,7 +40,7 @@ def test_rule_assigned_label_keeps_its_destination_color(pg_db):
         from db.accessors import mail_filing, mail_message, mail_rule
 
         label = await mail_filing.create_destination('Important', 'label', 'teal')
-        rule = await mail_rule.create(name='Example', sender_domain='example.org', label_id=label.id)
+        rule = await mail_rule.create(name='Example', sender_domain='example.org', label_ids=[label.id])
         message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='one', sender_address='person@example.org')
         run = await rules.execute_rule_run(rule.id, rule.version, message.id)
         assert run.status == 'done'

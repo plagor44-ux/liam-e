@@ -306,11 +306,15 @@ Folders and labels are global app data, never provider folders or labels. Each i
 at most one app folder and any number of labels. The owner inbox hides foldered messages; label
 filters include filed and unfiled mail. App filters include the indexed inbox and archive, while
 trash remains separate. Filing works across accounts regardless of provider capabilities.
-Deleting a destination requires confirmation and is blocked while a rule references it. Removing
+Deleting a destination requires confirmation; deleting a folder is blocked while a rule references it.
+Deleting a label removes it from rules and increments their versions; a rule with no remaining
+folder or labels is paused so it cannot run provider actions without a filing target. Removing
 an account also removes rules scoped to it and their runs, without widening those rules to other accounts.
 
 Rules match account, sender address or domain, subject and recipient, in ascending priority. The
-first matching folder wins and matching labels accumulate. New-message jobs and their versioned
+first matching folder wins and each rule stores up to 20 label IDs in its `label_ids` JSON list;
+matching labels accumulate in stable order without duplicates. The generated migration carries each
+legacy `label_id` into that list, and refuses a downgrade that would discard extra labels. New-message jobs and their versioned
 rule snapshots commit with the sync batch. Local assignments precede provider actions; provider
 actions pass through `require_action`, unsupported actions are recorded as skipped, and uncertain
 writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.

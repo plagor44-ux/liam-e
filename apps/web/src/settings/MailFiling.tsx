@@ -22,7 +22,7 @@ export function FolderSettings() {
   const [search, setSearch] = useState(''), [filter, setFilter] = useState<'all' | 'folder' | 'label'>('all'), [page, setPage] = useState(0)
   const [editing, setEditing] = useState<MailFolder>(), [deleting, setDeleting] = useState<MailFolder>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
-  const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-folders'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-quick-actions'] }) }
+  const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-folders'] }); void client.invalidateQueries({ queryKey: ['mail-rules'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-quick-actions'] }) }
   const save = async () => {
     if (busy || !name.trim()) return
     setBusy(true); setError(false)
@@ -65,7 +65,7 @@ export function FolderSettings() {
       <div className="le-filing-row-actions"><Button variant="secondary" onClick={() => { setEditing(row); setName(row.name); setColor(row.color ?? 'none') }}>{t.rename}</Button>
       <Button variant="secondary" aria-label={t.removeName(row.name)} onClick={() => setDeleting(row)}>{t.remove}</Button></div></div>)}
     {matches.length > 0 && <div className="le-prompt-actions"><Button variant="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t.previousPage}</Button><span aria-live="polite">{t.page(currentPage + 1, totalPages)}</span><Button variant="secondary" disabled={currentPage + 1 >= totalPages} onClick={() => setPage(currentPage + 1)}>{t.nextPage}</Button></div>}
-    {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}
+    {deleting && <PreferenceDialog title={t.removeTitle} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}. {deleting.kind === 'label' ? t.labelRemoveDescription : t.removeDescription}</p><div className="le-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void remove() }}>{t.remove}</Button></div></PreferenceDialog>}
   </section>
 }
 
@@ -119,7 +119,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   } : draft
   const execute = async (action: 'save' | 'preview' | 'apply' | 'delete') => {
     if (executing.current || sourceInitializing) return
-    if (action === 'save' && !(draft.folder_id || draft.label_id)) return
+    if (action === 'save' && !(draft.folder_id || draft.label_ids?.length)) return
     if (action === 'save' && sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable)) return
     executing.current = true; setBusy(true); setError(false)
     try {
@@ -143,12 +143,12 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     } catch (failure) { if (sourceActive && errorCode(failure) === 'message_not_found') setSourceMissing(true); else setError(true) } finally { executing.current = false; setBusy(false) }
   }
   const discard = () => { setDraft({ name: '', is_active: true }); setEditing(undefined); setMatched(undefined); setSourceActive(false); setSourceMissing(false); onSourceUsed?.() }
-  const dirty = Boolean(editing || draft.name || draft.account_id || draft.sender_address || draft.sender_domain || draft.subject_contains || draft.recipient || draft.folder_id || draft.label_id || draft.mark_read || draft.mark_unread || draft.archive || draft.position)
+  const dirty = Boolean(editing || draft.name || draft.account_id || draft.sender_address || draft.sender_domain || draft.subject_contains || draft.recipient || draft.folder_id || draft.label_ids?.length || draft.mark_read || draft.mark_unread || draft.archive || draft.position)
   const enabledDraft = prepared()
   const sourceAccountAvailable = Boolean(source.data && accounts.data?.some(account => account.id === source.data?.account_id))
-  useSettingsSlice('mail-rule-form', { dirty, hideBar: true, canSave: Boolean(draft.name.trim() && (enabledDraft.account_id || enabledDraft.sender_address || enabledDraft.sender_domain || enabledDraft.subject_contains || enabledDraft.recipient) && (draft.folder_id || draft.label_id) && (!sourceActive || editing || source.data && !source.data.local_reference_only && !sourceMissing && sourceAccountAvailable)), busy, save: () => execute('save'), discard })
+  useSettingsSlice('mail-rule-form', { dirty, hideBar: true, canSave: Boolean(draft.name.trim() && (enabledDraft.account_id || enabledDraft.sender_address || enabledDraft.sender_domain || enabledDraft.subject_contains || enabledDraft.recipient) && (draft.folder_id || draft.label_ids?.length) && (!sourceActive || editing || source.data && !source.data.local_reference_only && !sourceMissing && sourceAccountAvailable)), busy, save: () => execute('save'), discard })
   const rows = sortDestinations(destinations.data ?? [], locale)
-  const choose = (key: 'account_id' | 'folder_id' | 'label_id', label: string, options: { id?: string; name: string }[]) => {
+  const choose = (key: 'account_id' | 'folder_id', label: string, options: { id?: string; name: string }[]) => {
     const selected = options.find(row => row.id === draft[key])?.name ?? (key === 'account_id' ? t.allAccounts : t.none)
     return <div className="le-field"><span className="le-label">{label}</span><Menu trigger={props => <Chip {...props} quiet aria-label={`${label}: ${selected}`}>{selected}<Icon name="chevron-down" size="sm" /></Chip>} items={[
       { label: key === 'account_id' ? t.allAccounts : t.none, checked: !draft[key], onSelect: () => update({ [key]: null }) },
@@ -157,9 +157,9 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   }
   const ruleSummary = (row: MailRule) => {
     const account = (accounts.data ?? []).find(item => item.id === row.account_id)
-    const folder = rows.find(item => item.id === row.folder_id), label = rows.find(item => item.id === row.label_id)
+    const folder = rows.find(item => item.id === row.folder_id), labels = rows.filter(item => row.label_ids?.includes(item.id ?? ''))
     const conditions = [row.account_id && `${t.account}: ${account?.display_name || account?.email_address || t.none}`, row.sender_address && `${t.sender}: ${row.sender_address}`, row.sender_domain && `${t.domain}: ${row.sender_domain}`, row.subject_contains && `${t.subject}: ${row.subject_contains}`, row.recipient && `${t.recipient}: ${row.recipient}`].filter(Boolean)
-    const actions = [folder && `${t.folder}: ${folder.name}`, label && `${t.label}: ${label.name}`,
+    const actions = [folder && `${t.folder}: ${folder.name}`, ...labels.map(label => `${t.label}: ${label.name}`),
       row.mark_read && t.markRead, row.mark_unread && t.markUnread, row.archive && t.archive].filter(Boolean)
     return <div className="le-filing-summary"><small>{row.is_active ? t.enabled : t.disabled}</small><small>{t.priority}: {row.position ?? 0}</small><small>{t.conditions}: {conditions.join(' · ')}</small><small>{t.targets}: {actions.join(' · ')}</small></div>
   }
@@ -195,16 +195,17 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       <TextField label={t.ruleName} value={draft.name} onChange={event => update({ name: event.target.value })} maxLength={120} required />
       {choose('account_id', t.account, (accounts.data ?? []).map(account => ({ id: account.id, name: account.display_name || account.email_address })))}
       {(['sender_address', 'sender_domain', 'subject_contains', 'recipient'] as const).map((key, index) => <div key={key}><TextField label={[t.sender, t.domain, t.subject, t.recipient][index]!} value={draft[key] ?? ''} onChange={event => update({ [key]: event.target.value })} />{sourceActive && !editing && key !== 'recipient' && <Button type="button" variant={sourceEnabled[key] ? 'primary' : 'secondary'} role="switch" aria-label={t.useCondition([t.sender, t.domain, t.subject][index]!)} aria-checked={sourceEnabled[key]} onClick={() => { setSourceEnabled(old => ({ ...old, [key]: !old[key] })); setMatched(undefined) }}>{sourceEnabled[key] ? t.on : t.off}</Button>}</div>)}
-      {choose('folder_id', t.folder, rows.filter(row => row.kind === 'folder'))}{choose('label_id', t.label, rows.filter(row => row.kind === 'label'))}
+      {choose('folder_id', t.folder, rows.filter(row => row.kind === 'folder'))}
+      <fieldset className="le-field le-rule-labels"><legend className="le-label">{t.ruleLabels}</legend><span className="le-hint">{t.ruleLabelsHint}</span>{rows.filter(row => row.kind === 'label' && row.id).map(row => <label key={row.id}><input className="le-check" type="checkbox" checked={draft.label_ids?.includes(row.id!) ?? false} disabled={!draft.label_ids?.includes(row.id!) && (draft.label_ids?.length ?? 0) >= 20} onChange={event => update({ label_ids: event.target.checked ? [...(draft.label_ids ?? []), row.id!] : (draft.label_ids ?? []).filter(id => id !== row.id) })} /> {row.name}</label>)}</fieldset>
       <div className="le-prompt-actions">{([['mark_read', t.markRead], ['mark_unread', t.markUnread], ['archive', t.archive], ['is_active', t.active]] as const).map(([key, label]) => {
         const checked = key === 'is_active' ? draft.is_active ?? true : draft[key] ?? false
         return <Button key={key} type="button" variant={checked ? 'primary' : 'secondary'} role="switch" aria-checked={checked} onClick={() => update(key === 'mark_read' ? { mark_read: !checked, mark_unread: false } : key === 'mark_unread' ? { mark_unread: !checked, mark_read: false } : { [key]: !checked })}>{label} · {checked ? t.on : t.off}</Button>
       })}</div>
       <TextField type="number" label={t.priority} value={draft.position ?? 0} onChange={event => update({ position: Number(event.target.value) })} />
-      <div className="le-prompt-actions"><Button type="submit" variant="primary" aria-describedby={!draft.folder_id && !draft.label_id ? targetHintId : undefined} disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_id) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
+      <div className="le-prompt-actions"><Button type="submit" variant="primary" aria-describedby={!draft.folder_id && !draft.label_ids?.length ? targetHintId : undefined} disabled={busy || !draft.name.trim() || !(draft.folder_id || draft.label_ids?.length) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
       {(editing || sourceActive) && !sourceInitializing && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
-      {!draft.folder_id && !draft.label_id && <p id={targetHintId} className="le-hint">{t.ruleTargetRequired}</p>}
+      {!draft.folder_id && !draft.label_ids?.length && <p id={targetHintId} className="le-hint">{t.ruleTargetRequired}</p>}
       {matched !== undefined && <p role="status">{t.matches(matched)}</p>}
       </fieldset>
     </form>
@@ -212,7 +213,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     {rules.isPending && <p role="status">{t.loading}</p>}{(error || rules.isError || destinations.isError || accounts.isError) && <Notice tone="danger">{t.error}</Notice>}
     {rules.data?.length === 0 && <p>{t.ruleEmpty}</p>}
     {sortNamed(rules.data ?? [], locale).map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>{ruleSummary(row)}
-      <Button variant="secondary" disabled={sourceInitializing} onClick={() => { draftTouched.current = true; setEditing(row); setDraft({ name: row.name, account_id: row.account_id, sender_address: row.sender_address, sender_domain: row.sender_domain, subject_contains: row.subject_contains, recipient: row.recipient, folder_id: row.folder_id, label_id: row.label_id, mark_read: row.mark_read, mark_unread: row.mark_unread, archive: row.archive, position: row.position, is_active: row.is_active }) }}>{t.editRule}</Button>
+      <Button variant="secondary" disabled={sourceInitializing} onClick={() => { draftTouched.current = true; setEditing(row); setDraft({ name: row.name, account_id: row.account_id, sender_address: row.sender_address, sender_domain: row.sender_domain, subject_contains: row.subject_contains, recipient: row.recipient, folder_id: row.folder_id, label_ids: row.label_ids ?? [], mark_read: row.mark_read, mark_unread: row.mark_unread, archive: row.archive, position: row.position, is_active: row.is_active }) }}>{t.editRule}</Button>
       <Button variant="secondary" onClick={() => setApplying(row)}>{t.apply}</Button><Button variant="secondary" onClick={() => setDeleting(row)}>{t.deleteRule}</Button>
       <Button variant="secondary" onClick={() => setShowRuns(showRuns === row.id ? undefined : row.id)}>{t.outcomes}</Button>
       {showRuns === row.id && runs.isPending && <p role="status">{t.loading}</p>}
@@ -220,7 +221,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       {showRuns === row.id && runs.data?.length === 0 && <p>{t.noRuns}</p>}
       {showRuns === row.id && runs.data?.map(run => <div key={run.id} className="le-filing-summary"><p>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status === 'skipped_imap_rebuild' ? `${t.imapRebuild} ${t.account}: ${runAccount(run.account_id)}` : run.status === 'skipped_initial_import' ? `${t.initialImport} ${t.account}: ${runAccount(run.account_id)}` : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('overridden') ? t.folderOverridden : (run.provider_results_json?.includes('skipped_unsupported') || run.provider_results_json?.includes('skipped_permission')) ? t.skipped : /"(?:reconciled|partial)(?:_permission)?"/u.test(run.provider_results_json ?? '') ? t.providerIncomplete : t.completed}</p>
         {run.status !== 'done' && run.provider_results_json?.includes('overridden') && <small>{t.folderOverridden}</small>}
-        {['done', 'local_done', 'unknown'].includes(run.status ?? '') && (!run.provider_results_json?.includes('overridden') || row.label_id) && <small>{t.localDone}</small>}
+        {['done', 'local_done', 'unknown'].includes(run.status ?? '') && (!run.provider_results_json?.includes('overridden') || row.label_ids?.length) && <small>{t.localDone}</small>}
         {providerOutcomes(run.provider_results_json).map(detail => <small key={detail}>{detail}</small>)}</div>)}
     </div>)}
     {applying && <PreferenceDialog title={t.applyTitle} close={() => { if (!busy) setApplying(undefined) }}><p>{applying.name}. {t.applyDescription}</p><div className="le-dialog-actions"><Button variant="secondary" onClick={() => setApplying(undefined)}>{t.cancel}</Button><Button variant="primary" disabled={busy} onClick={() => { void execute('apply') }}>{t.apply}</Button></div></PreferenceDialog>}

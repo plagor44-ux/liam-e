@@ -235,7 +235,7 @@ async def execute_tool(name: str, arguments: dict, ctx: TurnContext) -> ToolOutc
         if (rule.account_id and rule.account_id not in ctx.account_ids) or (not rule.account_id and not {a.id for a in accounts if a.is_active}.issubset(set(ctx.account_ids))):
             return result({'error': 'account_out_of_scope'})
         destinations = {row.id: row.kind for row in await mail_filing.list_destinations()}
-        if (rule.folder_id and destinations.get(rule.folder_id) != 'folder') or (rule.label_id and destinations.get(rule.label_id) != 'label'):
+        if (rule.folder_id and destinations.get(rule.folder_id) != 'folder') or any(destinations.get(label_id) != 'label' for label_id in rule.label_ids):
             return result({'error': 'rule_invalid'})
         return await _proposal(ctx, proposals.Proposal(kind='rule', reason=str(arguments.get('reason', ''))[:500], items=[], rule=rule))
     if name == 'propose_filing':

@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from sqlalchemy import Column, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 from db.models._common import new_id, utc_datetime_column, utcnow
@@ -18,7 +20,7 @@ class MailRule(SQLModel, table=True):
     subject_contains: str = ""
     recipient: str = ""
     folder_id: str | None = None
-    label_id: str | None = None
+    label_ids: list[str] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False, server_default=text("'[]'::jsonb")))
     mark_read: bool = False
     mark_unread: bool = Field(default=False, sa_column_kwargs={"server_default": "false"})
     archive: bool = False

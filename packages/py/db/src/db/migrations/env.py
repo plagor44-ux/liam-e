@@ -60,8 +60,13 @@ mail_downgrade = rewriter.Rewriter()
 
 
 @mail_downgrade.rewrites(ops.DropColumnOp)
-def resume_base_imap_poll(context, revision, operation):
-    """Freeze the data handoff into the downgrade that removes the IMAP generation column."""
+def rewrite_data_handoffs(context, revision, operation):
+    """Generate data handoffs for rule labels and the IMAP downgrade."""
+    if (operation.table_name, operation.column_name) == ("mail_rule", "label_id"):
+        return [ops.ExecuteSQLOp("UPDATE mail_rule SET label_ids = jsonb_build_array(label_id) WHERE label_id IS NOT NULL"), operation]
+    if (operation.table_name, operation.column_name) == ("mail_rule", "label_ids"):
+        return [ops.ExecuteSQLOp("DO $$ BEGIN IF EXISTS (SELECT 1 FROM mail_rule WHERE jsonb_array_length(label_ids) > 1) THEN RAISE EXCEPTION 'Cannot downgrade rules with multiple labels'; END IF; END $$"),
+                ops.ExecuteSQLOp("UPDATE mail_rule SET label_id = label_ids->>0"), operation]
     if (operation.table_name, operation.column_name) != ("mail_message", "imap_uidvalidity"):
         return operation
     # Take the column drop's lock before reading the rows. An in-flight insight writer

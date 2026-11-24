@@ -449,3 +449,51 @@ test('rule history describes reconciliation, partial writes and permission indep
   expect(screen.getByText(/Der Anbieter hat nur einen Teil der Änderung ausgeführt/)).toBeTruthy()
   expect(screen.getByText(/Für diese Aktion fehlt dem Connector die Berechtigung/)).toBeTruthy()
 })
+
+test('rule editor saves multiple labels and lists their names', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const create = spyOn(sdk, 'mailRuleCreate').mockResolvedValue({ data: { id: 'rule', name: 'Example' } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'one', name: 'Important', kind: 'label' }, { id: 'two', name: 'Work', kind: 'label' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'old', name: 'Existing', sender_domain: 'example.org', label_ids: ['one', 'two'], version: 1 }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  await screen.findByRole('checkbox', { name: 'Important' })
+  const row = screen.getByText('Existing').closest('.le-filing-row') as HTMLElement
+  expect(within(row).getByText(/Important/).textContent).toContain('Work')
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
+  fireEvent.change(screen.getByLabelText('Absenderdomain'), { target: { value: 'example.org' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Important' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Work' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Regel anlegen' }))
+  await waitFor(() => expect(create).toHaveBeenCalled())
+  expect(create.mock.calls[0]?.[0]?.body.label_ids).toEqual(['one', 'two'])
+})
+
+test('editing a rule restores all labels and saves the selected set', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const update = spyOn(sdk, 'mailRuleUpdate').mockResolvedValue({ data: { id: 'rule', name: 'Example' } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'one', name: 'Important', kind: 'label' }, { id: 'two', name: 'Work', kind: 'label' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Example', sender_domain: 'example.org', label_ids: ['one', 'two'], version: 3 }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  expect((screen.getByRole('checkbox', { name: 'Important' }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByRole('checkbox', { name: 'Work' }) as HTMLInputElement).checked).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Important' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await waitFor(() => expect(update).toHaveBeenCalled())
+  expect(update.mock.calls[0]?.[0]?.body.label_ids).toEqual(['two'])
+  expect(update.mock.calls[0]?.[0]?.body.expected_version).toBe(3)
+})

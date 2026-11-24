@@ -95,10 +95,20 @@ async def delete_destination(destination_id: str) -> None:
         row = (await session.scalars(select(MailFolder).where(MailFolder.id == destination_id).with_for_update())).one_or_none()
         if row is None:
             raise LookupError("Destination not found")
-        in_use = await session.scalar(select(MailRule.id).where(or_(
-            MailRule.folder_id == destination_id, MailRule.label_id == destination_id)).limit(1))
-        if in_use is not None:
-            raise ValueError("Destination is used by a rule")
+        if row.kind == "folder":
+            in_use = await session.scalar(select(MailRule.id).where(MailRule.folder_id == destination_id).limit(1))
+            if in_use is not None:
+                raise ValueError("Destination is used by a rule")
+        else:
+            from db.models._common import utcnow
+            rules = (await session.scalars(select(MailRule).where(
+                MailRule.label_ids.contains([destination_id])).order_by(MailRule.id).with_for_update())).all()
+            for rule in rules:
+                rule.label_ids = [item for item in rule.label_ids if item != destination_id]
+                if not rule.folder_id and not rule.label_ids:
+                    rule.is_active = False
+                rule.version += 1
+                rule.updated_at = utcnow()
         await session.execute(update(MailFiling).where(MailFiling.folder_id == destination_id).values(folder_id=None))
         await session.execute(delete(MailLabelAssignment).where(MailLabelAssignment.label_id == destination_id))
         await session.execute(delete(MailFilingUsage).where(MailFilingUsage.destination_id == destination_id))

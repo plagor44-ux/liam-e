@@ -49,7 +49,7 @@ async def test_filing_seed_includes_unsupported_studio_action(monkeypatch):
     rule = next(row for row in rules if row.id == dev_seed.seed_id('rule', 'studio-skip'))
     assert rule.mark_read and rule.account_id == dev_seed.seed_id('account', 'privat')
     assert runs[0].rule_id == rule.id and json.loads(runs[0].provider_results_json) == {'mark_read': 'skipped_unsupported'}
-    assert any(row.message_id == runs[0].message_id and row.label_id == rule.label_id for row in labels)
+    assert any(row.message_id == runs[0].message_id and row.label_id in rule.label_ids for row in labels)
     assert {row.destination_id for row in usage} == {row.id for row in destinations}
     assert all(row.use_count > 0 for row in usage)
     assert {row.color for row in destinations} == {'moss', 'teal'}

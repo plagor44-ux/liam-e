@@ -58,11 +58,14 @@ def test_rule_card_requires_confirmation_and_cannot_exceed_scope(pg_db):
         conversation, context, _ = await chat_context.resolve(conversation_id=None, title="Test", model=None, revision_id=None,
             account_id=a.id, app_prompt_version="test-only")
         folder = await mail_filing.create_destination("Projects", "folder")
-        command = RuleIn(name="File", account_id=a.id, sender_domain="example.test", folder_id=folder.id)
+        first = await mail_filing.create_destination("Important", "label")
+        second = await mail_filing.create_destination("Work", "label")
+        command = RuleIn(name="File", account_id=a.id, sender_domain="example.test", folder_id=folder.id, label_ids=[first.id, second.id])
         card = await proposals.create_proposal(conversation.id, proposals.Proposal(kind="rule", reason="Rule", items=[], rule=command), context_id=context.id)
         assert await mail_rule.list_rules() == []
         assert (await proposals.confirm(card.id, selected_ids=[])).proposal_status == "done"
         assert len(await mail_rule.list_rules()) == 1
+        assert (await mail_rule.list_rules())[0].label_ids == [first.id, second.id]
         global_rule = command.model_copy(update={"account_id": None})
         card = await proposals.create_proposal(conversation.id, proposals.Proposal(kind="rule", reason="Rule", items=[], rule=global_rule), context_id=context.id)
         with pytest.raises(proposals.ProposalContextRevokedError):
@@ -90,7 +93,10 @@ def test_rule_tool_requires_explicit_current_user_request(pg_db):
         folder = await mail_filing.create_destination("Projects", "folder")
         source = await chat_message.add_message(conversation_id=conversation.id, role="user", content="Summarize my email", context_id=context.id)
         ctx = TurnContext(conversation.id, account.id, date.today(), account_ids=[account.id], context_id=context.id, source_message_id=source.id)
-        args = {"name": "Projects", "account_id": account.id, "sender_domain": "example.test", "folder_id": folder.id, "reason": "Example"}
+        first = await mail_filing.create_destination("Important", "label")
+        second = await mail_filing.create_destination("Work", "label")
+        args = {"name": "Projects", "account_id": account.id, "sender_domain": "example.test", "folder_id": folder.id,
+                "label_ids": [first.id, second.id], "reason": "Example"}
         denied = await execute_tool("propose_rule", args, ctx)
         assert denied.proposal_message is None
         assert json.loads(denied.content)["error"] == "explicit_rule_request_required"
@@ -99,6 +105,7 @@ def test_rule_tool_requires_explicit_current_user_request(pg_db):
         allowed = await execute_tool("propose_rule", args, ctx)
         assert allowed.proposal_message is not None
         assert allowed.proposal_message.proposal_status == "pending"
+        assert json.loads(allowed.proposal_message.proposal_json)["rule"]["label_ids"] == [first.id, second.id]
 
     asyncio.run(run())
 

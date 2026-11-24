@@ -3615,16 +3615,12 @@
             "title": "Is Active",
             "type": "boolean"
           },
-          "label_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Label Id"
+          "label_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Label Ids",
+            "type": "array"
           },
           "mark_read": {
             "default": false,
@@ -5615,16 +5611,15 @@
             "title": "Is Active",
             "type": "boolean"
           },
-          "label_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Label Id"
+          "label_ids": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Label Ids",
+            "type": "array"
           },
           "mark_read": {
             "default": false,
@@ -5727,16 +5722,15 @@
             "title": "Is Active",
             "type": "boolean"
           },
-          "label_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Label Id"
+          "label_ids": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Label Ids",
+            "type": "array"
           },
           "mark_read": {
             "default": false,
@@ -5830,16 +5824,15 @@
             "title": "Is Active",
             "type": "boolean"
           },
-          "label_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Label Id"
+          "label_ids": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Label Ids",
+            "type": "array"
           },
           "mark_read": {
             "default": false,

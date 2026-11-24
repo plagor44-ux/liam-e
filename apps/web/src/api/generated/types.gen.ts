@@ -1973,9 +1973,9 @@ export type MailRule = {
      */
     is_active?: boolean;
     /**
-     * Label Id
+     * Label Ids
      */
-    label_id?: string | null;
+    label_ids?: Array<string>;
     /**
      * Mark Read
      */
@@ -3110,9 +3110,9 @@ export type RuleFromMessageIn = {
      */
     is_active?: boolean;
     /**
-     * Label Id
+     * Label Ids
      */
-    label_id?: string | null;
+    label_ids?: Array<string>;
     /**
      * Mark Read
      */
@@ -3176,9 +3176,9 @@ export type RuleIn = {
      */
     is_active?: boolean;
     /**
-     * Label Id
+     * Label Ids
      */
-    label_id?: string | null;
+    label_ids?: Array<string>;
     /**
      * Mark Read
      */
@@ -3238,9 +3238,9 @@ export type RuleUpdate = {
      */
     is_active?: boolean;
     /**
-     * Label Id
+     * Label Ids
      */
-    label_id?: string | null;
+    label_ids?: Array<string>;
     /**
      * Mark Read
      */

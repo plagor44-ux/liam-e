@@ -44,7 +44,7 @@ export const en = {
     sourceAccountGone: 'This email’s account is no longer available. Create a new rule without this source if needed.',
     sourceLoadManual: 'The source email could not be loaded. You can create the rule manually.',
     sourceRuleHint: 'Suggestions from this email: choose the conditions you want to use.', useCondition: name => `Use ${name}`,
-    ruleTargetRequired: 'Choose a folder or label to create the rule.', ruleName: 'Rule name', account: 'Account', allAccounts: 'All accounts', sender: 'Sender address', domain: 'Sender domain', subject: 'Subject contains', recipient: 'Recipient address',
+    labelRemoveDescription: 'The label is removed from emails and rules. Rules without a folder or another label are paused. Nothing changes at the provider.', ruleLabels: 'Labels', ruleLabelsHint: 'Choose up to 20 labels.', ruleTargetRequired: 'Choose a folder or label to create the rule.', ruleName: 'Rule name', account: 'Account', allAccounts: 'All accounts', sender: 'Sender address', domain: 'Sender domain', subject: 'Subject contains', recipient: 'Recipient address',
     none: 'None', markRead: 'Mark as read', markUnread: 'Mark as unread', archive: 'Archive at provider',
     active: 'Rule active', priority: 'Order', addRule: 'Add rule', editRule: 'Edit rule', deleteRule: 'Delete rule',
     ruleEmpty: 'No rules yet. Create a rule for new emails.', ruleDelay: 'Rules run after fetching mail. A sleeping Studio instance delays them until the next fetch.',

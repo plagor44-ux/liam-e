@@ -705,12 +705,14 @@ test('rule card names a removed account and can still be cancelled', async () =>
 
 test('rule card shows scope and actions before confirmation', async () => {
   const initial = message()
-  initial.proposal = { kind: 'rule', reason: 'Automatisch', items: [], rule: { name: 'Projects', account_id: 'a', sender_domain: 'example.test', folder_id: 'f', mark_read: true } }
-  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', kind: 'folder', name: 'Projects folder' }] } as never)
+  initial.proposal = { kind: 'rule', reason: 'Automatisch', items: [], rule: { name: 'Projects', account_id: 'a', sender_domain: 'example.test', folder_id: 'f', label_ids: ['l1', 'l2'], mark_read: true } }
+  spyOn(sdk, 'mailFoldersList').mockResolvedValue({ data: [{ id: 'f', kind: 'folder', name: 'Projects folder' }, { id: 'l1', kind: 'label', name: 'Important' }, { id: 'l2', kind: 'label', name: 'Work' }] } as never)
   spyOn(sdk, 'mailAccountsList').mockResolvedValue({ data: [{ id: 'a', email_address: 'a@example.test', display_name: 'Work' }] } as never)
   const confirm = spyOn(sdk, 'chatProposalConfirm').mockImplementation((async () => ({ data: { ...initial, proposal_status: 'done', proposal: { ...initial.proposal!, result: { done: 1 } } } })) as never)
   setup(initial)
   expect(await screen.findByText('Ordner: Projects folder')).toBeTruthy()
+  expect(screen.getByText('Label: Important')).toBeTruthy()
+  expect(screen.getByText('Label: Work')).toBeTruthy()
   expect(screen.getByText('Konto: Work')).toBeTruthy()
   expect(screen.getByText('Als gelesen markieren')).toBeTruthy()
   expect(confirm).not.toHaveBeenCalled()

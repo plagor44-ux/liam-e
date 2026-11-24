@@ -242,17 +242,17 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
   if (proposal.kind === 'rule') {
     const rule = proposal.rule
     if (!rule) return null
-    const folder = destinations.data?.find(row => row.id === rule.folder_id), label = destinations.data?.find(row => row.id === rule.label_id)
+    const folder = destinations.data?.find(row => row.id === rule.folder_id), labels = (rule.label_ids ?? []).map(id => destinations.data?.find(row => row.id === id && row.kind === 'label'))
     const account = accounts.data?.find(row => row.id === rule.account_id)
     const loading = destinations.isPending || accounts.isPending
     const loadError = destinations.isError || accounts.isError
-    const missingDestination = !loading && !destinations.isError && (Boolean(rule.folder_id && !folder) || Boolean(rule.label_id && !label))
+    const missingDestination = !loading && !destinations.isError && (Boolean(rule.folder_id && !folder) || labels.some(label => !label))
     const missingAccount = !loading && !accounts.isError && Boolean(rule.account_id && !account)
     const unavailable = loading || loadError || missingDestination || missingAccount
     return <section className="le-confirm"><div className="le-confirm-head"><h3 className="le-confirm-title">{texts.mailFiling.ruleConfirm}</h3><span>{proposal.reason}</span></div>
       <p>{rule.name}</p><p>{texts.mailFiling.account}: {account ? account.display_name || account.email_address : rule.account_id ? texts.mailFiling.none : texts.mailFiling.allAccounts}</p>
       {rule.sender_address && <p>{texts.mailFiling.sender}: {rule.sender_address}</p>}{rule.sender_domain && <p>{texts.mailFiling.domain}: {rule.sender_domain}</p>}{rule.subject_contains && <p>{texts.mailFiling.subject}: {rule.subject_contains}</p>}{rule.recipient && <p>{texts.mailFiling.recipient}: {rule.recipient}</p>}
-      {folder && <p>{texts.mailFiling.folder}: {folder.name}</p>}{label && <p>{texts.mailFiling.label}: {label.name}</p>}{rule.mark_read && <p>{texts.mailFiling.markRead}</p>}{rule.mark_unread && <p>{texts.mailFiling.markUnread}</p>}{rule.archive && <p>{texts.mailFiling.archive}</p>}
+      {folder && <p>{texts.mailFiling.folder}: {folder.name}</p>}{labels.map(label => label && <p key={label.id}>{texts.mailFiling.label}: {label.name}</p>)}{rule.mark_read && <p>{texts.mailFiling.markRead}</p>}{rule.mark_unread && <p>{texts.mailFiling.markUnread}</p>}{rule.archive && <p>{texts.mailFiling.archive}</p>}
       {loadError && <Notice tone="danger">{texts.mailFiling.error}</Notice>}{missingDestination && <Notice tone="info">{texts.mailFiling.missingDestination}</Notice>}{missingAccount && <Notice tone="info">{texts.mailFiling.missingAccount}</Notice>}{error && <Notice tone="danger">{failureText(error, proposal.kind, texts)}</Notice>}
       <div className="le-confirm-foot"><Button variant="primary" disabled={busy || unavailable} onClick={() => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids: [] }, throwOnError: true })), true) }}>{texts.mailFiling.addRule}</Button><Button variant="ghost" disabled={busy} onClick={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }}>{texts.controls.cancel}</Button></div>
     </section>

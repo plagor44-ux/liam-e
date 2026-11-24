@@ -284,3 +284,7 @@ small { font-size: var(--font-size-small); }
   .le-typing i, .le-caret::after, .le-spinner { animation: none; }
   .le-qa:hover, .le-btn:active, .le-send:active { transform: none; }
 }
+
+.le-rule-labels { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
+.le-rule-labels legend, .le-rule-labels .le-hint { width: 100%; }
+.le-rule-labels label { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 44px; }

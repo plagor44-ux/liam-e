@@ -383,7 +383,7 @@ def test_lower_priority_folder_reports_override_but_applies_label(pg_db):
         second = await mail_filing.create_destination('Second', 'folder')
         label = await mail_filing.create_destination('Work', 'label')
         await mail_rule.create(name='Higher', position=1, folder_id=first.id)
-        lower = await mail_rule.create(name='Lower', position=2, folder_id=second.id, label_id=label.id, mark_read=True)
+        lower = await mail_rule.create(name='Lower', position=2, folder_id=second.id, label_ids=[label.id], mark_read=True)
         result = await rules.execute_rule_run(lower.id, lower.version, message.id)
         assert result.status == 'done'
         assert json.loads(result.provider_results_json) == {'_folder': 'overridden', 'mark_read': 'skipped_unsupported'}
@@ -531,8 +531,9 @@ def test_rule_labels_accumulate_before_provider_archive(pg_db, monkeypatch):
         folder = await mail_filing.create_destination("Projects", "folder")
         first = await mail_filing.create_destination("One", "label")
         second = await mail_filing.create_destination("Two", "label")
-        await mail_rule.create(name="First", position=1, folder_id=folder.id, label_id=first.id, archive=True)
-        await mail_rule.create(name="Second", position=2, label_id=second.id)
+        third = await mail_filing.create_destination("Three", "label")
+        await mail_rule.create(name="First", position=1, folder_id=folder.id, label_ids=[first.id, second.id], archive=True)
+        await mail_rule.create(name="Second", position=2, label_ids=[second.id, third.id])
         async def archive(message_id, kind):
             assert kind == "archive"
             await mail_message.set_state(message_id, folder="ARCHIVE")
@@ -543,7 +544,7 @@ def test_rule_labels_accumulate_before_provider_archive(pg_db, monkeypatch):
         assert await jobs.run_once()
         filing = await mail_filing.for_message(ids[0])
         assert filing.folder_id == folder.id
-        assert set(filing.label_ids) == {first.id, second.id}
+        assert set(filing.label_ids) == {first.id, second.id, third.id}
 
     asyncio.run(run())
 
@@ -699,4 +700,112 @@ def test_rule_skips_paused_verified_gmail_binding_without_retrying_provider(pg_d
         assert await mail_sync_state.retry_connector_writes(account.id)
         assert (await rules.execute_rule_run(rule.id, rule.version, message.id)).id == first.id
         write.assert_not_awaited()
+    asyncio.run(run())
+
+
+def test_multiple_rule_labels_are_applied_and_deletion_updates_versions(pg_db):
+    async def run():
+        from api.mail import rules
+        from db.accessors import mail_filing, mail_message, mail_rule
+        first = await mail_filing.create_destination('First', 'label')
+        second = await mail_filing.create_destination('Second', 'label')
+        folder = await mail_filing.create_destination('Folder', 'folder')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='one')
+        rule = await mail_rule.create(name='Labels', folder_id=folder.id, label_ids=[first.id, second.id, first.id])
+        assert rule.label_ids == [first.id, second.id]
+        result = await rules.execute_rule_run(rule.id, rule.version, message.id)
+        assert result.status == 'done'
+        assert set((await mail_filing.for_message(message.id)).label_ids) == {first.id, second.id}
+        await mail_filing.delete_destination(first.id)
+        changed = await mail_rule.get(rule.id)
+        assert changed.label_ids == [second.id] and changed.version == rule.version + 1
+        with pytest.raises(mail_rule.VersionConflict):
+            await mail_rule.update(rule.id, rule.version, label_ids=[second.id])
+        await mail_filing.delete_destination(second.id)
+        changed = await mail_rule.get(rule.id)
+        assert changed.label_ids == [] and changed.is_active
+        only = await mail_filing.create_destination('Only', 'label')
+        last = await mail_rule.create(name='Only label', label_ids=[only.id])
+        await mail_filing.delete_destination(only.id)
+        changed = await mail_rule.get(last.id)
+        assert changed.label_ids == [] and not changed.is_active
+        with pytest.raises(ValueError):
+            await mail_filing.delete_destination(folder.id)
+    asyncio.run(run())
+
+
+def test_rule_label_migration_carries_existing_values(pg_db):
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+    from db.accessors import mail_rule
+    from db.engine import dispose_engine, get_session_maker
+
+    async def seed():
+        from db.accessors import mail_filing
+        label = await mail_filing.create_destination('Legacy', 'label')
+        return (await mail_rule.create(name='Legacy', label_ids=[label.id])).id, label.id
+
+    async def clear_legacy(rule_id):
+        async with get_session_maker().begin() as session:
+            assert (await session.execute(text('SELECT label_id FROM mail_rule WHERE id = :id'), {'id': rule_id})).scalar_one()
+            await session.execute(text('UPDATE mail_rule SET label_id = NULL WHERE id = :id'), {'id': rule_id})
+
+    async def verify(rule_id, expected):
+        rule = await mail_rule.get(rule_id)
+        assert rule.label_ids == expected
+
+    async def replace_labels(rule_id, labels):
+        async with get_session_maker().begin() as session:
+            from db.models.mail_rule import MailRule
+            rule = await session.get(MailRule, rule_id)
+            rule.label_ids = labels
+
+    async def verify_and_replace(rule_id, expected, labels):
+        await verify(rule_id, expected)
+        await replace_labels(rule_id, labels)
+
+    project = Path(__file__).resolve().parents[1]
+    config = Config(str(project / 'alembic.ini'))
+    config.set_main_option('script_location', str(project / 'src/db/migrations'))
+    rule_id, label_id = asyncio.run(seed())
+    asyncio.run(dispose_engine())
+    command.downgrade(config, '6f7221132711')
+    asyncio.run(dispose_engine())
+    command.upgrade(config, 'heads')
+    asyncio.run(verify_and_replace(rule_id, [label_id], [label_id, 'another-synthetic-label']))
+    asyncio.run(dispose_engine())
+    with pytest.raises(Exception, match='Cannot downgrade rules with multiple labels'):
+        command.downgrade(config, '6f7221132711')
+    asyncio.run(verify_and_replace(rule_id, [label_id, 'another-synthetic-label'], [label_id]))
+    asyncio.run(dispose_engine())
+    command.downgrade(config, '6f7221132711')
+    asyncio.run(clear_legacy(rule_id))
+    asyncio.run(dispose_engine())
+    command.upgrade(config, 'heads')
+    asyncio.run(verify(rule_id, []))
+
+
+def test_rule_api_validates_multiple_destinations_and_versions(pg_db):
+    async def run():
+        import httpx
+        from fastapi import FastAPI
+        from api.routers.api.v1.mail import rules
+        from db.accessors import mail_filing
+        first = await mail_filing.create_destination('First', 'label')
+        second = await mail_filing.create_destination('Second', 'label')
+        folder = await mail_filing.create_destination('Folder', 'folder')
+        app = FastAPI(); app.include_router(rules.router, prefix='/rules')
+        body = {'name': 'Example', 'sender_domain': 'example.org', 'label_ids': [first.id, second.id, first.id]}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            assert (await client.post('/rules', json=body | {'label_ids': [folder.id]})).status_code == 422
+            assert (await client.post('/rules', json=body | {'label_ids': ['missing']})).status_code == 422
+            created = await client.post('/rules', json=body)
+            assert created.status_code == 200
+            row = created.json()
+            assert row['label_ids'] == [first.id, second.id]
+            changed = await client.patch('/rules/' + row['id'], json=body | {'label_ids': [second.id], 'expected_version': row['version']})
+            assert changed.status_code == 200 and changed.json()['label_ids'] == [second.id]
+            assert (await client.patch('/rules/' + row['id'], json=body | {'expected_version': row['version']})).status_code == 409
     asyncio.run(run())

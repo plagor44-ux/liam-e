@@ -126,8 +126,8 @@ async def prepare(run_id: str, matcher, snapshot: dict[str, int] | None = None) 
                 stmt = insert(MailFiling).values(message_id=message.id, folder_id=rule.folder_id)
                 await session.execute(stmt.on_conflict_do_update(index_elements=[MailFiling.message_id],
                     set_={"folder_id": rule.folder_id}, where=MailFiling.folder_id.is_(None)))
-            if rule.label_id:
-                stmt = insert(MailLabelAssignment).values(message_id=message.id, label_id=rule.label_id)
+            for label_id in rule.label_ids:
+                stmt = insert(MailLabelAssignment).values(message_id=message.id, label_id=label_id)
                 await session.execute(stmt.on_conflict_do_nothing())
             pending = {kind: "pending" for kind, enabled in (("mark_read", rule.mark_read), ("mark_unread", rule.mark_unread), ("archive", rule.archive)) if enabled}
             has_provider_actions = bool(pending)

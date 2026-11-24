@@ -15,7 +15,10 @@ class VersionConflict(Exception):
 
 
 async def _check_targets(session, rule: MailRule) -> None:
-    for destination_id, kind in ((rule.folder_id, "folder"), (rule.label_id, "label")):
+    rule.label_ids = list(dict.fromkeys(rule.label_ids))
+    if len(rule.label_ids) > 20 or any(not label_id for label_id in rule.label_ids):
+        raise ValueError("Too many labels")
+    for destination_id, kind in [(rule.folder_id, "folder"), *((label_id, "label") for label_id in sorted(rule.label_ids))]:
         if destination_id:
             row = (await session.scalars(select(MailFolder).where(MailFolder.id == destination_id).with_for_update())).one_or_none()
             if row is None or row.kind != kind:
@@ -81,7 +84,7 @@ async def update(rule_id: str, expected_version: int, **values) -> MailRule:
             raise LookupError("Rule not found")
         if rule.version != expected_version:
             raise VersionConflict()
-        allowed = {"name", "account_id", "sender_address", "sender_domain", "subject_contains", "recipient", "folder_id", "label_id", "mark_read", "mark_unread", "archive", "position", "is_active"}
+        allowed = {"name", "account_id", "sender_address", "sender_domain", "subject_contains", "recipient", "folder_id", "label_ids", "mark_read", "mark_unread", "archive", "position", "is_active"}
         if values.keys() - allowed:
             raise ValueError("Invalid rule fields")
         for key, value in values.items():

@@ -49,8 +49,9 @@ def select_assignments(rules: list[MailRule], message: MailMessage) -> Assignmen
             continue
         if folder is None and rule.folder_id:
             folder = rule.folder_id
-        if rule.label_id and rule.label_id not in labels:
-            labels.append(rule.label_id)
+        for label_id in rule.label_ids:
+            if label_id not in labels:
+                labels.append(label_id)
     return Assignments(folder_id=folder, label_ids=labels)
 
 

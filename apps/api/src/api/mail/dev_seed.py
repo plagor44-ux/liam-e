@@ -134,10 +134,10 @@ async def seed_filing() -> None:
     labels = [MailLabelAssignment(message_id=message_id, label_id=label.id)
               for message_id in (messages[0], seed_id("mail", "hausverwaltung-nebenkosten"))]
     rules = [MailRule(id=seed_id("rule", "projects"), name="Angebote zuordnen (Beispiel)",
-                      sender_domain="meyer-gmbh.example", folder_id=folder.id, label_id=label.id),
+                      sender_domain="meyer-gmbh.example", folder_id=folder.id, label_ids=[label.id]),
              MailRule(id=seed_id("rule", "studio-skip"), name="Studio-Aktion (Beispiel)",
                       account_id=seed_id("account", "privat"), sender_domain="hv-kurz.example",
-                      label_id=label.id, mark_read=True)]
+                      label_ids=[label.id], mark_read=True)]
     runs = [MailRuleRun(id=seed_id("rule-run", "studio-skip"), rule_id=rules[1].id, rule_version=1,
                         message_id=seed_id("mail", "hausverwaltung-nebenkosten"), account_id=seed_id("account", "privat"),
                         status="done", provider_results_json=json.dumps({"mark_read": "skipped_unsupported"}))]

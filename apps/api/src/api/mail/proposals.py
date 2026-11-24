@@ -151,7 +151,12 @@ class ProposalSelectionError(Exception):
 
 def proposal_view(message: ChatMessage) -> Proposal | None:
     if message.role == "proposal":
-        return Proposal.model_validate_json(message.proposal_json)
+        stored = json.loads(message.proposal_json)
+        rule = stored.get("rule")
+        if isinstance(rule, dict) and "label_id" in rule and "label_ids" not in rule:
+            label_id = rule.pop("label_id")
+            rule["label_ids"] = [label_id] if label_id else []
+        return Proposal.model_validate(stored)
     if message.role == "draft":
         old = json.loads(message.draft_json)
         return Proposal(kind="send", reason="", items=[], draft=SendDraft(
