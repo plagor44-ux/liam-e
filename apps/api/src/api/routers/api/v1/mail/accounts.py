@@ -18,7 +18,7 @@ from db.accessors import mail_credential as credential_access
 from db.accessors import mail_message as message_access
 from db.accessors import mail_job as job_access
 from db.accessors import mail_sync_state as sync_state_access
-from db.models.mail_account import MailAccount
+from db.models.mail_account import MailAccount, gmail_studio
 from env.mail import env as mail_env
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 from utils.mistral import MistralNotConfiguredError
 
 from api.errors import refuse
-from api.mail import connectors, crypto, providers, secrets, transport
+from api.mail import action_capabilities, connectors, crypto, providers, secrets, transport
 from api.mail.netguard import BlockedAddressError
 from api.mail import jobs
 from api.routers.api.v1.mail.summary import AccountSummaryOut, account_summary
@@ -56,6 +56,17 @@ async def account_out(account: MailAccount, accounts: list[MailAccount], unread:
 
 async def current_account_out(account: MailAccount) -> AccountOut:
     return await account_out(account, await account_access.list_accounts(), await message_access.count_unread(folder="INBOX"))
+
+
+@router.post("/{account_id}/retry-provider-actions", operation_id="mail_account_retry_provider_actions",
+             summary="Allow another Gmail action attempt after reconnecting in Studio")
+async def retry_provider_actions(account_id: str) -> AccountOut:
+    account = await account_access.get_account(account_id)
+    if account is None:
+        raise refuse(404, "account_not_found", "Das Konto ist nicht mehr da.")
+    if not account.is_active or not gmail_studio(account) or not await sync_state_access.retry_connector_writes(account_id):
+        raise action_capabilities.unsupported()
+    return await current_account_out(account)
 
 
 class AccountUpdateIn(BaseModel):

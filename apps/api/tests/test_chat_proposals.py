@@ -331,9 +331,19 @@ async def test_draft_routes_are_gone():
 
 
 @pytest.mark.parametrize("kind", ["archive", "trash", "mark_read"])
-async def test_gmail_studio_tool_explains_why_no_proposal_is_created(store, fake_store, kind):
+@pytest.mark.parametrize("blocked", [False, True])
+async def test_gmail_studio_tool_explains_why_no_proposal_is_created(store, fake_store, kind, blocked):
     from datetime import date
     from api.mail.agent_tools import TurnContext, execute_tool
+    from api.mail.connector_mailbox import encode
+    from db.models.mail_sync_state import MailSyncState
+
+    if blocked:
+        state = MailSyncState(account_id=store.id, connector_verified=True,
+                              connector_cursor=encode(("named", "thread", "proof"), ""))
+        binding, generation, _ = state.write_evidence()
+        state.connector_write_evidence = f"{binding}:{generation}:blocked"
+        fake_store.states[store.id] = state
 
     mail = MailMessage(id="target", account_id=store.id, provider_uid="indexed", is_read=False)
     fake_store.messages[mail.id] = mail
@@ -341,9 +351,9 @@ async def test_gmail_studio_tool_explains_why_no_proposal_is_created(store, fake
     outcome = await execute_tool("propose_action", {"kind": kind, "message_ids": [mail.id]}, ctx)
     assert outcome.proposal_message is None
     detail = json.loads(outcome.content)
-    assert detail["error"] == "provider_action_unsupported"
+    assert detail["error"] == ("provider_permission_missing" if blocked else "provider_action_unsupported")
     assert "Gmail" in detail["note"] and "Mistral Studio" in detail["note"]
-    assert "lacks permission" in detail["note"]
+    assert ("allow another attempt" if blocked else "unavailable") in detail["note"]
 
 
 @pytest.mark.parametrize('mode', ['new', 'reply'])

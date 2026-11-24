@@ -10,7 +10,7 @@ from db.accessors import chat_message as message_access
 from db.accessors import chat_context as context_access
 from db.accessors import mail_account as account_access
 from db.accessors import mail_message as mail_access
-from db.models.mail_account import ProviderActionUnsupported
+from db.models.mail_account import ProviderActionPermissionMissing, ProviderActionUnsupported
 from db.models.chat_message import ChatMessage
 from db.engine import get_session_maker
 from fastapi import HTTPException
@@ -283,7 +283,7 @@ async def _apply(item: ProposalItem, kind: ProposalKind, result: ProposalResult,
         if error.status_code != 404:
             logger.warning("%s", type(error).__name__)
         code = error.detail.get("code") if isinstance(error.detail, dict) else None
-        fail(code if code == action_capabilities.ERROR_CODE else "item_gone" if error.status_code == 404 else "action_failed")
+        fail(code if code in (action_capabilities.ERROR_CODE, write_result.PERMISSION_MISSING) else "item_gone" if error.status_code == 404 else "action_failed")
     except Exception as error:
         logger.warning("%s", type(error).__name__)
         fail("action_failed")
@@ -536,7 +536,9 @@ async def confirm(proposal_id: str, *, selected_ids: list[str], body: str | None
         mail_ids = selected
     try:
         claimed = await message_access.claim_proposal(proposal_id, required_accounts=required_accounts, mail_ids=mail_ids,
-            label_write=proposal.kind in ("archive", "trash", "mark_read"))
+            label_write=proposal.kind if proposal.kind in ("archive", "trash", "mark_read") else None)
+    except ProviderActionPermissionMissing:
+        raise action_capabilities.permission_missing() from None
     except ProviderActionUnsupported:
         raise action_capabilities.unsupported() from None
     except chat_settings.AccountNotGranted:

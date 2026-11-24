@@ -21,6 +21,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from db.accessors import mail_sync_state
 from utils.mistral import mistral_api_url, mistral_app_token
 
 from api.mail import action_capabilities, connector_write_results as write_result
@@ -150,7 +151,7 @@ async def call_write_tool(account, tool: str, arguments: dict[str, Any], *, targ
         raise ToolNotAllowedError("Tool is not a permitted write tool")
     from api.mail.connector_mailbox import bound_inbox_message, bound_mailbox, inbox_only
     if tool in {"label_message", "unlabel_message"}:
-        action_capabilities.require_action(account, "label")
+        await action_capabilities.require_action(account, "label")
     if target is not None and tool in {"label_message", "unlabel_message"} and inbox_only(account):
         if arguments.get("messageId") != target.provider_uid:
             raise ToolNotAllowedError("Label target does not match the verified message")
@@ -165,7 +166,7 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
     """Both label mutations and their readbacks must use one proven mailbox."""
     from api.mail.connector_mailbox import bound_inbox_message, bound_mailbox, inbox_only
 
-    action_capabilities.require_action(account, "trash")
+    await action_capabilities.require_action(account, "trash")
     if message.account_id != account.id:
         raise ToolNotAllowedError("Mail does not belong to this account")
     if not message.thread_id or not message.provider_uid:
@@ -206,7 +207,70 @@ async def move_trash_labels(account, message, added: list[str], removed: list[st
             await _confirm_label_change(account.provider, message.thread_id, message.provider_uid, present, absent)
 
 
-async def _confirm_label_change(provider: str, thread_id: str, uid: str, present: set[str], absent: set[str]) -> None:
+async def change_gmail_labels(account, message, added: list[str], removed: list[str], *, action: str) -> list[str]:
+    """Confirm only the verified Gmail operations on the same named binding and exact delivery."""
+    from api.mail.connector_mailbox import MailboxUnavailable, bound_mailbox
+
+    allowed = {"archive": {"INBOX"}, "trash": {"INBOX", "TRASH"},
+               "restore": {"INBOX", "TRASH", "UNREAD"}, "mark_read": {"UNREAD"}, "mark_unread": {"UNREAD"}}
+    if (action not in allowed or not set(added + removed) <= allowed[action]
+            or message.account_id != account.id or message.unverified_connector
+            or not message.thread_id or not message.provider_uid):
+        raise action_capabilities.unsupported()
+    state = await action_capabilities.require_action(account, action)
+    evidence = state.write_evidence() if state else None
+    if state is None or evidence is None:
+        raise MailboxUnavailable()
+    proof = evidence[:2]
+    provider, thread, uid = account.provider, message.thread_id, message.provider_uid
+    present: set[str] = set()
+    absent: set[str] = set()
+    async with bound_mailbox(account, cursor=state.connector_cursor, generation=state.connector_generation, observed=state):
+        labels = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
+        if labels is None:
+            raise LabelChangeUnconfirmed(None)
+        for tool, changes, expected in (("label_message", added, present), ("unlabel_message", removed, absent)):
+            if not changes:
+                continue
+            current = await mail_sync_state.get_state(account.id)
+            current_proof = current.write_evidence() if current else None
+            if current_proof is None or current_proof[:2] != proof:
+                raise MailboxUnavailable()
+            if current_proof[2] == "blocked":
+                raise write_result.PermissionMissing(labels if present or absent else None)
+            try:
+                await _call_tool(provider, tool, {"messageId": uid, "labelIds": changes})
+            except write_result.WriteUnconfirmed:
+                # This connector may acknowledge a real change without a usable receipt.
+                pass
+            except write_result.PermissionMissing:
+                await mail_sync_state.record_connector_write(account.id, proof, blocked=True)
+                raise write_result.PermissionMissing(labels if present or absent else None) from None
+            except write_result.WriteRefused:
+                if present or absent:
+                    raise LabelChangeUnconfirmed(labels) from None
+                raise
+            expected.update(changes)
+            try:
+                updated = await _confirm_label_change(provider, thread, uid, present, absent, point_only=True)
+            except LabelChangeUnconfirmed as error:
+                if error.labels is not None and set(error.labels) == set(labels):
+                    await mail_sync_state.record_connector_write(account.id, proof, blocked=True)
+                    raise write_result.PermissionMissing(error.labels) from None
+                raise
+            labels = updated
+        current = await mail_sync_state.get_state(account.id)
+        current_proof = current.write_evidence() if current else None
+        if current_proof is None or current_proof[0] != proof[0]:
+            raise MailboxUnavailable()
+        if present or absent:
+            await mail_sync_state.record_connector_write(account.id, proof, blocked=False)
+        return labels
+
+
+async def _confirm_label_change(
+    provider: str, thread_id: str, uid: str, present: set[str], absent: set[str], *, point_only: bool = False,
+) -> list[str]:
     observations: list[tuple[str, tuple[bool, bool, bool]]] = []
     latest_point: list[str] | None = None
 
@@ -227,9 +291,10 @@ async def _confirm_label_change(provider: str, thread_id: str, uid: str, present
         for delay in (0.0, 0.5, 1.0):
             if delay:
                 await sleep(delay)
-            observed = await thread_labels(provider, thread_id, {uid}, minimal_only=bool(delay), on_read=record)
-            if all(evidence(observed.get(uid))):
-                return
+            observed = await thread_labels(provider, thread_id, {uid}, minimal_only=point_only or bool(delay), on_read=record)
+            labels = observed.get(uid)
+            if labels is not None and all(evidence(labels)):
+                return labels
 
     for attempt, (fmt, checks) in enumerate(observations, 1):
         logger.warning(

@@ -124,6 +124,10 @@ export type AccountOut = {
      */
     provider: string;
     /**
+     * Provider Actions Blocked
+     */
+    provider_actions_blocked?: boolean;
+    /**
      * State
      */
     state: 'ok' | 'syncing' | 'auth_expired' | 'error' | 'never';
@@ -174,6 +178,10 @@ export type AccountSummaryOut = {
      * Provider
      */
     provider: string;
+    /**
+     * Provider Actions Blocked
+     */
+    provider_actions_blocked?: boolean;
     /**
      * State
      */
@@ -6230,6 +6238,36 @@ export type MailAccountUpdateResponses = {
 };
 
 export type MailAccountUpdateResponse = MailAccountUpdateResponses[keyof MailAccountUpdateResponses];
+
+export type MailAccountRetryProviderActionsData = {
+    body?: never;
+    path: {
+        /**
+         * Account Id
+         */
+        account_id: string;
+    };
+    query?: never;
+    url: '/api/v1/mail/accounts/{account_id}/retry-provider-actions';
+};
+
+export type MailAccountRetryProviderActionsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MailAccountRetryProviderActionsError = MailAccountRetryProviderActionsErrors[keyof MailAccountRetryProviderActionsErrors];
+
+export type MailAccountRetryProviderActionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountOut;
+};
+
+export type MailAccountRetryProviderActionsResponse = MailAccountRetryProviderActionsResponses[keyof MailAccountRetryProviderActionsResponses];
 
 export type MailAccountSyncData = {
     body?: never;

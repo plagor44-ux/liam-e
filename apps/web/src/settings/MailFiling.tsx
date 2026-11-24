@@ -169,6 +169,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
       return Object.entries(parsed).flatMap(([kind, status]) => {
         const label = kind === 'mark_read' ? t.markRead : kind === 'mark_unread' ? t.markUnread : kind === 'archive' ? t.archive : null
+        if (label && status === 'skipped_permission') return [`${label}: ${texts.errors.provider_permission_missing}`]
         return label && (status === 'skipped_unsupported' || status === 'unknown') ? [`${label}: ${status === 'unknown' ? t.unknown : t.skipped}`] : []
       })
     } catch { return [] }
@@ -212,7 +213,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       {showRuns === row.id && runs.isPending && <p role="status">{t.loading}</p>}
       {showRuns === row.id && runs.isError && <p role="alert">{t.error}</p>}
       {showRuns === row.id && runs.data?.length === 0 && <p>{t.noRuns}</p>}
-      {showRuns === row.id && runs.data?.map(run => <div key={run.id} className="le-filing-summary"><p>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status === 'skipped_imap_rebuild' ? `${t.imapRebuild} ${t.account}: ${runAccount(run.account_id)}` : run.status === 'skipped_initial_import' ? `${t.initialImport} ${t.account}: ${runAccount(run.account_id)}` : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('overridden') ? t.folderOverridden : run.provider_results_json?.includes('skipped_unsupported') ? t.skipped : t.completed}</p>
+      {showRuns === row.id && runs.data?.map(run => <div key={run.id} className="le-filing-summary"><p>{run.status === 'unknown' ? t.unknown : run.status === 'skipped_stale' ? t.stale : run.status === 'skipped_conflict' ? t.conflict : run.status === 'skipped_imap_rebuild' ? `${t.imapRebuild} ${t.account}: ${runAccount(run.account_id)}` : run.status === 'skipped_initial_import' ? `${t.initialImport} ${t.account}: ${runAccount(run.account_id)}` : run.status !== 'done' ? t.pending : run.provider_results_json?.includes('overridden') ? t.folderOverridden : (run.provider_results_json?.includes('skipped_unsupported') || run.provider_results_json?.includes('skipped_permission')) ? t.skipped : t.completed}</p>
         {run.status !== 'done' && run.provider_results_json?.includes('overridden') && <small>{t.folderOverridden}</small>}
         {['done', 'local_done', 'unknown'].includes(run.status ?? '') && (!run.provider_results_json?.includes('overridden') || row.label_id) && <small>{t.localDone}</small>}
         {providerOutcomes(run.provider_results_json).map(detail => <small key={detail}>{detail}</small>)}</div>)}

@@ -617,9 +617,9 @@ test('an excluded mail cannot start a reply from the reader', async () => {
 
 test('reading Gmail Studio mail leaves UNREAD untouched and disables label actions', async () => {
   const { action } = setup({ unread: true, limited: true })
-  const notice = 'Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern. Das betrifft Archivieren, Papierkorb, Spam und Gelesen-Status.'
+  const notice = 'Mail-Aktionen sind für dieses Gmail-Konto erst nach Prüfung der Verbindung verfügbar.'
   await screen.findByText(notice)
-  expect(screen.queryByText('Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern.')).toBeNull()
+  expect(screen.queryByText('Diese Aktion ist für dieses Gmail-Konto in Mistral Studio nicht verfügbar.')).toBeNull()
   await settle()
   expect(action).not.toHaveBeenCalled()
   const controls = screen.getByRole('button', { name: 'Weitere Aktionen' })

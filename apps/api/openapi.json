@@ -167,6 +167,11 @@
             "title": "Provider",
             "type": "string"
           },
+          "provider_actions_blocked": {
+            "default": false,
+            "title": "Provider Actions Blocked",
+            "type": "boolean"
+          },
           "state": {
             "enum": [
               "ok",
@@ -258,6 +263,11 @@
           "provider": {
             "title": "Provider",
             "type": "string"
+          },
+          "provider_actions_blocked": {
+            "default": false,
+            "title": "Provider Actions Blocked",
+            "type": "boolean"
           },
           "state": {
             "enum": [
@@ -11007,6 +11017,45 @@
           }
         },
         "summary": "Update Account"
+      }
+    },
+    "/api/v1/mail/accounts/{account_id}/retry-provider-actions": {
+      "post": {
+        "operationId": "mail_account_retry_provider_actions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Allow another Gmail action attempt after reconnecting in Studio"
       }
     },
     "/api/v1/mail/accounts/{account_id}/sync": {

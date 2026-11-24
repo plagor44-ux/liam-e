@@ -57,6 +57,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
         "mail_account_connect_connector",
         "mail_account_connect_imap",
         "mail_account_delete",
+        "mail_account_retry_provider_actions",
         "mail_account_sync",
         "mail_account_update",
         "mail_actions_undo",

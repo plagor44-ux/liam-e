@@ -52,6 +52,8 @@ async def merge_verified(session, keep_id: str, duplicate_id: str) -> None:
                 merged[kind] = 'unknown'
             elif 'done' in values:
                 merged[kind] = 'done'
+            elif 'skipped_permission' in values:
+                merged[kind] = 'skipped_permission'
             elif 'skipped_unsupported' in values:
                 merged[kind] = 'skipped_unsupported'
             elif 'skipped_stale' in values:
@@ -152,7 +154,7 @@ async def record_action(run_id: str, kind: str, *, expected: str, result: str) -
             run.provider_results_json = json.dumps(states)
             if "unknown" in states.values():
                 run.status = "unknown"
-            elif all(state in {"done", "skipped_unsupported", "skipped_stale", "overridden"} for state in states.values()):
+            elif all(state in {"done", "skipped_permission", "skipped_unsupported", "skipped_stale", "overridden"} for state in states.values()):
                 run.status = "done"
             run.updated_at = utcnow()
         return run, changed

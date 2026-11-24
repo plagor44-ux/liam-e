@@ -10,6 +10,7 @@ from datetime import datetime
 from sqlmodel import Field, SQLModel
 
 from db.models._common import new_id, utc_datetime_column, utcnow
+from db.models.mail_sync_state import MailSyncState
 
 
 def inbox_only(account) -> bool:
@@ -20,8 +21,24 @@ class ProviderActionUnsupported(ValueError):
     """The provider connection does not offer message label or folder changes."""
 
 
-def label_writes_supported(provider: str, auth_type: str) -> bool:
-    return auth_type != "mistral_connector" or provider not in {"gmail", "google_mail"}
+class ProviderActionPermissionMissing(ValueError):
+    """The bound credential needs reauthentication before another attempt."""
+
+
+GMAIL_STUDIO_ACTIONS = frozenset({"archive", "trash", "restore", "mark_read", "mark_unread"})
+
+
+def gmail_studio(account: "MailAccount") -> bool:
+    return account.auth_type == "mistral_connector" and account.provider in {"gmail", "google_mail"}
+
+
+def provider_action_state(account: "MailAccount", state: MailSyncState | None, action: str) -> str:
+    if not gmail_studio(account):
+        return "available"
+    evidence = state.write_evidence() if state else None
+    if action not in GMAIL_STUDIO_ACTIONS or not account.is_active or inbox_only(account) or evidence is None:
+        return "unsupported"
+    return "blocked" if evidence[2] == "blocked" else "available"
 
 
 class MailAccount(SQLModel, table=True):

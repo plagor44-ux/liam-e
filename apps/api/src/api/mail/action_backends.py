@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import httpx
 from db.accessors import mail_message as message_access
-from db.models.mail_account import MailAccount
+from db.models.mail_account import MailAccount, gmail_studio
 from db.models.mail_message import IMAP_RETIRED, MailMessage
 
 from api.mail import connectors, providers, service, transport
@@ -75,7 +75,7 @@ class LabelBackend:
             desired = sorted(current | {"UNREAD"})
         return await self._change(message, current, set(desired), kind=kind)
 
-    async def revert(self, message: MailMessage, previous: dict) -> dict:
+    async def revert(self, message: MailMessage, previous: dict, *, kind: ActionKind | None = None) -> dict:
         current = set(json.loads(message.labels_json))
         desired = set(json.loads(previous["labels_json"]))
         if message.folder in ("INBOX", "TRASH", "SPAM"):
@@ -85,6 +85,10 @@ class LabelBackend:
             desired.add(previous["folder"])
         if not previous["is_read"]:
             desired.add("UNREAD")
+        if gmail_studio(self.account):
+            # Undo restores the labels controlled by this action and leaves other provider changes alone.
+            managed = {"UNREAD"} if kind in {"mark_read", "mark_unread"} else {"INBOX", "TRASH"}
+            return await self._change(message, current, (current - managed) | (desired & managed))
         await self._change(message, current, desired)
         return {"labels_json": previous["labels_json"]}
 
@@ -95,6 +99,21 @@ class LabelBackend:
             folder_labels = {"TRASH", "INBOX"}
             current = (current - folder_labels) | (folder_labels - desired)
         added, removed = sorted(desired - current), sorted(current - desired)
+        if gmail_studio(self.account):
+            action = kind
+            if action is None:
+                if "TRASH" in added:
+                    action = "trash"
+                elif "INBOX" in added or "TRASH" in removed:
+                    action = "restore"
+                elif "INBOX" in removed:
+                    action = "archive"
+                else:
+                    action = "mark_unread" if "UNREAD" in added else "mark_read"
+            labels = await connectors.change_gmail_labels(self.account, message, added, removed, action=action)
+            folder = next((label for label in ("TRASH", "SPAM", "INBOX") if label in labels), "ARCHIVE")
+            return {"folder": folder, "is_read": "UNREAD" not in labels, "is_flagged": "STARRED" in labels,
+                    "labels_json": json.dumps(sorted(labels))}
         if self.connector:
             await write_connector_labels(self.account, message, added=added, removed=removed)
         else:

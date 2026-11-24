@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from db.accessors import chat_context, mail_account, mail_insight, mail_job, mail_message, mail_sync_state
 from db.models.chat_message import ChatMessage
+from fastapi import HTTPException
 from api.calendar.chat_target import CalendarChoice, appointment_part, appointment_parts, pending_for_request
 from api.locales import DEFAULT_LOCALE, Locale
 from api.mail import action_capabilities
@@ -357,8 +358,12 @@ async def execute_tool(name: str, arguments: dict, ctx: TurnContext) -> ToolOutc
         if kind != 'unsubscribe':
             targets = {verified_messages[id].account_id for id in ids if id in verified_messages}
             accounts = {account.id: account for account in await mail_account.list_accounts() if account.id in targets}
-            if any(not getattr(action_capabilities.for_account(account), kind) for account in accounts.values()):
-                return result({'error': action_capabilities.ERROR_CODE, 'note': action_capabilities.AGENT_NOTE})
+            for account in accounts.values():
+                try:
+                    await action_capabilities.require_action(account, kind)
+                except HTTPException as error:
+                    note = action_capabilities.REAUTH_NOTE if error.status_code == 403 else action_capabilities.AGENT_NOTE
+                    return result({'error': error.detail['code'], 'note': note})
         for id in ids:
             if len(items) == 50: break
             if kind == 'unsubscribe':

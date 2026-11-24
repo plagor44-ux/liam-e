@@ -667,3 +667,36 @@ def test_new_rule_cannot_steal_a_queued_versioned_folder_assignment(pg_db):
         assert (await mail_filing.for_message(ids[0])).folder_id == first.id
 
     asyncio.run(run())
+
+
+def test_rule_skips_paused_verified_gmail_binding_without_retrying_provider(pg_db, monkeypatch):
+    async def run():
+        import json
+        from unittest.mock import AsyncMock
+        from api.mail import actions, connector_mailbox, rules, service
+        from db.accessors import mail_message, mail_rule, mail_sync_state
+        from db.engine import get_session_maker
+        from db.models.mail_message import MailMessage
+        from sqlalchemy import text
+
+        account = await service.upsert_account(provider="gmail", auth_type="mistral_connector",
+                                               email_address="rule@example.test")
+        state = await mail_sync_state.save_state(account_id=account.id, connector_verified=True,
+            connector_cursor=connector_mailbox.encode(("rule-pin", "thread", "proof"), ""))
+        message = MailMessage(account_id=account.id, provider_uid="uid", folder="INBOX")
+        async with get_session_maker().begin() as session:
+            await session.execute(text("SELECT set_config('liam.verified_connector', :account, true)"),
+                                  {"account": account.id})
+            session.add(message)
+        rule = await mail_rule.create(name="Read", mark_read=True)
+        write = AsyncMock()
+        monkeypatch.setattr(actions, "apply_action", write)
+        await mail_sync_state.record_connector_write(account.id, state.write_evidence()[:2], blocked=True)
+        first = await rules.execute_rule_run(rule.id, rule.version, message.id)
+        assert first.status == "done"
+        assert json.loads(first.provider_results_json) == {"mark_read": "skipped_permission"}
+        assert not (await mail_message.get_message(message.id)).is_read
+        assert await mail_sync_state.retry_connector_writes(account.id)
+        assert (await rules.execute_rule_run(rule.id, rule.version, message.id)).id == first.id
+        write.assert_not_awaited()
+    asyncio.run(run())

@@ -146,6 +146,10 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       update(id, kind)
       const result = await mailMessageAction({ path: { message_id: id }, body: { kind } })
       const code = errorCode(result.error)
+      if (code === 'provider_permission_missing') {
+        void client.invalidateQueries({ queryKey: ['accounts'] })
+        void client.invalidateQueries({ queryKey: ['summary'] })
+      }
       if (result.response?.status === 404) {
         update(id, 'remove')
         if (!options?.silent) notify(texts.proposalErrors.item_gone)
@@ -168,7 +172,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         rollback()
         const notice = code === 'provider_permission_missing' ? texts.errors.provider_permission_missing
           : result.response?.status === 502 && code === 'provider_failed' ? texts.errors.provider_failed : texts.errors.action_uncertain
-        if (!options?.silent) notify(notice)
+        if (!options?.silent || code === 'provider_permission_missing') notify(notice)
         return changes.length > 0
       } else {
         if (removal) reconcile.current = true
@@ -222,10 +226,15 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         }
         for (const id of ids) update(id, kind)
         const result = await mailMessagesBulkAction({ body: { message_ids: ids, kind } })
-        if (errorCode(result.error) === 'provider_action_unsupported') {
+        const code = errorCode(result.error)
+        if (code === 'provider_action_unsupported' || code === 'provider_permission_missing') {
           rollback(ids)
           reconcile.current = true
-          notify(texts.inbox.unsupportedSelection)
+          if (code === 'provider_permission_missing') {
+            void client.invalidateQueries({ queryKey: ['accounts'] })
+            void client.invalidateQueries({ queryKey: ['summary'] })
+          }
+          notify(code === 'provider_permission_missing' ? texts.errors.provider_permission_missing : texts.inbox.unsupportedSelection)
           return
         }
         if (!result.data || !result.response?.ok) throw new Error('bulk action failed') // i18n-exempt
@@ -241,8 +250,10 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         })
         restore(retained.sort((a, b) => a.page - b.page || a.index - b.index), removes(kind))
         const base = texts.inbox.bulkResult(kind, group.length, ids.length)
+        const permissionMissing = result.data.results.some(row => row.error_code === 'provider_permission_missing')
+        if (permissionMissing) void client.invalidateQueries({ queryKey: ['accounts'] })
         const text = [base, partial.length ? texts.inbox.bulkProviderPartial(partial.length) : '',
-          result.data.results.some(row => row.error_code === 'provider_permission_missing') ? texts.errors.provider_permission_missing : ''].filter(Boolean).join(' ')
+          permissionMissing ? texts.errors.provider_permission_missing : ''].filter(Boolean).join(' ')
         if (group.length) {
           setNotice(null)
           publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
@@ -283,6 +294,8 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       })
       try {
         const result = await Promise.race([mailActionsUndo({ body: { action_ids: group.map(item => item.actionId) }, signal: controller.signal }), deadline])
+        const code = errorCode(result.error) ?? result.data?.error_code
+        if (code === 'provider_permission_missing') void client.invalidateQueries({ queryKey: ['accounts'] })
         if (selected.group && result.data) {
           const restored = group.filter(item => result.data!.restored.includes(item.actionId))
           restore(restored.flatMap(item => item.changes).sort((a, b) => a.page - b.page || a.index - b.index), removes(selected.kind))
@@ -294,9 +307,9 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           if (!removes(selected.kind) && selected.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', selected.messageId], data => data && { ...data, is_read: selected.previousRead! })
         } else if (result.data?.skipped.includes(selected.actionId)) notify(texts.inbox.undoSkipped)
         else if (result.data?.expired.includes(selected.actionId)) notify(texts.inbox.undoExpired)
-        else if (errorCode(result.error) === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported)
-        else if (result.data?.failed.includes(selected.actionId)) notify(result.data.error_code === 'provider_permission_missing'
-          ? texts.errors.provider_permission_missing : texts.inbox.undoFailed)
+        else if (code === 'provider_permission_missing') notify(texts.errors.provider_permission_missing)
+        else if (code === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported)
+        else if (result.data?.failed.includes(selected.actionId)) notify(texts.inbox.undoFailed)
         else notify(texts.inbox.undoUncertain)
       } catch { notify(timedOut ? texts.inbox.undoTimeout : texts.inbox.undoUncertain) }
       finally {

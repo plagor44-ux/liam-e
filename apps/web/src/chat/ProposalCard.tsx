@@ -86,19 +86,22 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
   const { visible, beforeDeadline, expire } = useUndoWindow(client, message.id, clock)
   const [undone, setUndone] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string>()
   const pending = useRef(false)
   const result = proposal.result
   const ids = result?.undo_action_ids ?? []
   const undo = async () => {
     if (pending.current || !beforeDeadline()) return
-    pending.current = true; setBusy(true); setError(false)
+    pending.current = true; setBusy(true); setError(undefined)
     try {
       const outcome = await unwrap(mailActionsUndo({ body: { action_ids: ids }, throwOnError: true }))
-      if (outcome.expired.length || outcome.failed.length || outcome.skipped.length) setError(true)
+      if (outcome.expired.length || outcome.failed.length || outcome.skipped.length) setError(failureText(outcome.error_code ?? undefined, proposal.kind, texts))
       else { expire(); setUndone(true); onUndone() }
+    } catch (failure) {
+      setError(failureText(errorCode(failure instanceof Error ? failure.cause : failure), proposal.kind, texts))
+    } finally {
+      void client.invalidateQueries({ queryKey: ['accounts'] })
       void client.invalidateQueries({ queryKey: ['summary'] })
-    } catch { setError(true) } finally {
       void client.invalidateQueries({ queryKey: ['messages'] })
       void client.invalidateQueries({ queryKey: ['message'] })
       pending.current = false; setBusy(false)
@@ -120,7 +123,8 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
     const href = safeLink(entry.link)
     const item = proposal.items.find(candidate => candidate.id === entry.id)
     return <p key={entry.id} className="le-proposal-manual">{item?.title}{item && ': '}{href ? <a href={href} target="_blank" rel="noopener noreferrer">{texts.proposal.manualLink}</a> : texts.proposal.manualNoLink}</p>
-  })}{error && <Notice tone="danger">{texts.proposal.requestError}</Notice>}</>
+  })}{failed.some(item => item.code === 'provider_permission_missing') && <Notice tone="info">{texts.errors.provider_permission_missing}</Notice>}
+    {error && <Notice tone="danger">{error}</Notice>}</>
 }
 
 export function ProposalCard({ message, clock = systemClock, oldGrant = false, grantVersion, skillRevoked = false }: { message: ChatMessageOut; clock?: Clock; oldGrant?: boolean; grantVersion?: number | null; skillRevoked?: boolean }) {
@@ -171,6 +175,7 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
         for (const key of ['preference-candidates', 'preferences', 'personalization']) void client.invalidateQueries({ queryKey: [key] })
       }
       if (confirm) {
+        if (result.proposal?.result?.failed?.some(item => item.code === 'provider_permission_missing')) void client.invalidateQueries({ queryKey: ['accounts'] })
         if (proposal?.kind === 'task') void client.invalidateQueries({ queryKey: ['tasks'] })
         void client.invalidateQueries({ queryKey: ['messages'] })
         void client.invalidateQueries({ queryKey: ['message'] })
@@ -178,6 +183,10 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     } catch (failure) {
       const code = errorCode(failure instanceof Error ? failure.cause : failure) ?? 'action_failed'
       setError(code)
+      if (code === 'provider_permission_missing') {
+        void client.invalidateQueries({ queryKey: ['accounts'] })
+        void client.invalidateQueries({ queryKey: ['summary'] })
+      }
       if (proposal?.kind === 'preference') void client.invalidateQueries({ queryKey: ['preference-candidates'] })
       if (code === 'proposal_not_pending') void client.invalidateQueries({ queryKey: ['history', current.conversation_id] })
     } finally { pending.current = false; setBusy(false) }

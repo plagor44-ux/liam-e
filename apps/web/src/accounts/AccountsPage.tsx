@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { mailAccountOauthAuthorize, mailAccountSync, mailAccountUpdate, mailSyncAll } from '../api/generated/sdk.gen'
+import { mailAccountOauthAuthorize, mailAccountRetryProviderActions, mailAccountSync, mailAccountUpdate, mailSyncAll } from '../api/generated/sdk.gen'
 import type { AccountOut } from '../api/generated/types.gen'
 import { accountsQuery } from '../api/queries'
 import { apiErrorMessage } from '../api/unwrap'
@@ -64,6 +64,20 @@ export function AccountsPage() {
       redirect.to(result.data.authorization_url)
     } catch (error) { setNotice({ tone: 'danger', text: apiErrorMessage(error, texts, texts.accounts.actionError) }) }
   }
+  const retryProviderActions = async (id: string) => {
+    setPending(current => [...current, id])
+    try {
+      const result = await mailAccountRetryProviderActions({ path: { account_id: id } })
+      if (result.error || !result.data) throw result.error
+      client.setQueryData<AccountOut[]>(['accounts'], current => current?.map(item => item.id === id ? result.data! : item))
+      void client.invalidateQueries({ queryKey: ['summary'] })
+      setNotice({ tone: 'success', text: texts.accounts.gmailRetryReady })
+    } catch (error) {
+      setNotice({ tone: 'danger', text: apiErrorMessage(error, texts, texts.accounts.actionError) })
+    } finally {
+      setPending(current => current.filter(item => item !== id))
+    }
+  }
   const rename = async (account: AccountOut, name: string): Promise<string | undefined> => {
     try {
       const result = await mailAccountUpdate({ path: { account_id: account.id }, body: { display_name: name } })
@@ -87,7 +101,7 @@ export function AccountsPage() {
       {accounts.data?.length === 0 && <p className="le-hint">{texts.accounts.empty}</p>}
       <div className="le-accounts-layout">
         {(accounts.isPending || Boolean(accounts.data?.length)) && <section className="le-accounts-list"><h2 className="heading" id="accounts-heading" ref={listHeading} tabIndex={-1}>{texts.accounts.connectedAccounts}</h2>
-          {accounts.isPending ? <><span className="le-sr" role="status">{texts.accounts.loading}</span><div aria-hidden="true">{Array.from({ length: 3 }, (_, i) => <div className="le-account le-account--placeholder" key={i}><span /><span /></div>)}</div></> : <ul aria-labelledby="accounts-heading">{accounts.data?.map(account => <li key={account.id}><AccountCard account={account} coarse={coarse} syncPending={pending.includes(account.id)} onSync={() => { void sync(account.id) }} onReconnect={() => { void reconnect(account) }} onRename={() => {}} onSaveName={name => rename(account, name)} onRemove={() => setRemoving(account)} />{account.action_capabilities?.label === false && <GmailCapabilitiesNotice />}</li>)}</ul>}
+          {accounts.isPending ? <><span className="le-sr" role="status">{texts.accounts.loading}</span><div aria-hidden="true">{Array.from({ length: 3 }, (_, i) => <div className="le-account le-account--placeholder" key={i}><span /><span /></div>)}</div></> : <ul aria-labelledby="accounts-heading">{accounts.data?.map(account => <li key={account.id}><AccountCard account={account} coarse={coarse} syncPending={pending.includes(account.id)} onSync={() => { void sync(account.id) }} onReconnect={() => { void reconnect(account) }} onRename={() => {}} onSaveName={name => rename(account, name)} onRemove={() => setRemoving(account)} />{account.connection === 'connector' && ['gmail', 'google_mail'].includes(account.provider) && <GmailCapabilitiesNotice account={account} retry={pending.includes(account.id) ? undefined : () => { void retryProviderActions(account.id) }} />}</li>)}</ul>}
           {Boolean(accounts.data?.length) && <p className="small le-muted le-accounts-note">{texts.accounts.removeNote}</p>}
         </section>}
         <ConnectPanel headingRef={connectHeading} reconnect={imapReconnect} onConnected={account => { setNotice({ tone: 'success', text: texts.accounts.connected }); invalidate(); void sync(account.id) }} />

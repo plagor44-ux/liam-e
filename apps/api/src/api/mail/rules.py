@@ -69,7 +69,7 @@ async def dispatch_rule_run(run, *, recover: bool = False):
     """Dispatch supported provider actions at most once for a prepared run."""
     from fastapi import HTTPException
     from db.accessors import mail_account, mail_rule_run
-    from api.mail import action_capabilities, actions
+    from api.mail import action_capabilities, actions, connector_write_results
 
     if run.status not in {"local_done", "unknown"}:
         return run
@@ -86,17 +86,23 @@ async def dispatch_rule_run(run, *, recover: bool = False):
             run, _ = await mail_rule_run.record_action(run.id, kind, expected="pending", result="skipped_stale")
             continue
         try:
-            action_capabilities.require_action(account, kind)
+            await action_capabilities.require_action(account, kind)
         except HTTPException as error:
-            if error.status_code != 409:
+            if error.status_code not in (403, 409):
                 raise
-            run, _ = await mail_rule_run.record_action(run.id, kind, expected="pending", result="skipped_unsupported")
+            outcome = "skipped_permission" if error.status_code == 403 else "skipped_unsupported"
+            run, _ = await mail_rule_run.record_action(run.id, kind, expected="pending", result=outcome)
             continue
         run, claimed = await mail_rule_run.record_action(run.id, kind, expected="pending", result="dispatching")
         if not claimed:
             continue
         try:
             await actions.apply_action(run.message_id, kind)
+        except connector_write_results.PermissionMissing:
+            run, _ = await mail_rule_run.record_action(run.id, kind, expected="dispatching", result="skipped_permission")
+        except HTTPException as error:
+            outcome = "skipped_permission" if error.status_code == 403 else "unknown"
+            run, _ = await mail_rule_run.record_action(run.id, kind, expected="dispatching", result=outcome)
         except Exception:
             run, _ = await mail_rule_run.record_action(run.id, kind, expected="dispatching", result="unknown")
         else:

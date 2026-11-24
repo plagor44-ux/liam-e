@@ -642,7 +642,8 @@ def test_long_sync_renews_its_claim_before_a_competing_poll(pg_db, monkeypatch):
     asyncio.run(run())
 
 
-def test_legacy_gmail_studio_proposal_is_refused_inside_claim(pg_db, monkeypatch):
+@pytest.mark.parametrize("blocked", [False, True])
+def test_verified_gmail_studio_proposal_checks_write_evidence_inside_claim(pg_db, monkeypatch, blocked):
     from api.mail import action_backends, connectors, connector_mailbox
     from api.routers.api.v1.chat.proposals import router
     from db.accessors import mail_sync_state
@@ -661,6 +662,9 @@ def test_legacy_gmail_studio_proposal_is_refused_inside_claim(pg_db, monkeypatch
             session.add(mail)
         card = await proposals.create_proposal(conversation.id, proposals.Proposal(kind="trash", reason="Test", items=[
             proposals.ProposalItem(id=mail.id, kind="mail", title="Synthetic title", subtitle="")]), context_id=context.id)
+        if blocked:
+            state = await mail_sync_state.get_state(account.id)
+            await mail_sync_state.record_connector_write(account.id, state.write_evidence()[:2], blocked=True)
         backend = AsyncMock()
         backend.apply.return_value = {}
         monkeypatch.setattr(action_backends, "backend_for", lambda _: backend)
@@ -668,10 +672,15 @@ def test_legacy_gmail_studio_proposal_is_refused_inside_claim(pg_db, monkeypatch
         app.include_router(router, prefix="/proposals")
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as browser:
             response = await browser.post(f"/proposals/{card.id}/confirm", json={"selected_ids": [mail.id]})
-        assert response.status_code == 409
-        assert response.json()["detail"]["code"] == "provider_action_unsupported"
-        assert "Synthetic title" not in response.text and mail.id not in response.text
-        assert (await chat_message.get_message(card.id)).proposal_status == "pending"
-        backend.apply.assert_not_awaited()
+        if blocked:
+            assert response.status_code == 403
+            assert response.json()["detail"]["code"] == "provider_permission_missing"
+            assert "Synthetic title" not in response.text and mail.id not in response.text
+            assert (await chat_message.get_message(card.id)).proposal_status == "pending"
+            backend.apply.assert_not_awaited()
+        else:
+            assert response.status_code == 200
+            assert (await chat_message.get_message(card.id)).proposal_status == "done"
+            backend.apply.assert_awaited_once()
 
     asyncio.run(run())

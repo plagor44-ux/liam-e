@@ -463,7 +463,7 @@ test('a mixed selection keeps every message and explains why actions are blocked
   await screen.findByText('Zweite')
   fireEvent.click(screen.getByRole('button', { name: 'Auswählen: Termin' }))
   fireEvent.click(screen.getByRole('button', { name: 'Auswählen: Zweite' }))
-  expect(await screen.findByText(/Wähle für diese Aktion nur Mails aus unterstützten Konten/)).toBeTruthy()
+  expect(await screen.findByText(/Einige Aktionen sind für die ausgewählten Mails nicht verfügbar/)).toBeTruthy()
   const trash = screen.getByRole('button', { name: 'In den Papierkorb' })
   expect(trash.hasAttribute('disabled')).toBe(true)
   fireEvent.click(trash)
@@ -476,7 +476,7 @@ test('a Gmail Studio row explains unavailable actions on hover and focus', async
   const action = spyOn(sdk, 'mailMessageAction')
   setup('rows', '/mail', false, false, true)
   const row = (await screen.findByText('Zweite')).closest<HTMLElement>('.le-mailrow')!
-  const hint = 'Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern.'
+  const hint = 'Diese Aktion ist für dieses Gmail-Konto in Mistral Studio nicht verfügbar.'
   expect(within(row).queryByText(hint)).toBeNull()
   const archive = within(row).getByRole('button', { name: 'Archivieren' })
   expect(archive.getAttribute('aria-disabled')).toBe('true')
@@ -508,7 +508,7 @@ test('a swipe on Gmail Studio explains the restriction without an action', async
     fireEvent(element, event)
   }
   pointer('pointerdown', 200); pointer('pointermove', 300); pointer('pointerup', 300)
-  const hint = 'Gmail in Mistral Studio hat keine Berechtigung, Mails zu ändern.'
+  const hint = 'Diese Aktion ist für dieses Gmail-Konto in Mistral Studio nicht verfügbar.'
   expect((await screen.findByRole('alert')).textContent).toBe(hint)
   expect(screen.getAllByText(hint)).toHaveLength(1)
   expect(action).not.toHaveBeenCalled()

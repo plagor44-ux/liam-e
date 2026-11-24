@@ -20,6 +20,7 @@ class AccountSummaryOut(BaseModel):
     provider: str
     connection: Literal["connector", "oauth", "imap"]
     action_capabilities: MailActionCapabilities
+    provider_actions_blocked: bool = False
     color_index: int
     unread: int
     state: Literal["ok", "syncing", "auth_expired", "error", "never"]
@@ -38,7 +39,7 @@ class MailSummaryOut(BaseModel):
 async def account_summary(account, colors: dict[str, int], unread: dict[str, int], sync_state) -> AccountSummaryOut:
     job = await mail_job.latest_for_account(account.id, kind="sync", open_only=True)
     status = state.account_status(account, sync_state, job)
-    return AccountSummaryOut(id=account.id, display_name=account.display_name, email_address=account.email_address, provider=account.provider, connection=state.connection(account), action_capabilities=action_capabilities.for_account(account), color_index=colors[account.id], unread=unread.get(account.id, 0), state=status.state, error_code=status.error_code, last_sync_at=status.last_sync_at)
+    return AccountSummaryOut(id=account.id, display_name=account.display_name, email_address=account.email_address, provider=account.provider, connection=state.connection(account), action_capabilities=action_capabilities.for_account(account, sync_state), provider_actions_blocked=action_capabilities.blocked(account, sync_state), color_index=colors[account.id], unread=unread.get(account.id, 0), state=status.state, error_code=status.error_code, last_sync_at=status.last_sync_at)
 
 
 @router.get("", operation_id="mail_summary")

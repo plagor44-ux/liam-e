@@ -118,7 +118,9 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
             except HTTPException as error:
                 if error.status_code == 404:
                     return BulkMessageActionResult(message_id=message_id, status="not_found")
-                return BulkMessageActionResult(message_id=message_id, status="failed")
+                code = error.detail.get("code") if isinstance(error.detail, dict) else None
+                return BulkMessageActionResult(message_id=message_id, status="failed",
+                                               error_code=code if code == write_result.PERMISSION_MISSING else None)
             except Exception as error:
                 logger.warning("Bulk action failed: %s", type(error).__name__)
                 return BulkMessageActionResult(message_id=message_id, status="failed")

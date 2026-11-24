@@ -393,5 +393,21 @@ test('Gmail connector limitations are visible on the account and before connecti
   expect(await screen.findByText(/Lesen, suchen, zusammenfassen und nach Bestätigung senden/)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /Gmail/ }))
   expect(await screen.findAllByText(/Lesen, suchen, zusammenfassen und nach Bestätigung senden/)).toHaveLength(2)
-  expect(screen.getAllByText(/Papierkorb, Archivieren, Spam/)).toHaveLength(2)
+  expect(screen.getAllByText(/Spam sowie andere Ordner und Labels beim Anbieter/)).toHaveLength(2)
+})
+
+test('a permission pause gives Gmail reconnection instructions and an explicit local retry', async () => {
+  const gmail = { ...account, provider: 'gmail', connection: 'connector' as const, auth_type: 'mistral_connector',
+    provider_actions_blocked: true, action_capabilities: mailCapabilities(false) }
+  const { client } = setup('row', '/accounts', gmail)
+  const retry = spyOn(sdk, 'mailAccountRetryProviderActions').mockResolvedValue({
+    data: { ...gmail, provider_actions_blocked: false, action_capabilities: { ...mailCapabilities(false), mark_read: true } },
+    response: new Response(),
+  } as never)
+  const action = await screen.findByRole('button', { name: 'Mail-Aktionen erneut erlauben' })
+  expect(screen.getByText(/Kontext → Connectors → Gmail/)).toBeTruthy()
+  expect(retry).not.toHaveBeenCalled()
+  fireEvent.click(action)
+  await waitFor(() => expect(retry).toHaveBeenCalledWith({ path: { account_id: gmail.id } }))
+  expect((client.getQueryData<AccountOut[]>(['accounts']) ?? [])[0]?.provider_actions_blocked).toBe(false)
 })

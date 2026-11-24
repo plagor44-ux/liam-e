@@ -45,7 +45,7 @@ export function MailView({ id }: { id: string }) {
   const account = summary.data?.accounts.find(item => item.id === data?.account_id)
   const capabilities = account?.action_capabilities
   const readKind = data?.is_read ? 'mark_unread' : 'mark_read'
-  const hint = texts.errors.provider_action_unsupported
+  const hint = account?.provider_actions_blocked ? texts.accounts.gmailReauth : texts.errors.provider_action_unsupported
   useEffect(() => {
     if (!data || !summary.data || data.local_reference_only || opened.current.has(id)) return
     opened.current.add(id)
@@ -101,7 +101,7 @@ export function MailView({ id }: { id: string }) {
     <div className="le-topbar le-mail-topbar">{!split && <IconButton label={texts.mail.back} icon="arrow-left" size="lg" onClick={back} />}{!split && <span className="le-grow" />}{actions}{split && <><span className="le-grow" />{data && chatButtons}</>}</div>
     {data && !data.local_reference_only && <div className="le-mail-quick"><QuickActions messages={[data]} showEmpty onSuccess={() => notify(texts.mailFiling.done, 'success')} /></div>}
     <div className="le-mail-scroll">
-      {data && !data.local_reference_only && capabilities && Object.values(capabilities).every(supported => !supported) && <Notice tone="info">{texts.mail.studioGmailActionsUnavailable}</Notice>}
+      {data && !data.local_reference_only && capabilities && Object.values(capabilities).every(supported => !supported) && <Notice tone="info">{account?.provider_actions_blocked ? texts.accounts.gmailReauth : texts.mail.studioGmailActionsUnavailable}</Notice>}
       {started && state.phase === 'error' && !state.conversationId && <Notice tone="danger" action={state.errorCode === 'preferences_unavailable' ? { label: texts.preferences.continueWithout, onClick: () => { void retryWithoutPreferences() } } : state.errorCode === 'chat_account_not_granted' ? { label: texts.chatAccounts.section, onClick: () => { void navigate({ to: '/settings/chat' }) } } : { label: texts.chat.retry, onClick: () => { void retry() } }}>{texts.errors[state.errorCode ?? 'internal']}</Notice>}
       {message.isPending && <><span className="le-sr" role="status">{texts.mail.loading}</span><div className="le-mail-placeholder" aria-hidden="true"><div className="le-mail-placeholder-head"><span /><div><span /><span /></div></div><span /><span /><span /><span /></div></>}
       {message.isError && <div className="le-mail-error">{message.error instanceof MessageNotFoundError ? <Notice tone="danger" action={{ label: texts.mail.toInbox, onClick: back }}>{texts.proposalErrors.item_gone}</Notice> : <><Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void message.refetch() } }}>{texts.mail.loadError}</Notice><Button variant="secondary" className="le-mail-to-inbox" onClick={back}>{texts.mail.toInbox}</Button></>}</div>}

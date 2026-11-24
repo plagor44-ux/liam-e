@@ -5,6 +5,7 @@
 """
 
 from datetime import datetime
+from hashlib import sha256
 
 from sqlalchemy import JSON, Boolean, Column, UniqueConstraint, false, text
 from sqlmodel import Field, SQLModel
@@ -31,6 +32,7 @@ class MailSyncState(SQLModel, table=True):
     connector_generation: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     connector_proof_revision: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     connector_deferred_threads: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default=text("'[]'")))
+    connector_write_evidence: str = Field(default="", sa_column_kwargs={"server_default": ""})
     connector_verified: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false()))
     status: str = "idle"  # idle | syncing | ok | error
     last_error: str = ""
@@ -40,3 +42,18 @@ class MailSyncState(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=utcnow, sa_column=utc_datetime_column()
     )
+
+
+    def write_evidence(self) -> tuple[str, str, str] | None:
+        """Return the pinned binding, retry generation and recorded write outcome."""
+        if not self.connector_verified or not self.connector_cursor.startswith(CONNECTOR_CURSOR_PREFIX):
+            return None
+        encoded, separator, _ = self.connector_cursor.removeprefix(CONNECTOR_CURSOR_PREFIX).partition("|")
+        if not separator or not encoded:
+            return None
+        binding = sha256(encoded.encode()).hexdigest()
+        saved, _, tail = self.connector_write_evidence.partition(":")
+        generation, _, outcome = tail.partition(":")
+        if saved != binding or outcome not in {"ready", "confirmed", "blocked"}:
+            return binding, "", "ready"
+        return binding, generation, outcome
