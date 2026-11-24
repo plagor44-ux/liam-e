@@ -445,6 +445,28 @@ test('a paused editor preview explains how to continue without referring to appl
   expect(screen.queryByText(/um sie anzuwenden/u)).toBeNull()
 })
 
+test('reactivating a paused draft previews its active values without saving', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const preview = spyOn(sdk, 'mailRulesPreview').mockResolvedValue({ data: { matched: 1, already_filed: 0, message_ids: ['mail'] } } as never)
+  const save = spyOn(sdk, 'mailRuleUpdate')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Paused', version: 2, sender_domain: 'example.test', folder_id: 'folder', is_active: false }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.click(screen.getByRole('switch', { name: /Regel aktiv/u }))
+  fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+  expect(await screen.findByText('1 passende Mail')).toBeTruthy()
+  expect(preview.mock.calls[0]?.[0]?.body).toMatchObject({ saved_rule_id: 'rule', expected_version: 2, preview_draft: true, is_active: true })
+  expect(save).not.toHaveBeenCalled()
+})
+
 for (const stage of ['preview', 'apply'] as const) {
   test(`a stale tab shows the paused-rule reason during ${stage}`, async () => {
     const { RuleSettings } = await import('./MailFiling')

@@ -122,7 +122,7 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
         rule = await mail_rule.get(saved_id)
         if rule is None:
             raise refuse(404, 'rule_not_found', 'Die Regel ist nicht mehr da.')
-        if not rule.is_active:
+        if not body.preview_draft and not rule.is_active:
             raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')
         if rule.version != body.expected_version:
             raise refuse(409, 'rule_version_conflict', 'Die Regel wurde inzwischen geändert.')

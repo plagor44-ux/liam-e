@@ -1149,6 +1149,38 @@ def test_saved_rule_draft_preview_accounts_for_future_rule_version(pg_db):
     asyncio.run(run())
 
 
+def test_paused_saved_rule_can_preview_an_active_editor_draft(pg_db):
+    async def run():
+        from fastapi import HTTPException
+        from sqlalchemy import select
+        from api.routers.api.v1.mail.rules import RulePreviewIn, preview
+        from db.accessors import mail_filing, mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        from db.models.mail_job import MailJob
+
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org')
+        rule = await mail_rule.create(name='Paused', sender_domain='example.org', folder_id=folder.id, is_active=False)
+        body = RulePreviewIn(name=rule.name, sender_domain=rule.sender_domain, folder_id=folder.id,
+                             is_active=True, saved_rule_id=rule.id, expected_version=rule.version, preview_draft=True)
+        assert (await preview(body))['message_ids'] == [message.id]
+        for changed, expected_code in (({'preview_draft': False}, 'rule_inactive'),
+                                       ({'is_active': False}, 'rule_inactive'),
+                                       ({'expected_version': rule.version + 1}, 'rule_version_conflict')):
+            with pytest.raises(HTTPException) as exc:
+                await preview(body.model_copy(update=changed))
+            assert exc.value.status_code == 409 and exc.value.detail['code'] == expected_code
+        assert not (await mail_rule.get(rule.id)).is_active
+        assert (await mail_filing.for_message(message.id)).folder_id is None
+        assert await mail_rule_run.list_for_rule(rule.id) == []
+        async with get_session_maker()() as session:
+            assert not (await session.scalars(select(MailJob).where(MailJob.kind == 'mail_rule_apply'))).all()
+    asyncio.run(run())
+
+
 def test_manual_apply_reports_mail_changed_after_preview(pg_db):
     async def run():
         from api.routers.api.v1.mail.rules import ApplyIn, RulePreviewIn, apply_rule, preview
