@@ -691,7 +691,7 @@ def test_rule_skips_paused_verified_gmail_binding_without_retrying_provider(pg_d
         rule = await mail_rule.create(name="Read", mark_read=True)
         write = AsyncMock()
         monkeypatch.setattr(actions, "apply_action", write)
-        await mail_sync_state.record_connector_write(account.id, state.write_evidence()[:2], blocked=True)
+        await mail_sync_state.record_connector_write(account.id, state.write_evidence()[:2], outcome="blocked")
         first = await rules.execute_rule_run(rule.id, rule.version, message.id)
         assert first.status == "done"
         assert json.loads(first.provider_results_json) == {"mark_read": "skipped_permission"}

@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Literal
 from uuid import uuid4
 
 from sqlalchemy import case, select, text, update
@@ -128,7 +129,9 @@ async def fail_poll(account_id: str, previous: MailSyncState, code: str) -> None
 
 
 
-async def record_connector_write(account_id: str, proof: tuple[str, str], *, blocked: bool) -> None:
+async def record_connector_write(
+    account_id: str, proof: tuple[str, str], *, outcome: Literal["confirmed", "unchanged", "blocked"],
+) -> None:
     """A reply may update evidence only for the binding and retry generation that dispatched it."""
     async with get_session_maker().begin() as session:
         state = await session.scalar(select(MailSyncState).where(MailSyncState.account_id == account_id).with_for_update())
@@ -136,7 +139,8 @@ async def record_connector_write(account_id: str, proof: tuple[str, str], *, blo
         if evidence is None or evidence[:2] != proof or evidence[2] == "blocked":
             return
         assert state is not None
-        outcome = "blocked" if blocked else "confirmed"
+        if outcome == evidence[2] == "unchanged":
+            outcome = "blocked"
         state.connector_write_evidence = f"{proof[0]}:{proof[1]}:{outcome}"
 
 

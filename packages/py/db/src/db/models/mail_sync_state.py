@@ -54,6 +54,6 @@ class MailSyncState(SQLModel, table=True):
         binding = sha256(encoded.encode()).hexdigest()
         saved, _, tail = self.connector_write_evidence.partition(":")
         generation, _, outcome = tail.partition(":")
-        if saved != binding or outcome not in {"ready", "confirmed", "blocked"}:
+        if saved != binding or outcome not in {"ready", "confirmed", "unchanged", "blocked"}:
             return binding, "", "ready"
         return binding, generation, outcome

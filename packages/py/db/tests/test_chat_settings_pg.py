@@ -664,7 +664,7 @@ def test_verified_gmail_studio_proposal_checks_write_evidence_inside_claim(pg_db
             proposals.ProposalItem(id=mail.id, kind="mail", title="Synthetic title", subtitle="")]), context_id=context.id)
         if blocked:
             state = await mail_sync_state.get_state(account.id)
-            await mail_sync_state.record_connector_write(account.id, state.write_evidence()[:2], blocked=True)
+            await mail_sync_state.record_connector_write(account.id, state.write_evidence()[:2], outcome="blocked")
         backend = AsyncMock()
         backend.apply.return_value = {}
         monkeypatch.setattr(action_backends, "backend_for", lambda _: backend)

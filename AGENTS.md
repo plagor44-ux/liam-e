@@ -104,9 +104,11 @@ run directly through the mail action endpoints.
 Account responses expose `action_capabilities` for individual actions, including `move` and
 `label`. A verified Gmail Studio binding can change read status, archive, move to Trash and restore.
 The first ordinary action confirms the provider change through a current point read; the stored
-write evidence applies to that binding. A denied or definitively unchanged write pauses those
-actions and returns `provider_permission_missing`. Reauthentication in Studio and an explicit
-retry from Accounts allow a new action attempt. Spam, moves to provider folders and provider
+write evidence applies to that binding. A recognized permission denial pauses these actions
+immediately with `provider_permission_missing`. An unconfirmed write without a receipt whose point
+readback stays unchanged returns `provider_failed`. Two consecutive unchanged results pause the
+binding. Any confirmed write resets that streak. Reauthentication in Studio and an explicit retry
+from Accounts allow a new action attempt. Spam, moves to provider folders and provider
 labels return `409 provider_action_unsupported` before dispatch. A bulk request with known
 unavailable targets is declined before dispatch. If a denial is discovered during a bulk request,
 successful actions on other accounts retain their individual results. Read tools and explicitly
@@ -1043,9 +1045,11 @@ read/unread, archive/restore and trash/restore worked on one synthetic delivery.
 confirmed each change and the original unread Inbox state returned with other labels unchanged.
 The folder probe returned HTTP 200 without a positive receipt. Gmail Studio permits these
 actions through a verified binding and checks the current exact message before recording success.
-A permission denial or unchanged current state pauses provider actions for that binding. After
-reauthentication in Studio, the account action allows another attempt without replaying any old
-write. Spam, provider folder moves and provider label changes remain unavailable.
+Gmail Studio point readbacks retry at approximately one and three seconds. A recognized
+permission denial pauses the binding immediately. Without a receipt or permission diagnostic,
+two consecutive unchanged readbacks from separate writes pause the binding. A confirmed write
+resets the streak. After reauthentication in Studio, the account action allows another attempt.
+Spam, provider folder moves and provider label changes remain unavailable.
 `send_email` takes `replyToMessageId`. The Outlook connector returned HTTP 401 in the earlier probe.
 
 ## Stack & commands
