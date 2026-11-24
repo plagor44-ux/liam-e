@@ -5784,6 +5784,24 @@
         "title": "RuleIn",
         "type": "object"
       },
+      "RulePreviewOut": {
+        "properties": {
+          "already_filed": {
+            "title": "Already Filed",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "matched",
+          "already_filed"
+        ],
+        "title": "RulePreviewOut",
+        "type": "object"
+      },
       "RuleUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -12118,11 +12136,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Mail Rules Preview",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RulePreviewOut"
                 }
               }
             },

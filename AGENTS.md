@@ -321,7 +321,9 @@ legacy `label_id` into that list, and refuses a downgrade that would discard ext
 rule snapshots commit with the sync batch. Local assignments precede provider actions; provider
 actions pass through `require_action`, unsupported actions are recorded as skipped, and uncertain
 writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.
-The owner can preview and explicitly queue a rule for indexed inbox mail. Each manual application
+The owner can preview and explicitly queue a rule for provider-INBOX indexed mail, including app-filed
+mail. The preview counts already-filed matches separately; manual runs add labels without changing an
+existing app folder, and still apply capability-gated provider actions. Each manual application
 uses the same durable worker and recovery protocol as sync-triggered runs; an interrupted provider
 dispatch becomes unknown without being resent. Verified duplicate merges retain rule-run
 deduplication; conflicting uncertain dispatches become unknown. Run outcomes identify a folder

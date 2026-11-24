@@ -929,3 +929,54 @@ def test_rule_update_rechecks_version_after_waiting_for_destination(pg_db, monke
         assert saved.name == 'Fresh' and saved.label_ids == [existing.id]
 
     asyncio.run(run())
+
+
+def test_manual_apply_includes_filed_provider_inbox_without_moving_it(pg_db, monkeypatch):
+    async def run():
+        import json
+        from unittest.mock import AsyncMock
+        from api.mail import action_capabilities, actions, jobs, rules
+        from api.mail.rule_schemas import RuleIn
+        from api.routers.api.v1.mail.rules import ApplyIn, apply_rule, preview
+        from db.accessors import mail_filing, mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+
+        account = MailAccount(id='synthetic', provider='gmail', auth_type='mistral_connector', email_address='owner@example.org')
+        async with get_session_maker().begin() as session:
+            session.add(account)
+        higher_folder = await mail_filing.create_destination('Higher', 'folder')
+        owner_folder = await mail_filing.create_destination('Owner', 'folder')
+        lower_folder = await mail_filing.create_destination('Lower', 'folder')
+        label = await mail_filing.create_destination('Work', 'label')
+        existing = await mail_filing.create_destination('Existing', 'label')
+        first = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='first', sender_address='person@example.org')
+        owner = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='owner', sender_address='person@example.org')
+        unfiled = await mail_message.upsert_message(account_id=account.id, folder='INBOX', provider_uid='unfiled', sender_address='person@example.org')
+        archived = await mail_message.upsert_message(account_id=account.id, folder='ARCHIVE', provider_uid='archive', sender_address='person@example.org')
+        trashed = await mail_message.upsert_message(account_id=account.id, folder='TRASH', provider_uid='trash', sender_address='person@example.org')
+        higher = await mail_rule.create(name='Higher', position=1, sender_domain='example.org', folder_id=higher_folder.id)
+        lower = await mail_rule.create(name='Lower', position=2, sender_domain='example.org', folder_id=lower_folder.id, label_ids=[label.id], mark_read=True)
+        await rules.execute_rule_run(higher.id, higher.version, first.id)
+        await mail_filing.assign([owner.id], folder_id=owner_folder.id, add_labels=[existing.id, label.id])
+        body = RuleIn(name=lower.name, sender_domain=lower.sender_domain, folder_id=lower.folder_id, label_ids=lower.label_ids, mark_read=True, position=2)
+        assert await preview(body) == {'matched': 3, 'already_filed': 2}
+        gate = AsyncMock(side_effect=action_capabilities.unsupported())
+        writer = AsyncMock()
+        monkeypatch.setattr(action_capabilities, 'require_action', gate)
+        monkeypatch.setattr(actions, 'apply_action', writer)
+        result = await apply_rule(lower.id, ApplyIn(expected_version=lower.version, confirm_apply=True))
+        assert result['matched'] == 3
+        for _ in range(3):
+            assert await jobs.run_once()
+        assert not await jobs.run_once()
+        filings = await mail_filing.for_messages([first.id, owner.id, unfiled.id, archived.id, trashed.id])
+        assert filings[first.id].folder_id == higher_folder.id and filings[first.id].label_ids == [label.id]
+        assert filings[owner.id].folder_id == owner_folder.id and set(filings[owner.id].label_ids) == {existing.id, label.id}
+        assert filings[unfiled.id].folder_id is None and filings[unfiled.id].label_ids == [label.id]
+        assert filings[archived.id].label_ids == [] and filings[trashed.id].label_ids == []
+        assert gate.await_count == 3
+        writer.assert_not_awaited()
+        runs = await mail_rule_run.list_for_rule(lower.id)
+        assert len(runs) == 3 and all(json.loads(run.provider_results_json)['mark_read'] == 'skipped_unsupported' for run in runs)
+    asyncio.run(run())

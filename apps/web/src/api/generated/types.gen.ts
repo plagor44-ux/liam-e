@@ -3214,6 +3214,20 @@ export type RuleIn = {
 };
 
 /**
+ * RulePreviewOut
+ */
+export type RulePreviewOut = {
+    /**
+     * Already Filed
+     */
+    already_filed: number;
+    /**
+     * Matched
+     */
+    matched: number;
+};
+
+/**
  * RuleUpdate
  */
 export type RuleUpdate = {
@@ -6966,13 +6980,9 @@ export type MailRulesPreviewError = MailRulesPreviewErrors[keyof MailRulesPrevie
 
 export type MailRulesPreviewResponses = {
     /**
-     * Response Mail Rules Preview
-     *
      * Successful Response
      */
-    200: {
-        [key: string]: number;
-    };
+    200: RulePreviewOut;
 };
 
 export type MailRulesPreviewResponse = MailRulesPreviewResponses[keyof MailRulesPreviewResponses];

@@ -91,7 +91,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   useEffect(() => { if (sourceMessageId) formRef.current?.scrollIntoView?.({ block: 'start' }) }, [sourceMessageId])
   const source = useQuery({ ...messageQuery(sourceMessageId ?? ''), enabled: Boolean(sourceMessageId && sourceActive), retry: false })
   const [editing, setEditing] = useState<MailRule>(), [applying, setApplying] = useState<MailRule>(), [deleting, setDeleting] = useState<MailRule>()
-  const [showRuns, setShowRuns] = useState<string>(), [matched, setMatched] = useState<number>()
+  const [showRuns, setShowRuns] = useState<string>(), [matched, setMatched] = useState<{ matched: number; already_filed: number }>()
   const [queued, setQueued] = useState<number>()
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
   const executing = useRef(false)
@@ -123,7 +123,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     if (action === 'save' && sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable)) return
     executing.current = true; setBusy(true); setError(false)
     try {
-      if (action === 'preview') setMatched((await unwrap(mailRulesPreview({ body: prepared(), throwOnError: true }))).matched)
+      if (action === 'preview') setMatched(await unwrap(mailRulesPreview({ body: prepared(), throwOnError: true })))
       if (action === 'save') {
         if (editing?.id && editing.version) await unwrap(mailRuleUpdate({ path: { rule_id: editing.id }, body: { ...draft, expected_version: editing.version }, throwOnError: true }))
         else if (sourceActive && sourceMessageId && source.data && !source.data.local_reference_only) await unwrap(mailRuleCreateFromMessage({ body: { ...prepared(), source_message_id: sourceMessageId, source_account_id: source.data.account_id }, throwOnError: true }))
@@ -206,7 +206,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       <Button type="button" variant="secondary" disabled={busy || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
       {(editing || sourceActive) && !sourceInitializing && <Button type="button" variant="secondary" onClick={discard}>{t.cancel}</Button>}</div>
       {!draft.folder_id && !draft.label_ids?.length && <p id={targetHintId} className="le-hint">{t.ruleTargetRequired}</p>}
-      {matched !== undefined && <p role="status">{t.matches(matched)}</p>}
+      {matched !== undefined && <div role="status"><p>{t.matches(matched.matched)}</p>{matched.already_filed > 0 && <p>{t.alreadyFiledMatches(matched.already_filed)}</p>}</div>}
       </fieldset>
     </form>
     {queued !== undefined && <p role="status">{t.queued(queued)}</p>}

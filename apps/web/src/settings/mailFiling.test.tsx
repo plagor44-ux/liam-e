@@ -497,3 +497,16 @@ test('editing a rule restores all labels and saves the selected set', async () =
   expect(update.mock.calls[0]?.[0]?.body.label_ids).toEqual(['two'])
   expect(update.mock.calls[0]?.[0]?.body.expected_version).toBe(3)
 })
+
+test('rule preview explains already-filed matches keep their folders', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailRulesPreview').mockResolvedValue({ data: { matched: 3, already_filed: 2 } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json([])) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+  expect(await screen.findByText('3 passende Mails')).toBeTruthy()
+  expect(screen.getByText('2 bereits zugeordnet: Gewählte Labels werden ergänzt, der Ordner bleibt erhalten. Anbieteraktionen gelten wie ausgewählt.')).toBeTruthy()
+})

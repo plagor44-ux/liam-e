@@ -1,6 +1,6 @@
 """Owner-managed classification rules and confirmed application."""
 
-from db.accessors import mail_job, mail_message, mail_rule, mail_rule_run
+from db.accessors import mail_filing, mail_job, mail_message, mail_rule, mail_rule_run
 from db.models.mail_rule import MailRule
 from db.models.mail_rule_run import MailRuleRun
 from fastapi import APIRouter
@@ -13,6 +13,11 @@ from api.mail.rule_schemas import RuleIn, RuleUpdate
 router = APIRouter()
 
 
+
+
+class RulePreviewOut(BaseModel):
+    matched: int
+    already_filed: int
 
 
 class ApplyIn(BaseModel):
@@ -73,22 +78,32 @@ async def delete_rule(rule_id: str, expected_version: int) -> dict[str, bool]:
     return {"ok": True}
 
 
-async def matching_messages(rule: MailRule):
+async def matching_pages(rule: MailRule):
     before = None
     while True:
-        page = await mail_message.list_page(folder="INBOX", hide_filed=True, before=before, limit=100)
-        for message in page:
-            if rule_engine.matches(rule, message):
-                yield message
+        # Manual runs cover indexed provider INBOX, including app-filed messages.
+        page = await mail_message.list_page(folder="INBOX", hide_filed=False, before=before, limit=100)
+        yield [message for message in page if rule_engine.matches(rule, message)]
         if len(page) < 100:
             break
         before = (page[-1].internal_date, page[-1].id)
 
 
-@router.post("/preview", operation_id="mail_rules_preview")
+async def matching_messages(rule: MailRule):
+    async for page in matching_pages(rule):
+        for message in page:
+            yield message
+
+
+@router.post("/preview", operation_id="mail_rules_preview", response_model=RulePreviewOut)
 async def preview(body: RuleIn) -> dict[str, int]:
     rule = MailRule(**(body.model_dump() | {"is_active": True}))
-    return {"matched": sum([1 async for _ in matching_messages(rule)])}
+    matched = already_filed = 0
+    async for page in matching_pages(rule):
+        matched += len(page)
+        filings = await mail_filing.for_messages([message.id for message in page])
+        already_filed += sum(bool(filings[message.id].folder_id) for message in page)
+    return {"matched": matched, "already_filed": already_filed}
 
 
 @router.post("/{rule_id}/apply", operation_id="mail_rule_apply")
