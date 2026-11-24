@@ -42,6 +42,7 @@ small { font-size: var(--font-size-small); }
 .le-btn--primary:disabled { background: var(--line-strong); color: var(--ink-muted); box-shadow: none; }
 .le-btn--secondary { background: var(--surface); border-color: var(--control-border); color: var(--ink); }
 .le-btn--secondary:hover { border-color: var(--accent); color: var(--accent); }
+.le-btn--secondary:disabled, .le-btn--secondary:disabled:hover { background: var(--line-strong); border-color: var(--line-strong); color: var(--ink); box-shadow: none; }
 .le-btn--ghost { background: var(--surface-soft); color: var(--ink); }
 .le-btn--ghost:hover { background: var(--accent-soft); color: var(--accent); }
 .le-btn--danger { background: var(--danger); color: var(--on-danger); }

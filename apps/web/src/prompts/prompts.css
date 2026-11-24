@@ -12,6 +12,7 @@
 .le-filing-row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; }
 .le-filing-row > strong { flex: 1 1 12rem; }
 .le-filing-row > p { flex-basis: 100%; }
+.le-rule-inactive-reason { flex-basis: 100%; color: var(--ink-muted); }
 .le-filing-summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); flex-basis: 100%; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .le-prompt-preview { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-muted); }
 .le-prompt-placeholder { height: var(--control-height-lg); background: var(--surface-soft); border-radius: var(--radius-sm); }

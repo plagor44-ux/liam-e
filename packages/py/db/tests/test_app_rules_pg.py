@@ -1230,6 +1230,7 @@ def test_paused_rule_preview_and_manual_apply_refuse_without_writes(pg_db):
             with pytest.raises(HTTPException) as exc:
                 await operation
             assert exc.value.status_code == 409 and exc.value.detail['code'] == 'rule_inactive'
+            assert exc.value.detail['message'] == 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.'
         filing = await mail_filing.for_message(message.id)
         assert filing.folder_id is None and filing.label_ids == []
         assert await mail_rule_run.list_for_rule(rule.id) == []
@@ -1262,6 +1263,7 @@ def test_rule_paused_during_confirmation_rolls_back_and_reports_inactive(pg_db, 
         with pytest.raises(HTTPException) as exc:
             await router.apply_rule(rule.id, router.ApplyIn(expected_version=rule.version, confirm_apply=True))
         assert exc.value.status_code == 409 and exc.value.detail['code'] == 'rule_inactive'
+        assert exc.value.detail['message'] == 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.'
         assert (await mail_filing.for_message(message.id)).label_ids == []
         assert await mail_rule_run.list_for_rule(rule.id) == []
         async with get_session_maker()() as session:

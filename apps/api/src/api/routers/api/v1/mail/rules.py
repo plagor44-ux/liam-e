@@ -123,18 +123,18 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
         if rule is None:
             raise refuse(404, 'rule_not_found', 'Die Regel ist nicht mehr da.')
         if not rule.is_active:
-            raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+            raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')
         if rule.version != body.expected_version:
             raise refuse(409, 'rule_version_conflict', 'Die Regel wurde inzwischen geändert.')
         if body.preview_draft:
             if not body.is_active:
-                raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+                raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')
             values = body.model_dump(exclude={'saved_rule_id', 'expected_version', 'preview_draft'})
             draft_changed = any(getattr(rule, key) != value for key, value in values.items())
             rule = MailRule.model_validate(rule.model_dump() | values)
     else:
         if not body.is_active:
-            raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+            raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')
         rule = MailRule(**body.model_dump(exclude={'saved_rule_id', 'expected_version', 'preview_draft'}))
     active = [item for item in await mail_rule.list_rules() if item.is_active and item.id != rule.id]
     active.append(rule)
@@ -166,7 +166,7 @@ async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
     if rule is None:
         raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.")
     if not rule.is_active:
-        raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+        raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')
     if rule.version != body.expected_version:
         raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.")
     candidates = [message async for message in matching_messages(rule)]
@@ -175,7 +175,7 @@ async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
     except LookupError:
         raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.") from None
     except mail_rule_run.RuleInactive:
-        raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.') from None
+        raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.') from None
     except mail_rule.VersionConflict:
         raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.") from None
 

@@ -676,7 +676,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   preview succeeds. Clear an earlier result when a new preview or application starts. The result
   reports actual app changes, previously handled or queued provider actions and explains that
   conflicts are mail changed since preview and left untouched. A changed rule requires a fresh preview. Paused rules cannot
-  be previewed or applied; their disabled Apply button has a visible, accessible reason, also shown
+  be previewed or applied; their disabled Apply button uses the neutral disabled style with readable
+  light and dark text, and its visible, accessible reason sits on its own line after the row actions, also shown
   if a stale tab tries to apply a rule that has since been paused. Rule rows summarize their conditions, targets
   and active state. Open run outcomes refresh while visible and identify skipped provider actions
   and folder assignments overridden by a higher-priority rule.

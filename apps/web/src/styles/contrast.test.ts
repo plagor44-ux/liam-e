@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 const css = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8')
 const pairs: [string, string[], number][] = [
   ['ink', ['surface', 'surface-soft', 'surface-ground', 'surface-overlay', 'accent-soft'], 4.5],
+  ['ink', ['line-strong'], 4.5],
   ['ink-muted', ['surface', 'surface-soft', 'surface-ground', 'accent-soft'], 4.5],
   ['accent', ['surface', 'surface-soft', 'accent-soft'], 4.5],
   ['on-accent', ['accent', 'accent-hover'], 4.5],
@@ -73,4 +74,9 @@ test('palette swatches use the filled colour token in both themes', () => {
   const styles = readFileSync(new URL('./ds-app.css', import.meta.url), 'utf8')
   for (const color of destinationColors) expect(styles).toContain(`--filing-swatch-fill: var(--filing-${color}-border)`)
   expect(styles).toContain('.le-filing-swatch[class*="le-destination-"] { background: var(--filing-swatch-fill); }')
+})
+
+test('disabled secondary buttons use the contrast-checked neutral tokens even on hover', () => {
+  const styles = readFileSync(new URL('./ds.css', import.meta.url), 'utf8')
+  expect(styles).toMatch(/\.le-btn--secondary:disabled,\s*\.le-btn--secondary:disabled:hover\s*\{[^}]*background:\s*var\(--line-strong\);[^}]*border-color:\s*var\(--line-strong\);[^}]*color:\s*var\(--ink\)/u)
 })

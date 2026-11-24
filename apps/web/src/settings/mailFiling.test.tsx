@@ -416,9 +416,33 @@ test('paused rules show why manual application is disabled', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
   const button = await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement
-  const reason = screen.getByText('Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+  const reason = screen.getByText('Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')
   expect(button.disabled).toBe(true)
   expect(button.getAttribute('aria-describedby')).toBe(reason.id)
+  const row = button.closest('.le-filing-row') as HTMLElement
+  expect(reason.parentElement).toBe(row)
+  expect(within(row).getByRole('button', { name: 'Letzte Ausführungen' }).compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const css = await Bun.file(new URL('../prompts/prompts.css', import.meta.url)).text()
+  expect(css).toMatch(/\.le-rule-inactive-reason\s*\{[^}]*flex-basis:\s*100%/u)
+})
+
+test('a paused editor preview explains how to continue without referring to applying', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/preview')) return Response.json({ detail: { code: 'rule_inactive' } }, { status: 409 })
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Paused', version: 1, sender_domain: 'example.test', folder_id: 'folder', is_active: false }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+  await waitFor(() => expect(screen.getAllByText('Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')).toHaveLength(2))
+  expect(screen.queryByText(/um sie anzuwenden/u)).toBeNull()
 })
 
 for (const stage of ['preview', 'apply'] as const) {
@@ -442,7 +466,7 @@ for (const stage of ['preview', 'apply'] as const) {
       expect(await within(dialog).findByText(/1 passende Mail/)).toBeTruthy()
       fireEvent.click(within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
     }
-    expect(await screen.findByText('Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')).toBeTruthy()
+    expect(await screen.findByText('Die Regel ist pausiert. Aktiviere sie, um fortzufahren.')).toBeTruthy()
     if (stage === 'preview') expect((within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement).disabled).toBe(true)
   })
 }
@@ -754,7 +778,7 @@ test('English rule editing uses the save hint and describes the label group', as
   render(<I18nProvider locale="en"><QueryClientProvider client={client}><RuleSettings /></QueryClientProvider></I18nProvider>)
   const group = screen.getByRole('group', { name: 'Labels' })
   expect(group.getAttribute('aria-describedby')).toBe(screen.getByText('Choose up to 20 labels.').id)
-  expect(await screen.findByText('Rule is paused. Activate it to apply it.')).toBeTruthy()
+  expect(await screen.findByText('The rule is paused. Activate it to continue.')).toBeTruthy()
   expect((screen.getByRole('button', { name: 'Apply to existing emails' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(await screen.findByRole('button', { name: 'Edit rule' }))
   expect(screen.getByText('Choose a folder or label to save the rule.')).toBeTruthy()

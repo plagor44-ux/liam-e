@@ -45,7 +45,7 @@ export const de = {
     queued: (n: number) => `${n} ${n === 1 ? 'Mail' : 'Mails'} zur Verarbeitung vorgemerkt.`,
     applyResult: (changed: number, skipped: number, pending: number, conflicts: number) => `App-Zuordnungen geändert: ${changed}. Anbieteraktionen bereits behandelt oder unklar: ${skipped}; vorgemerkt oder laufend: ${pending}. Konflikte: ${conflicts} (Mails seit der Vorschau geändert; nicht überschrieben).`,
     applyConflict: 'Die Vorschau ist nicht mehr aktuell oder nicht verfügbar. Lade sie erneut.',
-    ruleInactive: 'Regel ist pausiert. Aktiviere sie, um sie anzuwenden.',
+    ruleInactive: 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.',
     applyDescription: 'Die Vorschau zeigt den aktuellen Stand. Anbieteraktionen werden nur einmal vorgemerkt und nur ausgeführt, wenn das Konto sie unterstützt.',
     outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', localDone: 'App-Zuordnung gespeichert', skipped: 'Beim Anbieter übersprungen', providerIncomplete: 'Aktion beim Anbieter nicht abgeschlossen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
     folderOverridden: 'Ordner nicht zugeordnet: Eine höher priorisierte Regel hat Vorrang.',
