@@ -52,6 +52,7 @@ export const en = {
     queued: n => plural(n, { one: '# email queued for processing.', other: '# emails queued for processing.' }),
     applyResult: (changed, skipped, pending, conflicts) => `App filings changed: ${changed}. Provider actions previously handled or unknown: ${skipped}; queued or in progress: ${pending}. Conflicts: ${conflicts}.`,
     applyConflict: 'The rule changed or the preview is unavailable. Reload the rules and open a fresh preview.',
+    ruleInactive: 'Rule is paused. Activate it to apply it.',
     applyDescription: 'The preview shows the current state. Filed emails keep their folders. Provider actions are queued only once and run only if the account supports them.',
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', providerIncomplete: 'Provider action incomplete', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
     folderOverridden: 'Folder not assigned: a higher-priority rule takes precedence.',

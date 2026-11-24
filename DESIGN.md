@@ -672,7 +672,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   matches and identifies already-filed mail whose folder stays while selected labels are added.
   Applying to existing mail needs a separate dialog with a saved-rule preview. The result reports
   actual app changes, previously handled provider actions, queued provider actions and conflicts;
-  mail can change after the preview, and a changed rule requires a fresh preview. Rule rows summarize their conditions, targets
+  mail can change after the preview, and a changed rule requires a fresh preview. Paused rules cannot
+  be previewed or applied; their disabled Apply button has a visible, accessible reason, also shown
+  if a stale tab tries to apply a rule that has since been paused. Rule rows summarize their conditions, targets
   and active state. Open run outcomes refresh while visible and identify skipped provider actions
   and folder assignments overridden by a higher-priority rule.
   Filing menus show shared assignments and identify partially assigned labels.

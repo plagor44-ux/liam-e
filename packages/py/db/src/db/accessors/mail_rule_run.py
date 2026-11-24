@@ -10,6 +10,10 @@ _OBSERVED_OUTCOMES = ("partial_permission", "partial", "reconciled_permission", 
 _TERMINAL_OUTCOMES = {"done", "skipped_permission", "skipped_unsupported", "skipped_stale", "overridden", *_OBSERVED_OUTCOMES}
 
 
+class RuleInactive(Exception):
+    """Manual application was refused because the rule is paused."""
+
+
 async def record_imap_rebuild(session, account_id: str, generation: str) -> None:
     """Record a rule-level notice without creating runs for ambiguous messages."""
     await record_import_notice(session, account_id, f'imap-rebuild:{account_id}:{generation}', 'skipped_imap_rebuild')
@@ -155,6 +159,8 @@ async def apply_manual(rule_id: str, version: int, candidates, matcher, preview_
         rule = next((item for item in rules if item.id == rule_id), None)
         if rule is None:
             raise LookupError('Rule not found')
+        if not rule.is_active:
+            raise RuleInactive()
         if rule.version != version:
             raise mail_rule.VersionConflict()
         active_rules = [item for item in rules if item.is_active]

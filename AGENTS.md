@@ -323,7 +323,7 @@ actions pass through `require_action`, unsupported actions are recorded as skipp
 writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.
 The owner can preview and explicitly apply a rule to indexed provider-INBOX mail, including app-filed
 mail. The preview counts current changes and already-filed matches; confirmation checks the rule
-version, re-evaluates mail and reports actual app changes, provider actions previously handled or
+version and refuses paused rules with `409 rule_inactive`, re-evaluates mail and reports actual app changes, provider actions previously handled or
 queued, and conflicts. App assignments and first-time provider jobs commit in one transaction.
 Manual application restores removed labels and preserves existing folders; automatic reruns remain
 deduplicated. Existing provider outcomes, including unknown, are never dispatched again for the same

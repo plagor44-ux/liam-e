@@ -1151,6 +1151,72 @@ def test_manual_apply_ignores_paused_higher_priority_folder_rule(pg_db):
     asyncio.run(run())
 
 
+def test_paused_rule_preview_and_manual_apply_refuse_without_writes(pg_db):
+    async def run():
+        from fastapi import HTTPException
+        from sqlalchemy import select
+        from api.routers.api.v1.mail.rules import ApplyIn, RulePreviewIn, apply_rule, preview
+        from db.accessors import mail_filing, mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        from db.models.mail_job import MailJob
+
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
+        folder = await mail_filing.create_destination('Projects', 'folder')
+        label = await mail_filing.create_destination('Work', 'label')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org')
+        rule = await mail_rule.create(name='Paused', sender_domain='example.org', folder_id=folder.id,
+                                      label_ids=[label.id], mark_read=True, is_active=False)
+        body = RulePreviewIn(name=rule.name, sender_domain=rule.sender_domain, folder_id=rule.folder_id,
+                             label_ids=rule.label_ids, is_active=False, saved_rule_id=rule.id, expected_version=rule.version)
+        draft = body.model_copy(update={'saved_rule_id': None, 'expected_version': None})
+        stale = body.model_copy(update={'expected_version': rule.version + 1})
+        for operation in (preview(body), preview(draft), preview(stale),
+                          apply_rule(rule.id, ApplyIn(expected_version=rule.version, confirm_apply=True)),
+                          apply_rule(rule.id, ApplyIn(expected_version=rule.version + 1, confirm_apply=True))):
+            with pytest.raises(HTTPException) as exc:
+                await operation
+            assert exc.value.status_code == 409 and exc.value.detail['code'] == 'rule_inactive'
+        filing = await mail_filing.for_message(message.id)
+        assert filing.folder_id is None and filing.label_ids == []
+        assert await mail_rule_run.list_for_rule(rule.id) == []
+        async with get_session_maker()() as session:
+            assert not (await session.scalars(select(MailJob).where(MailJob.kind == 'mail_rule_apply'))).all()
+    asyncio.run(run())
+
+
+def test_rule_paused_during_confirmation_rolls_back_and_reports_inactive(pg_db, monkeypatch):
+    async def run():
+        from fastapi import HTTPException
+        from sqlalchemy import select
+        from api.routers.api.v1.mail import rules as router
+        from db.accessors import mail_filing, mail_message, mail_rule, mail_rule_run
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+        from db.models.mail_job import MailJob
+
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
+        label = await mail_filing.create_destination('Work', 'label')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org')
+        rule = await mail_rule.create(name='Example', sender_domain='example.org', label_ids=[label.id], mark_read=True)
+        original = router.matching_messages
+        async def pause_after_scan(current):
+            async for item in original(current):
+                yield item
+            await mail_rule.update(rule.id, rule.version, is_active=False)
+        monkeypatch.setattr(router, 'matching_messages', pause_after_scan)
+        with pytest.raises(HTTPException) as exc:
+            await router.apply_rule(rule.id, router.ApplyIn(expected_version=rule.version, confirm_apply=True))
+        assert exc.value.status_code == 409 and exc.value.detail['code'] == 'rule_inactive'
+        assert (await mail_filing.for_message(message.id)).label_ids == []
+        assert await mail_rule_run.list_for_rule(rule.id) == []
+        async with get_session_maker()() as session:
+            assert not (await session.scalars(select(MailJob).where(MailJob.kind == 'mail_rule_apply'))).all()
+    asyncio.run(run())
+
+
 def test_manual_batch_rechecks_rule_version_inside_transaction(pg_db, monkeypatch):
     async def run():
         from fastapi import HTTPException

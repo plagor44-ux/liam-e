@@ -312,6 +312,50 @@ test('a changed rule requires a fresh preview before applying', async () => {
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
+test('paused rules show why manual application is disabled', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Paused', version: 1, sender_domain: 'example.test', folder_id: 'folder', is_active: false }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  const button = await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement
+  const reason = screen.getByText('Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+  expect(button.disabled).toBe(true)
+  expect(button.getAttribute('aria-describedby')).toBe(reason.id)
+})
+
+for (const stage of ['preview', 'apply'] as const) {
+  test(`a stale tab shows the paused-rule reason during ${stage}`, async () => {
+    const { RuleSettings } = await import('./MailFiling')
+    api.setConfig({ baseUrl: window.location.origin })
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      const path = new URL(req.url).pathname
+      if (path.endsWith(`/${stage}`)) return Response.json({ detail: { code: 'rule_inactive' } }, { status: 409 })
+      if (path.endsWith('/preview')) return Response.json({ matched: 1, already_filed: 0, message_ids: ['synthetic-message'] })
+      if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+      if (path.endsWith('/accounts')) return Response.json([])
+      return Response.json([{ id: 'rule', name: 'Projects', version: 1, sender_domain: 'example.test', folder_id: 'folder', is_active: true }])
+    }) as typeof fetch
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+    const dialog = screen.getByRole('dialog')
+    if (stage === 'apply') {
+      expect(await within(dialog).findByText(/1 passende Mail/)).toBeTruthy()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+    }
+    expect(await screen.findByText('Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')).toBeTruthy()
+    if (stage === 'preview') expect((within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+}
+
 test('visible rule outcomes refresh after an initially empty result', async () => {
   const { RuleSettings } = await import('./MailFiling')
   let runReads = 0
@@ -598,6 +642,8 @@ test('English rule editing uses the save hint and describes the label group', as
   render(<I18nProvider locale="en"><QueryClientProvider client={client}><RuleSettings /></QueryClientProvider></I18nProvider>)
   const group = screen.getByRole('group', { name: 'Labels' })
   expect(group.getAttribute('aria-describedby')).toBe(screen.getByText('Choose up to 20 labels.').id)
+  expect(await screen.findByText('Rule is paused. Activate it to apply it.')).toBeTruthy()
+  expect((screen.getByRole('button', { name: 'Apply to existing emails' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(await screen.findByRole('button', { name: 'Edit rule' }))
   expect(screen.getByText('Choose a folder or label to save the rule.')).toBeTruthy()
   expect(screen.queryByText('Actions:')).toBeNull()

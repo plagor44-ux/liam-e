@@ -120,10 +120,14 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
         rule = await mail_rule.get(saved_id)
         if rule is None:
             raise refuse(404, 'rule_not_found', 'Die Regel ist nicht mehr da.')
+        if not rule.is_active:
+            raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
         if rule.version != body.expected_version:
             raise refuse(409, 'rule_version_conflict', 'Die Regel wurde inzwischen geändert.')
     else:
-        rule = MailRule(**(body.model_dump(exclude={'saved_rule_id', 'expected_version'}) | {"is_active": True}))
+        if not body.is_active:
+            raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+        rule = MailRule(**body.model_dump(exclude={'saved_rule_id', 'expected_version'}))
     active = [item for item in await mail_rule.list_rules() if item.is_active and item.id != rule.id]
     active.append(rule)
     active.sort(key=lambda item: (item.position, item.created_at, item.id))
@@ -153,6 +157,8 @@ async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
     rule = await mail_rule.get(rule_id)
     if rule is None:
         raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.")
+    if not rule.is_active:
+        raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
     if rule.version != body.expected_version:
         raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.")
     candidates = [message async for message in matching_messages(rule)]
@@ -160,6 +166,8 @@ async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
         return await mail_rule_run.apply_manual(rule.id, body.expected_version, candidates, rule_engine.matches, body.preview_message_ids)
     except LookupError:
         raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.") from None
+    except mail_rule_run.RuleInactive:
+        raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.') from None
     except mail_rule.VersionConflict:
         raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.") from None
 
