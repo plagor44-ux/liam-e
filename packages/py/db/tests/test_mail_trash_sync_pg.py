@@ -1274,7 +1274,7 @@ def test_confirmed_gmail_write_resets_unchanged_readback_streak(pg_db, monkeypat
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("intervening", ["already read", "already trashed step", "positive receipt"])
+@pytest.mark.parametrize("intervening", ["already read", "already inbox restore step", "positive receipt"])
 def test_gmail_unchanged_streak_needs_receipt_or_requested_label_transition(pg_db, monkeypatch, intervening):
     async def run():
         provider = StudioMailbox()
@@ -1296,13 +1296,14 @@ def test_gmail_unchanged_streak_needs_receipt_or_requested_label_transition(pg_d
             state = await mail_sync_state.get_state(provider.account.id)
             assert state.write_evidence()[2] == "unchanged"
 
-            if intervening == "already trashed step":
+            if intervening == "already inbox restore step":
                 provider.labels["sibling"].add("TRASH")
-                move = await browser.post(sibling, json={"kind": "trash"})
-                assert move.status_code == 409
-                assert move.json()["detail"]["folder"] == "TRASH"
+                await mail_message.set_state(ids["sibling"], folder="TRASH", labels_json='["INBOX", "TRASH"]')
+                move = await browser.post(sibling, json={"kind": "restore"})
+                assert move.status_code == 502
+                assert move.json()["detail"]["code"] == "provider_failed"
                 assert provider.writes[-2:] == [
-                    ("label_message", "sibling", ("TRASH",)), ("unlabel_message", "sibling", ("INBOX",))]
+                    ("label_message", "sibling", ("INBOX",)), ("unlabel_message", "sibling", ("TRASH",))]
             else:
                 if intervening == "positive receipt":
                     provider.reject = None
@@ -1496,6 +1497,71 @@ def test_mixed_bulk_undo_restores_other_account_when_gmail_binding_is_paused(pg_
             assert undo.json()["skipped"] == [other_token]
             assert provider.labels["target"] == {"INBOX"}
             assert await listed(browser, "TRASH") == set()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("saved_is_read", [False, True], ids=["restore-unread", "restore-read"])
+def test_gmail_undo_uses_live_read_flag_and_releases_an_unconfirmed_token(pg_db, monkeypatch, saved_is_read):
+    async def run():
+        provider = StudioMailbox()
+        if not saved_is_read:
+            provider.labels["target"].add("UNREAD")
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+
+        async def no_delay(_seconds):
+            pass
+
+        monkeypatch.setattr(connectors, "sleep", no_delay)
+        async with client() as browser:
+            action = "mark_unread" if saved_is_read else "mark_read"
+            changed = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": action})
+            assert changed.status_code == 200
+            token = changed.json()["action_id"]
+            changed_labels = set(provider.labels["target"])
+            stale_labels = ["INBOX"] if saved_is_read else ["INBOX", "UNREAD"]
+            await mail_message.set_state(target, is_read=saved_is_read, labels_json=json.dumps(stale_labels))
+
+            provider.reject = {"content": [{"type": "text", "text": "{}"}]}
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
+            assert undo.status_code == 200
+            assert undo.json()["restored"] == []
+            assert undo.json()["failed"] == [token]
+            assert (await mail_action.latest_open(target)).id == token
+            assert provider.labels["target"] == changed_labels
+
+            provider.reject = None
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
+            assert undo.json()["restored"] == [token]
+            tool = "unlabel_message" if saved_is_read else "label_message"
+            assert provider.writes[-2:] == [(tool, "target", ("UNREAD",))] * 2
+            assert provider.labels["target"] == set(stale_labels)
+            assert (await mail_message.get_message(target)).is_read == saved_is_read
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("live_folder", ["SPAM", "TRASH"])
+def test_gmail_trash_reconciles_a_disallowed_live_source_without_writing(pg_db, monkeypatch, live_folder):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        labels = {live_folder, "UNREAD"}
+        provider.labels["target"] = set(labels)
+        async with client() as browser:
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert result.status_code == 409
+            assert result.json()["detail"]["code"] == "provider_partial"
+            assert result.json()["detail"]["folder"] == live_folder
+            assert not provider.writes
+            assert provider.labels["target"] == labels
+            actual = await mail_message.get_message(target)
+            assert actual.folder == live_folder
+            assert set(json.loads(actual.labels_json)) == labels
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await mail_action.latest_open(target) is None
 
     asyncio.run(run())
 

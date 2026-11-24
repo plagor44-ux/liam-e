@@ -19,6 +19,12 @@ from api.errors import refuse
 from api.mail import action_capabilities, connector_write_results as write_result, connectors
 
 ActionKind = Literal["archive", "trash", "spam", "mark_read", "mark_unread", "restore"]
+FOLDER_ACTION_SOURCES = {
+    "archive": ("INBOX",),
+    "trash": ("INBOX", "ARCHIVE"),
+    "spam": ("INBOX", "ARCHIVE"),
+    "restore": ("ARCHIVE", "TRASH"),
+}
 logger = logging.getLogger(__name__)
 
 
@@ -115,12 +121,11 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
     await action_capabilities.require_action(account, kind)
     if message.folder in {"IMAP_DELETED", IMAP_RETIRED}:
         raise ActionUnsupportedError()
-    sources = {"archive": ("INBOX",), "trash": ("INBOX", "ARCHIVE"), "spam": ("INBOX", "ARCHIVE"), "restore": ("ARCHIVE", "TRASH")}
-    if kind in sources and message.folder not in sources[kind]:
+    if kind in FOLDER_ACTION_SOURCES and message.folder not in FOLDER_ACTION_SOURCES[kind]:
         raise ActionUnsupportedError()
     backend = action_backends.backend_for(account)
     previous = {key: getattr(message, key) for key in ("folder", "is_read", "provider_uid", "labels_json")}
-    changes = {"folder": {"archive": "ARCHIVE", "trash": "TRASH", "spam": "SPAM", "restore": "INBOX"}[kind]} if kind in sources else {"is_read": kind == "mark_read"}
+    changes = {"folder": {"archive": "ARCHIVE", "trash": "TRASH", "spam": "SPAM", "restore": "INBOX"}[kind]} if kind in FOLDER_ACTION_SOURCES else {"is_read": kind == "mark_read"}
     if gmail_studio(account) or kind == "trash" or (kind == "restore" and message.folder == "TRASH"):
         try:
             updates = await backend.apply(message, kind)

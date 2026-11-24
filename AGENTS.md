@@ -104,7 +104,8 @@ run directly through the mail action endpoints.
 Account responses expose `action_capabilities` for individual actions, including `move` and
 `label`. A verified Gmail Studio binding can change read status, archive, move to Trash and restore.
 The first ordinary action confirms the provider change through a current point read; the stored
-write evidence applies to that binding. A recognized permission denial pauses these actions
+write evidence applies to that binding. Folder actions check the live source before dispatch.
+Read-status Undo compares the saved flag with the live labels. A recognized permission denial pauses these actions
 immediately with `provider_permission_missing`. An unconfirmed write without a receipt whose point
 readback stays unchanged returns `provider_failed`. Two consecutive unchanged results pause the
 binding. A positive write receipt or a point readback that shows a requested label change resets

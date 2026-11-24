@@ -13,7 +13,7 @@ from db.models.mail_account import MailAccount, gmail_studio
 from db.models.mail_message import IMAP_RETIRED, MailMessage
 
 from api.mail import connectors, providers, service, transport
-from api.mail.actions import ActionKind, ActionUnsupportedError, write_connector_labels
+from api.mail.actions import FOLDER_ACTION_SOURCES, ActionKind, ActionUnsupportedError, write_connector_labels
 from api.mail.seed_ids import is_seed_account
 
 
@@ -89,13 +89,15 @@ class LabelBackend:
             # Undo restores the labels controlled by this action and leaves other provider changes alone.
             managed = {"UNREAD"} if kind in {"mark_read", "mark_unread"} else {"INBOX", "TRASH"}
             destination = previous["folder"] if managed != {"UNREAD"} else None
-            return await self._change(message, current, (current - managed) | (desired & managed), destination=destination)
+            read_status = previous["is_read"] if managed == {"UNREAD"} else None
+            return await self._change(message, current, (current - managed) | (desired & managed),
+                                      destination=destination, read_status=read_status)
         await self._change(message, current, desired)
         return {"labels_json": previous["labels_json"]}
 
     async def _change(
         self, message: MailMessage, current: set[str], desired: set[str], *,
-        kind: ActionKind | None = None, destination: str | None = None,
+        kind: ActionKind | None = None, destination: str | None = None, read_status: bool | None = None,
     ) -> dict:
         trash_transition = ("TRASH" in desired) != (message.folder == "TRASH")
         if kind == "trash" or (kind in (None, "restore") and trash_transition):
@@ -105,7 +107,9 @@ class LabelBackend:
         added, removed = sorted(desired - current), sorted(current - desired)
         if gmail_studio(self.account):
             action = kind
-            if action is None:
+            if read_status is not None:
+                action = "mark_read" if read_status else "mark_unread"
+            elif action is None:
                 if "TRASH" in added:
                     action = "trash"
                 elif "INBOX" in added or "TRASH" in removed:
@@ -117,7 +121,9 @@ class LabelBackend:
             if kind is not None:
                 destination = {"archive": "ARCHIVE", "trash": "TRASH", "restore": "INBOX"}.get(kind)
             before, labels = await connectors.change_gmail_labels(
-                self.account, message, added, removed, action=action, destination=destination)
+                self.account, message, added, removed, action=action, destination=destination,
+                source_folders=FOLDER_ACTION_SOURCES.get(kind) if kind is not None else None,
+                read_status=read_status)
             updates = {"folder": connectors.observed_folder(labels), "is_read": "UNREAD" not in labels,
                        "is_flagged": "STARRED" in labels, "labels_json": json.dumps(sorted(labels))}
             if kind is not None:

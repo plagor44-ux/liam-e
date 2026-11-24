@@ -214,6 +214,7 @@ def observed_folder(labels: Collection[str]) -> str:
 
 async def change_gmail_labels(
     account, message, added: list[str], removed: list[str], *, action: str, destination: str | None = None,
+    source_folders: Collection[str] | None = None, read_status: bool | None = None,
 ) -> tuple[list[str], list[str]]:
     """Confirm only the verified Gmail operations on the same named binding and exact delivery."""
     from api.mail.connector_mailbox import MailboxUnavailable, bound_mailbox
@@ -236,6 +237,12 @@ async def change_gmail_labels(
         initial_labels = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
         if initial_labels is None:
             raise LabelChangeUnconfirmed(None)
+        if source_folders is not None and observed_folder(initial_labels) not in source_folders:
+            raise LabelChangeUnconfirmed(initial_labels)
+        if read_status is not None:
+            # Undo derives its UNREAD change from Gmail, even if sync already replayed the saved flag.
+            added = ["UNREAD"] if not read_status and "UNREAD" not in initial_labels else []
+            removed = ["UNREAD"] if read_status and "UNREAD" in initial_labels else []
 
         labels = initial_labels
         step_has_evidence = False
