@@ -266,7 +266,8 @@ test('applying a rule to existing mail requires confirmation', async () => {
     const path = new URL(req.url).pathname
     const body = req.method === 'POST' ? await req.clone().json() : undefined
     requests.push({ method: req.method, url: req.url, body })
-    if (path.endsWith('/apply')) return Response.json({ matched: 1 })
+    if (path.endsWith('/apply')) return Response.json({ matched: 1, app_changed: 1, provider_skipped: 1, provider_queued: 0, conflicts: 0 })
+    if (path.endsWith('/preview')) return Response.json({ matched: 1, already_filed: 1, message_ids: ['synthetic-message'] })
     if (path.endsWith('/runs')) return Response.json([])
     if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
     if (path.endsWith('/accounts')) return Response.json([])
@@ -282,9 +283,33 @@ test('applying a rule to existing mail requires confirmation', async () => {
   expect(await screen.findByText('Noch keine Ausführungen.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
   expect(requests.some(request => request.url.includes('/apply'))).toBe(false)
+  expect(await within(screen.getByRole('dialog')).findByText(/1 passende Mail/)).toBeTruthy()
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
   await waitFor(() => expect(requests.some(request => request.url.includes('/apply') && (request.body as { confirm_apply: boolean }).confirm_apply)).toBe(true))
-  expect(await screen.findByText('1 Mail zur Verarbeitung vorgemerkt.')).toBeTruthy()
+  expect((requests.find(request => request.url.includes('/apply'))?.body as { preview_message_ids: string[] }).preview_message_ids).toEqual(['synthetic-message'])
+  expect(await screen.findByText('App-Zuordnungen geändert: 1. Anbieteraktionen bereits behandelt oder unklar: 1; vorgemerkt oder laufend: 0. Konflikte: 0.')).toBeTruthy()
+})
+
+test('a changed rule requires a fresh preview before applying', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/apply')) return Response.json({ detail: { code: 'rule_version_conflict' } }, { status: 409 })
+    if (path.endsWith('/preview')) return Response.json({ matched: 1, already_filed: 0, message_ids: ['synthetic-message'] })
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Projects', version: 1, sender_domain: 'example.test', folder_id: 'folder', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+  const dialog = screen.getByRole('dialog')
+  expect(await within(dialog).findByText(/1 passende Mail/)).toBeTruthy()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+  expect(await screen.findByText('Die Regel wurde geändert oder die Vorschau ist nicht verfügbar. Lade die Regeln neu und öffne eine neue Vorschau.')).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
 })
 
 test('visible rule outcomes refresh after an initially empty result', async () => {

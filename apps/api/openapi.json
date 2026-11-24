@@ -379,12 +379,59 @@
             "minimum": 1.0,
             "title": "Expected Version",
             "type": "integer"
+          },
+          "preview_message_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Message Ids"
           }
         },
         "required": [
           "expected_version"
         ],
         "title": "ApplyIn",
+        "type": "object"
+      },
+      "ApplyOut": {
+        "properties": {
+          "app_changed": {
+            "title": "App Changed",
+            "type": "integer"
+          },
+          "conflicts": {
+            "title": "Conflicts",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "provider_queued": {
+            "title": "Provider Queued",
+            "type": "integer"
+          },
+          "provider_skipped": {
+            "title": "Provider Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "matched",
+          "app_changed",
+          "provider_skipped",
+          "provider_queued",
+          "conflicts"
+        ],
+        "title": "ApplyOut",
         "type": "object"
       },
       "AttachmentOut": {
@@ -5784,6 +5831,126 @@
         "title": "RuleIn",
         "type": "object"
       },
+      "RulePreviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "archive": {
+            "default": false,
+            "title": "Archive",
+            "type": "boolean"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label_ids": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Label Ids",
+            "type": "array"
+          },
+          "mark_read": {
+            "default": false,
+            "title": "Mark Read",
+            "type": "boolean"
+          },
+          "mark_unread": {
+            "default": false,
+            "title": "Mark Unread",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "default": 0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "recipient": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Recipient",
+            "type": "string"
+          },
+          "saved_rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Rule Id"
+          },
+          "sender_address": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Sender Address",
+            "type": "string"
+          },
+          "sender_domain": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Sender Domain",
+            "type": "string"
+          },
+          "subject_contains": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Subject Contains",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RulePreviewIn",
+        "type": "object"
+      },
       "RulePreviewOut": {
         "properties": {
           "already_filed": {
@@ -5793,11 +5960,19 @@
           "matched": {
             "title": "Matched",
             "type": "integer"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Message Ids",
+            "type": "array"
           }
         },
         "required": [
           "matched",
-          "already_filed"
+          "already_filed",
+          "message_ids"
         ],
         "title": "RulePreviewOut",
         "type": "object"
@@ -12125,7 +12300,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RuleIn"
+                "$ref": "#/components/schemas/RulePreviewIn"
               }
             }
           },
@@ -12284,11 +12459,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Mail Rule Apply",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApplyOut"
                 }
               }
             },

@@ -1,6 +1,6 @@
 """Owner-managed classification rules and confirmed application."""
 
-from db.accessors import mail_filing, mail_job, mail_message, mail_rule, mail_rule_run
+from db.accessors import mail_filing, mail_message, mail_rule, mail_rule_run
 from db.models.mail_rule import MailRule
 from db.models.mail_rule_run import MailRuleRun
 from fastapi import APIRouter
@@ -18,12 +18,27 @@ router = APIRouter()
 class RulePreviewOut(BaseModel):
     matched: int
     already_filed: int
+    message_ids: list[str]
+
+
+class RulePreviewIn(RuleIn):
+    saved_rule_id: str | None = None
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class ApplyIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
     confirm_apply: bool = False
+    preview_message_ids: list[str] | None = None
+
+
+class ApplyOut(BaseModel):
+    matched: int
+    app_changed: int
+    provider_skipped: int
+    provider_queued: int
+    conflicts: int
 
 
 class RuleFromMessageIn(RuleIn):
@@ -96,17 +111,42 @@ async def matching_messages(rule: MailRule):
 
 
 @router.post("/preview", operation_id="mail_rules_preview", response_model=RulePreviewOut)
-async def preview(body: RuleIn) -> dict[str, int]:
-    rule = MailRule(**(body.model_dump() | {"is_active": True}))
+async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
+    from sqlalchemy import select
+    from db.engine import get_session_maker
+
+    saved_id = getattr(body, 'saved_rule_id', None)
+    if saved_id:
+        rule = await mail_rule.get(saved_id)
+        if rule is None:
+            raise refuse(404, 'rule_not_found', 'Die Regel ist nicht mehr da.')
+        if rule.version != body.expected_version:
+            raise refuse(409, 'rule_version_conflict', 'Die Regel wurde inzwischen geändert.')
+    else:
+        rule = MailRule(**(body.model_dump(exclude={'saved_rule_id', 'expected_version'}) | {"is_active": True}))
+    active = [item for item in await mail_rule.list_rules() if item.is_active and item.id != rule.id]
+    active.append(rule)
+    active.sort(key=lambda item: (item.position, item.created_at, item.id))
     matched = already_filed = 0
+    message_ids = []
     async for page in matching_pages(rule):
-        matched += len(page)
         filings = await mail_filing.for_messages([message.id for message in page])
-        already_filed += sum(bool(filings[message.id].folder_id) for message in page)
-    return {"matched": matched, "already_filed": already_filed}
+        async with get_session_maker()() as session:
+            existing = set((await session.scalars(select(MailRuleRun.message_id).where(
+                MailRuleRun.rule_id == rule.id, MailRuleRun.rule_version == rule.version,
+                MailRuleRun.message_id.in_([message.id for message in page])))).all()) if saved_id else set()
+        for message in page:
+            filing = filings[message.id]
+            _, folder_change, labels = mail_rule_run.local_changes(message, rule, active, filing.folder_id, filing.label_ids, rule_engine.matches)
+            provider = any((rule.mark_read, rule.mark_unread, rule.archive)) and message.id not in existing
+            if folder_change or labels or provider:
+                matched += 1
+                already_filed += bool(filing.folder_id)
+                message_ids.append(message.id)
+    return {"matched": matched, "already_filed": already_filed, "message_ids": message_ids}
 
 
-@router.post("/{rule_id}/apply", operation_id="mail_rule_apply")
+@router.post("/{rule_id}/apply", operation_id="mail_rule_apply", response_model=ApplyOut)
 async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
     if not body.confirm_apply:
         raise refuse(422, "rule_apply_confirmation_required", "Bestätige das Anwenden der Regel.")
@@ -115,14 +155,13 @@ async def apply_rule(rule_id: str, body: ApplyIn) -> dict[str, int]:
         raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.")
     if rule.version != body.expected_version:
         raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.")
-    snapshot = [[item.id, item.version] for item in await mail_rule.list_rules() if item.is_active]
-    count = 0
-    async for message in matching_messages(rule):
-        await mail_job.enqueue("mail_rule_apply", {"account_id": message.account_id, "message_id": message.id,
-            "rules": [[rule.id, rule.version]], "snapshot": snapshot},
-            dedupe_key=f"mail-rule-manual:{rule.id}:{rule.version}:{message.id}")
-        count += 1
-    return {"matched": count}
+    candidates = [message async for message in matching_messages(rule)]
+    try:
+        return await mail_rule_run.apply_manual(rule.id, body.expected_version, candidates, rule_engine.matches, body.preview_message_ids)
+    except LookupError:
+        raise refuse(404, "rule_not_found", "Die Regel ist nicht mehr da.") from None
+    except mail_rule.VersionConflict:
+        raise refuse(409, "rule_version_conflict", "Die Regel wurde inzwischen geändert.") from None
 
 
 @router.get("/{rule_id}/runs", operation_id="mail_rule_runs_list")

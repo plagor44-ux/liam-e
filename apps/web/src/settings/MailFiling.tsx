@@ -2,7 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState } from 'react'
 import { mailFolderCreate, mailFolderDelete, mailFolderUpdate, mailRulesList, mailRuleCreate, mailRuleCreateFromMessage, mailRuleUpdate, mailRuleDelete, mailRulesPreview, mailRuleApply, mailRuleRunsList } from '../api/generated/sdk.gen'
-import type { MailFolder, MailRule, RuleIn } from '../api/generated/types.gen'
+import type { ApplyOut, MailFolder, MailRule, RuleIn } from '../api/generated/types.gen'
 import { errorCode, unwrap } from '../api/unwrap'
 import { accountsQuery, messageQuery, MessageNotFoundError } from '../api/queries'
 import { folderInventoryQuery, foldersQuery } from './mailQueries'
@@ -92,7 +92,8 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   const source = useQuery({ ...messageQuery(sourceMessageId ?? ''), enabled: Boolean(sourceMessageId && sourceActive), retry: false })
   const [editing, setEditing] = useState<MailRule>(), [applying, setApplying] = useState<MailRule>(), [deleting, setDeleting] = useState<MailRule>()
   const [showRuns, setShowRuns] = useState<string>(), [matched, setMatched] = useState<{ matched: number; already_filed: number }>()
-  const [queued, setQueued] = useState<number>()
+  const [queued, setQueued] = useState<ApplyOut>()
+  const [applyConflict, setApplyConflict] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
   const executing = useRef(false)
   useEffect(() => {
@@ -112,6 +113,14 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   }, [sourceActive, sourceMessageId, source.data, source.isError, editing, onSourceUsed])
   const sourceInitializing = Boolean(sourceActive && sourceMessageId && !source.isError && sourceReadyId !== sourceMessageId)
   const runs = useQuery({ queryKey: ['mail-rule-runs', showRuns], enabled: Boolean(showRuns), refetchInterval: showRuns ? 3000 : false, queryFn: () => unwrap(mailRuleRunsList({ path: { rule_id: showRuns! }, throwOnError: true })) })
+  const applyPreview = useQuery({
+    queryKey: ['mail-rule-apply-preview', applying?.id, applying?.version], enabled: Boolean(applying?.id && applying.version), retry: false, staleTime: 0,
+    queryFn: () => unwrap(mailRulesPreview({ body: { name: applying!.name, account_id: applying!.account_id,
+      sender_address: applying!.sender_address, sender_domain: applying!.sender_domain, subject_contains: applying!.subject_contains,
+      recipient: applying!.recipient, folder_id: applying!.folder_id, label_ids: applying!.label_ids,
+      mark_read: applying!.mark_read, mark_unread: applying!.mark_unread, archive: applying!.archive,
+      position: applying!.position, is_active: applying!.is_active, saved_rule_id: applying!.id, expected_version: applying!.version }, throwOnError: true })),
+  })
   const refresh = () => { void client.invalidateQueries({ queryKey: ['mail-rules'] }); void client.invalidateQueries({ queryKey: ['messages'] }); void client.invalidateQueries({ queryKey: ['mail-rule-runs'] }) }
   const update = (part: Partial<RuleIn>) => { draftTouched.current = true; setDraft(old => ({ ...old, ...part })); setMatched(undefined) }
   const prepared = (): RuleIn => sourceActive && !editing ? { ...draft,
@@ -132,15 +141,15 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
         setDraft({ name: '', is_active: true }); setEditing(undefined); setMatched(undefined); setSourceActive(false); onSourceUsed?.(); refresh()
       }
       if (action === 'apply' && applying?.id && applying.version) {
-        const result = await unwrap(mailRuleApply({ path: { rule_id: applying.id }, body: { expected_version: applying.version, confirm_apply: true }, throwOnError: true }))
-        setQueued(result.matched)
+        const result = await unwrap(mailRuleApply({ path: { rule_id: applying.id }, body: { expected_version: applying.version, confirm_apply: true, preview_message_ids: applyPreview.data?.message_ids }, throwOnError: true }))
+        setQueued(result)
         setApplying(undefined); refresh()
       }
       if (action === 'delete' && deleting?.id && deleting.version) {
         await unwrap(mailRuleDelete({ path: { rule_id: deleting.id }, query: { expected_version: deleting.version }, throwOnError: true }))
         setDeleting(undefined); refresh()
       }
-    } catch (failure) { if (sourceActive && errorCode(failure) === 'message_not_found') setSourceMissing(true); else setError(true) } finally { executing.current = false; setBusy(false) }
+    } catch (failure) { if (sourceActive && errorCode(failure) === 'message_not_found') setSourceMissing(true); else if (action === 'apply' && errorCode(failure) === 'rule_version_conflict') { setApplying(undefined); setApplyConflict(true); refresh() } else setError(true) } finally { executing.current = false; setBusy(false) }
   }
   const discard = () => { setDraft({ name: '', is_active: true }); setEditing(undefined); setMatched(undefined); setSourceActive(false); setSourceMissing(false); onSourceUsed?.() }
   const dirty = Boolean(editing || draft.name || draft.account_id || draft.sender_address || draft.sender_domain || draft.subject_contains || draft.recipient || draft.folder_id || draft.label_ids?.length || draft.mark_read || draft.mark_unread || draft.archive || draft.position)
@@ -209,12 +218,13 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       {matched !== undefined && <div role="status"><p>{t.matches(matched.matched)}</p>{matched.already_filed > 0 && <p>{t.alreadyFiledMatches(matched.already_filed)}</p>}</div>}
       </fieldset>
     </form>
-    {queued !== undefined && <p role="status">{t.queued(queued)}</p>}
+    {queued !== undefined && <p role="status">{t.applyResult(queued.app_changed, queued.provider_skipped, queued.provider_queued, queued.conflicts)}</p>}
+    {applyConflict && <Notice tone="danger">{t.applyConflict}</Notice>}
     {rules.isPending && <p role="status">{t.loading}</p>}{(error || rules.isError || destinations.isError || accounts.isError) && <Notice tone="danger">{t.error}</Notice>}
     {rules.data?.length === 0 && <p>{t.ruleEmpty}</p>}
     {sortNamed(rules.data ?? [], locale).map(row => <div className="le-prompt-row le-filing-row" key={row.id}><strong>{row.name}</strong>{ruleSummary(row)}
       <Button variant="secondary" disabled={sourceInitializing} onClick={() => { draftTouched.current = true; setEditing(row); setDraft({ name: row.name, account_id: row.account_id, sender_address: row.sender_address, sender_domain: row.sender_domain, subject_contains: row.subject_contains, recipient: row.recipient, folder_id: row.folder_id, label_ids: row.label_ids ?? [], mark_read: row.mark_read, mark_unread: row.mark_unread, archive: row.archive, position: row.position, is_active: row.is_active }) }}>{t.editRule}</Button>
-      <Button variant="secondary" onClick={() => setApplying(row)}>{t.apply}</Button><Button variant="secondary" onClick={() => setDeleting(row)}>{t.deleteRule}</Button>
+      <Button variant="secondary" onClick={() => { setApplyConflict(false); setApplying(row) }}>{t.apply}</Button><Button variant="secondary" onClick={() => setDeleting(row)}>{t.deleteRule}</Button>
       <Button variant="secondary" onClick={() => setShowRuns(showRuns === row.id ? undefined : row.id)}>{t.outcomes}</Button>
       {showRuns === row.id && runs.isPending && <p role="status">{t.loading}</p>}
       {showRuns === row.id && runs.isError && <p role="alert">{t.error}</p>}
@@ -224,7 +234,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
         {['done', 'local_done', 'unknown'].includes(run.status ?? '') && (!run.provider_results_json?.includes('overridden') || row.label_ids?.length) && <small>{t.localDone}</small>}
         {providerOutcomes(run.provider_results_json).map(detail => <small key={detail}>{detail}</small>)}</div>)}
     </div>)}
-    {applying && <PreferenceDialog title={t.applyTitle} close={() => { if (!busy) setApplying(undefined) }}><p>{applying.name}. {t.applyDescription}</p><div className="le-dialog-actions"><Button variant="secondary" onClick={() => setApplying(undefined)}>{t.cancel}</Button><Button variant="primary" disabled={busy} onClick={() => { void execute('apply') }}>{t.apply}</Button></div></PreferenceDialog>}
+    {applying && <PreferenceDialog title={t.applyTitle} close={() => { if (!busy) setApplying(undefined) }}><p>{applying.name}. {t.applyDescription}</p>{applyPreview.isPending && <p role="status">{t.loading}</p>}{applyPreview.isError && <Notice tone="danger">{t.applyConflict}</Notice>}{applyPreview.data && <p>{t.matches(applyPreview.data.matched)} {t.alreadyFiledMatches(applyPreview.data.already_filed)}</p>}<div className="le-dialog-actions"><Button variant="secondary" onClick={() => setApplying(undefined)}>{t.cancel}</Button><Button variant="primary" disabled={busy || !applyPreview.data || applyPreview.isFetching} onClick={() => { void execute('apply') }}>{t.apply}</Button></div></PreferenceDialog>}
     {deleting && <PreferenceDialog title={t.deleteRule} close={() => { if (!busy) setDeleting(undefined) }}><p>{deleting.name}</p><div className="le-dialog-actions"><Button variant="secondary" onClick={() => setDeleting(undefined)}>{t.cancel}</Button><Button variant="danger" disabled={busy} onClick={() => { void execute('delete') }}>{t.remove}</Button></div></PreferenceDialog>}
   </section>
 }

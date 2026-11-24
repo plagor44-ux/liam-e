@@ -321,11 +321,14 @@ legacy `label_id` into that list, and refuses a downgrade that would discard ext
 rule snapshots commit with the sync batch. Local assignments precede provider actions; provider
 actions pass through `require_action`, unsupported actions are recorded as skipped, and uncertain
 writes are not retried automatically. A sleeping Studio instance delays jobs until it resumes.
-The owner can preview and explicitly queue a rule for provider-INBOX indexed mail, including app-filed
-mail. The preview counts already-filed matches separately; manual runs add labels without changing an
-existing app folder, and still apply capability-gated provider actions. Each manual application
-uses the same durable worker and recovery protocol as sync-triggered runs; an interrupted provider
-dispatch becomes unknown without being resent. Verified duplicate merges retain rule-run
+The owner can preview and explicitly apply a rule to indexed provider-INBOX mail, including app-filed
+mail. The preview counts current changes and already-filed matches; confirmation checks the rule
+version, re-evaluates mail and reports actual app changes, provider actions previously handled or
+queued, and conflicts. App assignments and first-time provider jobs commit in one transaction.
+Manual application restores removed labels and preserves existing folders; automatic reruns remain
+deduplicated. Existing provider outcomes, including unknown, are never dispatched again for the same
+rule version and message. Newly queued provider work uses the durable worker and recovery protocol;
+an interrupted provider dispatch becomes unknown without being resent. Verified duplicate merges retain rule-run
 deduplication; conflicting uncertain dispatches become unknown. Run outcomes identify a folder
 assignment overridden by a higher-priority match using the reserved `_folder: overridden` entry in
 the run results (not a provider action). On an IMAP UIDVALIDITY change, the rebuilt page
