@@ -7,7 +7,7 @@ import { useMailActionsContext } from './useMailActions'
 // renders it inline when it stands alone (mobile and tablet), since the list is unmounted there.
 export function ActionToast({ inline }: { inline?: boolean }) {
   const { texts } = useI18n()
-  const { toast, dismissNotice, undo, entries } = useMailActionsContext()
+  const { notice, permissionNotice, dismissPermissionNotice, undo, entries } = useMailActionsContext()
   const root = useRef<HTMLDivElement>(null)
   const lastFocus = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
@@ -25,12 +25,13 @@ export function ActionToast({ inline }: { inline?: boolean }) {
       lastFocus.current = null
       next?.focus({ preventScroll: true })
     }
-  }, [entries.length, toast?.dismissible])
-  if (!toast && !entries.length) return null
-  const single = entries.length === 1 ? entries[0] : undefined
+  }, [entries.length, permissionNotice])
+  const latest = entries.at(-1)
+  if (!latest && !notice && !permissionNotice) return null
+  const single = entries.length === 1 ? latest : undefined
   return <div ref={root} className={inline ? 'le-inbox-toast le-inbox-toast--inline' : 'le-inbox-toast'}>
-    <Notice tone={toast?.tone ?? 'success'}>
-      <span className={toast?.wrap ? 'le-inbox-toast-text--wrap' : undefined}>{toast?.text}</span>
+    {latest && <Notice tone={latest.partial ? 'danger' : 'success'}>
+      <span className={latest.wrap ? 'le-inbox-toast-text--wrap' : undefined}>{latest.text}</span>
       {single && <button type="button" className="le-link" disabled={single.pending} onClick={() => { void undo(single.actionId) }}>{texts.proposal.undo}</button>}
       {entries.length > 1 && <Menu placement="up-end"
         trigger={props => <button type="button" className="le-link" {...props}>{texts.inbox.recentActions(entries.length)}</button>}
@@ -41,7 +42,13 @@ export function ActionToast({ inline }: { inline?: boolean }) {
           onSelect: () => { void undo(entry.actionId) },
         }))}
       />}
-      {toast?.dismissible && <IconButton icon="x" label={texts.inbox.dismissNotice} onClick={dismissNotice} />}
-    </Notice>
+    </Notice>}
+    {notice && <Notice tone={notice.tone}>
+      <span className={notice.wrap ? 'le-inbox-toast-text--wrap' : undefined}>{notice.text}</span>
+    </Notice>}
+    {permissionNotice && <Notice tone="danger">
+      <span className="le-inbox-toast-text--wrap">{permissionNotice}</span>
+      <IconButton icon="x" label={texts.inbox.dismissNotice} onClick={dismissPermissionNotice} />
+    </Notice>}
   </div>
 }

@@ -239,7 +239,7 @@
 .le-inbox-mobile-status .le-inbox-controls { flex-basis: 100%; justify-content: space-between; }
 .le-inbox-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: calc(var(--control-height-lg) + 2 * var(--space-4)); }
 .le-inbox-scroll > .le-hint, .le-inbox-scroll > .le-notice { margin: var(--space-4); }
-.le-inbox-toast { position: absolute; z-index: 10; left: var(--space-4); right: var(--space-4); bottom: var(--space-4); border-radius: var(--radius-md); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); }
+.le-inbox-toast { display: grid; gap: var(--space-1); position: absolute; z-index: 10; left: var(--space-4); right: var(--space-4); bottom: var(--space-4); border-radius: var(--radius-md); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); }
 .le-inbox-toast .le-notice-body > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .le-inbox-toast .le-notice-body > .le-inbox-toast-text--wrap { white-space: normal; overflow: visible; text-overflow: clip; }
 .le-inbox-toast--inline { position: static; flex: 0 0 auto; margin: 0 var(--space-3) var(--space-2); }

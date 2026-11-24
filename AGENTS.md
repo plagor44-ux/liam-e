@@ -1067,7 +1067,8 @@ destination without writing. If another client has started restoring a trashed m
 Inbox and Undo would return it to Archive, Undo preserves both labels and keeps the token open.
 Index-only corrections and partial provider changes have distinct feedback in the inbox,
 chat confirmation cards and rule history. Group Undo reports unsupported tokens separately
-from skipped tokens. Permission guidance in the inbox stays visible until dismissed.
+from skipped tokens. Inbox permission guidance stays visible alongside newer action feedback
+until dismissed. Action notices and Undo keep their own deadlines.
 Spam, provider folder moves and provider label changes remain unavailable.
 `send_email` takes `replyToMessageId`. The Outlook connector returned HTTP 401 in the earlier probe.
 

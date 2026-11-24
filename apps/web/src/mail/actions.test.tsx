@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, useQuery, type InfiniteData } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
 import type { MessageListItemOut, MessagePageOut } from '../api/generated/types.gen'
 import { MailActionsProvider, useMailActions, useMailActionsContext, type Clock } from './useMailActions'
@@ -24,13 +24,19 @@ function setup(mobile = false) {
   const time = makeClock()
   function Harness() {
     const { data } = useQuery<InfiniteData<MessagePageOut>>({ queryKey: key, queryFn: async () => client.getQueryData<InfiniteData<MessagePageOut>>(key)!, enabled: false })
-    const { run, runBulk, undo, notify, toast, entries, capacityAvailable, dismissNotice } = useMailActions({ clock: time.clock })
+    const { run, runBulk, undo, notify, notice, permissionNotice, entries, capacityAvailable } = useMailActions({ clock: time.clock })
+    const latest = entries.at(-1)
+    const tone = notice?.tone ?? (permissionNotice || latest?.partial ? 'danger' : 'success')
     return <><div>{data?.pages.flatMap(page => page.items).map(row => <div key={row.id}>{row.subject}:{String(row.is_read)}</div>)}</div>
       <button onClick={() => { void runBulk(['1', '2'], 'archive') }}>bulk archive</button><button onClick={() => { void runBulk(['1', '2'], 'trash') }}>bulk trash</button><button onClick={() => { void runBulk(['1', '2'], 'mark_read') }}>bulk read</button>
       <button onClick={() => { void run('1', 'archive') }}>archive 1</button><button onClick={() => { void run('2', 'archive') }}>archive 2</button><button onClick={() => { void run('2', 'trash') }}>trash 2</button><button onClick={() => { void run('1', 'spam') }}>spam 1</button><button onClick={() => { void run('1', 'mark_read') }}>read 1</button><button onClick={() => { void run('1', 'mark_unread') }}>unread 1</button>
       <button onClick={() => { void run('2', 'mark_read', { silent: true }) }}>silent read 2</button><button onClick={() => { void run('1', 'mark_read', { silent: true }) }}>silent read 1</button><button onClick={() => notify('refresh failed')}>notify</button><button onClick={() => { void undo() }}>force undo</button>
       <div data-testid="capacity">{String(capacityAvailable)}</div><div data-testid="entries">{entries.map(entry => <button key={entry.actionId} onClick={() => { void undo(entry.actionId) }}>{entry.actionId}</button>)}</div>
-      {toast && <div role="status" data-tone={toast.tone}>{toast.text}{toast.dismissible && <button onClick={dismissNotice} aria-label="Hinweis schließen" />}{toast.undoable && <button onClick={() => { void undo() }}>Rückgängig</button>}</div>}</>
+      {(latest || notice || permissionNotice) && <div role="status" data-tone={tone}>
+        {latest && <><span>{latest.text}</span><button onClick={() => { void undo() }}>Rückgängig</button></>}
+        {notice && <span>{notice.text}</span>}
+        {permissionNotice && <span>{permissionNotice}</span>}
+      </div>}</>
   }
   render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
   return { client, ...time }
@@ -63,7 +69,8 @@ test('permission-denied partial trash keeps the reported trash row and explains 
     pages: [{ items: [rows[1]!], next_cursor: null }], pageParams: [undefined],
   })
   fireEvent.click(screen.getByText('trash 2'))
-  expect(await screen.findByText(`${de.inbox.providerPartial.TRASH} ${de.errors.provider_permission_missing}`)).toBeTruthy()
+  expect(await screen.findByText(de.inbox.providerPartial.TRASH)).toBeTruthy()
+  expect(screen.getByText(de.errors.provider_permission_missing)).toBeTruthy()
   expect(screen.queryByText('Zweite:false')).toBeNull()
   expect(screen.getByText('Erste:false')).toBeTruthy()
   expect(client.getQueryData<InfiniteData<MessagePageOut>>(trashKey)?.pages[0]?.items.map(item => item.id)).toEqual(['2'])
@@ -140,7 +147,8 @@ test('bulk trash keeps a permission-denied row and adds the reason to the result
   const undo = spyOn(sdk, 'mailActionsUndo').mockResolvedValue({ data: { restored: ['trash-1'] } } as never)
   setup()
   fireEvent.click(screen.getByText('bulk trash'))
-  expect((await screen.findByRole('status')).textContent).toContain(`${de.inbox.bulkResult('trash', 1, 2)} ${de.errors.provider_permission_missing}`)
+  expect(await screen.findByText(de.inbox.bulkResult('trash', 1, 2))).toBeTruthy()
+  expect(screen.getByText(de.errors.provider_permission_missing)).toBeTruthy()
   expect(screen.queryByText('Erste:false')).toBeNull()
   expect(screen.getByText('Zweite:false')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Rückgängig' }))
@@ -296,7 +304,8 @@ test('notification preserves the undo target until its original deadline', async
   fireEvent.click(screen.getByText('notify'))
   expect(screen.getByRole('status').getAttribute('data-tone')).toBe('danger')
   expect(screen.getByText('refresh failed')).toBeTruthy()
-  expect(screen.queryByText('Rückgängig')).toBeNull()
+  expect(screen.getByText('Rückgängig')).toBeTruthy()
+  expect(screen.getByText(de.inbox.done.archive('Erste'))).toBeTruthy()
   expect(screen.getByText('action-1')).toBeTruthy()
   act(() => time.advance(5000)); expect(screen.queryByText('action-1')).toBeNull()
   fireEvent.click(screen.getByText('force undo')); expect(undo).not.toHaveBeenCalled()
@@ -697,25 +706,44 @@ test('two provider consumers share a single toast', async () => {
   success()
   const client = new QueryClient()
   function Trigger() { const { run } = useMailActionsContext(); return <button onClick={() => { void run('1', 'archive') }}>shared archive</button> }
-  function Display() { const { toast } = useMailActionsContext(); return <div>{toast?.text}</div> }
+  function Display() { const { entries } = useMailActionsContext(); return <div>{entries.at(-1)?.text}</div> }
   render(<QueryClientProvider client={client}><MailActionsProvider><Trigger /><Display /></MailActionsProvider></QueryClientProvider>)
   fireEvent.click(screen.getByText('shared archive'))
   expect(await screen.findByText('„Erste“ archiviert.')).toBeTruthy()
 })
 
-test('permission guidance survives the undo deadline and another action until dismissed', async () => {
+test('permission guidance stays open alongside later success, Undo and failure feedback', async () => {
+  window.matchMedia = ((query: string) => ({ matches: query.includes('1024px'), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   const action = success()
+  const time = makeClock()
+  const client = new QueryClient()
+  function Trigger() {
+    const { run } = useMailActionsContext()
+    return <><button onClick={() => { void run('2', 'trash') }}>trash 2</button>
+      <button onClick={() => { void run('1', 'archive') }}>archive 1</button></>
+  }
+  render(<QueryClientProvider client={client}><MailActionsProvider clock={time.clock}><Trigger /><ActionToast /></MailActionsProvider></QueryClientProvider>)
   action.mockResolvedValueOnce({ error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 } } as never)
-  const time = setup()
   fireEvent.click(screen.getByText('trash 2'))
-  expect(await screen.findByText(de.errors.provider_permission_missing)).toBeTruthy()
+  const guidance = await screen.findByText(de.errors.provider_permission_missing)
+
   fireEvent.click(screen.getByText('archive 1'))
-  await screen.findByRole('button', { name: 'Rückgängig' })
-  act(() => time.advance(60_000))
-  expect(screen.getByRole('status').textContent).toContain(de.errors.provider_permission_missing)
+  const archived = await screen.findByText(de.inbox.done.archive('Erste'))
+  expect(within(archived.closest('.le-notice') as HTMLElement).getByRole('button', { name: 'Rückgängig' })).toBeTruthy()
+  expect(screen.getByText(de.errors.provider_permission_missing)).toBe(guidance)
+
+  action.mockResolvedValueOnce({ error: { detail: { code: 'provider_failed' } }, response: { status: 502 } } as never)
+  fireEvent.click(screen.getByText('trash 2'))
+  expect(await screen.findByText(de.errors.provider_failed)).toBeTruthy()
+  expect(screen.getByText(de.errors.provider_permission_missing)).toBe(guidance)
+  expect(within(archived.closest('.le-notice') as HTMLElement).getByRole('button', { name: 'Rückgängig' })).toBeTruthy()
+
+  act(() => time.advance(10_000))
+  expect(screen.queryByText(de.errors.provider_failed)).toBeNull()
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+  expect(screen.getByText(de.errors.provider_permission_missing)).toBe(guidance)
   fireEvent.click(screen.getByRole('button', { name: 'Hinweis schließen' }))
-  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.queryByText(de.errors.provider_permission_missing)).toBeNull()
 })
 
 test('bulk undo explains a mixed unsupported and skipped outcome', async () => {

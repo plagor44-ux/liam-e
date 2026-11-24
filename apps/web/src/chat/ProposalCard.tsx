@@ -112,14 +112,19 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
   if (proposal.kind === 'preference') return <Notice tone="success">{result?.preference_outcome === 'kept' ? texts.preferenceCandidates.kept : result?.preference_outcome === 'unchanged' ? texts.preferenceCandidates.unchanged : result?.preferences_enabled ? texts.preferences.saved : texts.preferences.savedOff}</Notice>
   if (proposal.kind === 'filing' || proposal.kind === 'rule') return <Notice tone="success">{proposal.kind === 'filing' ? texts.mailFiling.filingDone : texts.mailFiling.ruleDone}</Notice>
   if (undone) return <Notice tone="info">{texts.proposal.undone}</Notice>
-  const text = proposal.kind === 'unsubscribe' ? texts.proposal.results.unsubscribe(result?.done ?? 0, ids.length) : texts.proposal.results[proposal.kind](result?.done ?? 0)
   const failed = result?.failed ?? []
+  const entirelyFailed = message.proposal_status === 'failed'
+  const otherFailure = entirelyFailed ? failed.find(item => !item.outcome && item.code !== 'provider_permission_missing') : undefined
+  const text = entirelyFailed
+    ? otherFailure && failureText(otherFailure.code, proposal.kind, texts)
+    : proposal.kind === 'unsubscribe' ? texts.proposal.results.unsubscribe(result?.done ?? 0, ids.length)
+      : texts.proposal.results[proposal.kind](result?.done ?? 0)
   const gone = failed.filter(item => item.code === 'item_gone').length
   const changed = failed.filter(item => item.code === 'item_changed').length
   const reconciled = failed.filter(item => item.outcome === 'reconciled').length
   const partlyChanged = failed.filter(item => item.outcome === 'partial').length
   const other = failed.length - gone - changed - reconciled - partlyChanged
-  return <><Notice tone={message.proposal_status === 'done' ? 'success' : 'info'} action={ids.length && visible && !busy ? { label: texts.proposal.undo, onClick: () => { void undo() } } : undefined}>
+  return <><Notice tone={entirelyFailed ? 'danger' : message.proposal_status === 'done' ? 'success' : 'info'} action={!entirelyFailed && ids.length && visible && !busy ? { label: texts.proposal.undo, onClick: () => { void undo() } } : undefined}>
     <span>{text}{message.proposal_status === 'partial' && <>{gone > 0 && texts.proposal.partialGone[proposal.kind](gone)}{changed > 0 && texts.proposal.partialChanged(changed)}{other > 0 && texts.proposal.partial[proposal.kind](other)}</>}
       {reconciled > 0 && <> {texts.inbox.bulkProviderReconciled(reconciled)}</>}
       {partlyChanged > 0 && <> {texts.inbox.bulkProviderPartial(partlyChanged)}</>}</span>
@@ -218,8 +223,10 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
   const settled = (content: ReactNode) => <div ref={outcome} tabIndex={-1} className="le-proposal-outcome">{content}</div>
   if (current.proposal_status === 'running') return settled(<p className="le-hint">{texts.proposal.running}</p>)
   if (current.proposal_status === 'cancelled') return settled(<p className="le-hint">{texts.proposal.cancelled}</p>)
-  if (current.proposal_status === 'failed') return settled(<Notice tone="danger">{failureText(proposal.result?.failed?.[0]?.code, proposal.kind, texts)}</Notice>)
-  if (current.proposal_status === 'done' || current.proposal_status === 'partial') return settled(<Result key={current.id} message={current} proposal={proposal} clock={clock} onUndone={() => outcome.current?.focus()} />)
+  if (current.proposal_status === 'failed' && !proposal.result?.failed?.some(item => item.outcome)) {
+    return settled(<Notice tone="danger">{failureText(proposal.result?.failed?.[0]?.code, proposal.kind, texts)}</Notice>)
+  }
+  if (current.proposal_status === 'done' || current.proposal_status === 'partial' || current.proposal_status === 'failed') return settled(<Result key={current.id} message={current} proposal={proposal} clock={clock} onUndone={() => outcome.current?.focus()} />)
   if (current.proposal_status !== 'pending') return null
   if (proposal.kind === 'task') return <><TaskProposal key={current.id} grantVersion={grantVersion ?? undefined}
     contextId={!oldGrant && grantVersion != null && current.context?.mail_scope_version === grantVersion && !current.context.revoked ? current.context.id : undefined} proposal={proposal} busy={busy} draft={cardState(client, current.id).task ??= {}}

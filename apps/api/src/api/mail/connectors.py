@@ -313,10 +313,15 @@ async def change_gmail_labels(
                     raise LabelChangeUnconfirmed(labels, provider_unchanged=not provider_changed) from None
                 raise
             except LabelChangeUnconfirmed as error:
-                if error.labels is not None and set(error.labels) == labels_before:
-                    error.provider_unchanged = not provider_changed
-                    if not has_receipt and await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged"):
-                        raise write_result.PermissionMissing(error.labels, provider_unchanged=not provider_changed) from None
+                if error.labels is not None:
+                    observed = set(error.labels)
+                    requested_unchanged = labels_before.symmetric_difference(observed).isdisjoint(changes)
+                    error.provider_unchanged = requested_unchanged and not provider_changed
+                    # Unrelated label changes do not describe this action, but they make the
+                    # observation inconclusive for the permission pause.
+                    if not has_receipt and observed == labels_before:
+                        if await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged"):
+                            raise write_result.PermissionMissing(error.labels, provider_unchanged=error.provider_unchanged) from None
                 raise
             except (httpx.HTTPError, TimeoutError):
                 if not has_confirmed_step:
@@ -329,8 +334,8 @@ async def change_gmail_labels(
                 async with bound_mailbox(account, cursor=recovery.connector_cursor,
                                          generation=recovery.connector_generation, observed=recovery, check_after=True):
                     observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
-                unchanged = observed is not None and set(observed) == labels_before
-                raise LabelChangeUnconfirmed(observed, provider_unchanged=unchanged and not provider_changed) from None
+                requested_unchanged = observed is not None and labels_before.symmetric_difference(observed).isdisjoint(changes)
+                raise LabelChangeUnconfirmed(observed, provider_unchanged=requested_unchanged and not provider_changed) from None
             else:
                 changed_labels = labels_before.symmetric_difference(labels)
                 changed_requested_labels = not changed_labels.isdisjoint(changes)

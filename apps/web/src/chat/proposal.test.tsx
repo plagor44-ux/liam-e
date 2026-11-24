@@ -721,16 +721,39 @@ test('rule card shows scope and actions before confirmation', async () => {
 
 test('mail proposal results distinguish an index correction from a partial write', async () => {
   const card = message('partial', {
-    done: 0,
+    done: 1,
+    undo_action_ids: ['action-c'],
     failed: [
       { id: 'a', code: 'action_failed', outcome: 'reconciled' },
       { id: 'b', code: 'provider_permission_missing', outcome: 'partial' },
     ],
   })
-  card.proposal!.kind = 'archive'
+  card.proposal = { ...card.proposal!, kind: 'archive',
+    items: ['a', 'b', 'c'].map(id => ({ id, kind: 'mail', title: id, subtitle: '' })) }
   setup(card)
   expect(await screen.findByText(/1 Mail wurde nicht verschoben/)).toBeTruthy()
   expect(screen.getByText(/Der Anbieter hat 1 Mail teilweise geändert/)).toBeTruthy()
   expect(screen.getByText(/Für diese Aktion fehlt dem Connector die Berechtigung/)).toBeTruthy()
+})
+
+test.each([
+  ['reconciled', 'action_failed', /1 Mail wurde nicht verschoben/],
+  ['partial', 'provider_permission_missing', /Der Anbieter hat 1 Mail teilweise geändert/],
+] as const)('a single-mail failed confirmation shows the %s outcome', async (outcome, code, text) => {
+  const card = message()
+  card.proposal = { kind: 'archive', reason: 'Synthetic',
+    items: [{ id: 'a', kind: 'mail', title: 'Example', subtitle: '' }] }
+  const confirm = spyOn(sdk, 'chatProposalConfirm').mockResolvedValue({ data: {
+    ...card,
+    proposal_status: 'failed',
+    proposal: { ...card.proposal, result: {
+      done: 0, failed: [{ id: 'a', code, outcome }], undo_action_ids: [], manual: [],
+    } },
+  } } as never)
+  setup(card)
+  fireEvent.click(await screen.findByRole('button', { name: '1 archivieren' }))
+  expect(await screen.findByText(text)).toBeTruthy()
+  expect(confirm).toHaveBeenCalledWith({ path: { proposal_id: 'p' }, body: { selected_ids: ['a'], body: undefined }, throwOnError: true })
+  expect(Boolean(screen.queryByText(/Für diese Aktion fehlt dem Connector die Berechtigung/))).toBe(code === 'provider_permission_missing')
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
 })

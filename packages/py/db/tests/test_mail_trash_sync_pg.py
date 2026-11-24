@@ -1601,8 +1601,9 @@ def test_gmail_group_undo_reports_unsupported_for_actionable_tokens(pg_db, monke
 
 
 @pytest.mark.parametrize("entry_point", ["single", "bulk"])
+@pytest.mark.parametrize("external_star", [False, True], ids=["stable", "concurrent-star"])
 @pytest.mark.parametrize("provider_changed", [False, True], ids=["local-correction", "partial-write"])
-def test_gmail_first_unchanged_result_reports_whether_the_provider_changed(pg_db, monkeypatch, entry_point, provider_changed):
+def test_gmail_first_unchanged_result_reports_whether_the_provider_changed(pg_db, monkeypatch, entry_point, provider_changed, external_star):
     async def run():
         provider = StudioMailbox()
         provider.labels["target"].add("UNREAD")
@@ -1619,6 +1620,18 @@ def test_gmail_first_unchanged_result_reports_whether_the_provider_changed(pg_db
             expected_labels = {"UNREAD"}
             provider.labels["target"] = set(expected_labels)
             expected_writes = [("unlabel_message", "target", ("UNREAD",))]
+
+        if external_star:
+            expected_labels.add("STARRED")
+            original = provider.dispatch
+
+            async def dispatch(path, payload):
+                answer = await original(path, payload)
+                if urlsplit(path).path.split("/")[-2] == "unlabel_message":
+                    provider.labels["target"].add("STARRED")
+                return answer
+
+            monkeypatch.setattr(connectors, "_post", dispatch)
 
         async def no_delay(_seconds):
             pass
@@ -1643,7 +1656,8 @@ def test_gmail_first_unchanged_result_reports_whether_the_provider_changed(pg_db
             assert await listed(browser, folder) == {target}
             assert await mail_action.latest_open(target) is None
             state = await mail_sync_state.get_state(provider.account.id)
-            assert state.write_evidence()[2] == "unchanged"
+            evidence = ("confirmed" if provider_changed else "ready") if external_star else "unchanged"
+            assert state.write_evidence()[2] == evidence
 
     asyncio.run(run())
 
@@ -1889,16 +1903,22 @@ def test_gmail_archive_reconciles_a_conflicting_trash_destination_without_undo(p
 
 
 @pytest.mark.parametrize("failure", ["timeout", "http-500"])
-def test_gmail_trash_reads_current_state_after_the_second_write_fails(pg_db, monkeypatch, failure):
+@pytest.mark.parametrize("first_step_changed", [True, False], ids=["trash-applied", "restore-inbox-already-set"])
+def test_gmail_reads_current_state_after_the_second_write_fails(pg_db, monkeypatch, failure, first_step_changed):
     async def run():
         provider = StudioMailbox()
         ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        kind, added, removed = ("trash", "TRASH", "INBOX") if first_step_changed else ("restore", "INBOX", "TRASH")
+        if not first_step_changed:
+            provider.labels["target"] = {"INBOX", "TRASH"}
+            await mail_message.set_state(target, folder="ARCHIVE", labels_json="[]")
         original = provider.dispatch
 
         async def dispatch(path, payload):
             tool = urlsplit(path).path.split("/")[-2]
             if tool == "unlabel_message":
-                provider.writes.append((tool, "target", ("INBOX",)))
+                provider.writes.append((tool, "target", tuple(payload["arguments"]["labelIds"])))
                 provider.labels["target"].add("STARRED")
                 request = httpx.Request("POST", "https://connector.example.test")
                 if failure == "timeout":
@@ -1906,22 +1926,22 @@ def test_gmail_trash_reads_current_state_after_the_second_write_fails(pg_db, mon
                 raise httpx.HTTPStatusError("synthetic error", request=request,
                     response=httpx.Response(500, request=request))
             result = await original(path, payload)
-            if tool == "label_message":
+            if tool == "label_message" and first_step_changed:
                 provider.labels["target"].discard("INBOX")
             return result
 
         monkeypatch.setattr(connectors, "_post", dispatch)
         async with client() as browser:
-            target = ids["target"]
-            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": kind})
             assert result.status_code == 409
             assert result.json()["detail"]["folder"] == "TRASH"
             assert result.json()["detail"]["code"] == "provider_partial"
+            assert result.json()["detail"].get("reconciled", False) == (not first_step_changed)
             assert await listed(browser, "TRASH") == {target}
             assert (await mail_message.get_message(target)).is_flagged
             assert await mail_action.latest_open(target) is None
             assert [(tool, labels) for tool, _, labels in provider.writes] == [
-                ("label_message", ("TRASH",)), ("unlabel_message", ("INBOX",))]
+                ("label_message", (added,)), ("unlabel_message", (removed,))]
     asyncio.run(run())
 
 
@@ -2166,7 +2186,9 @@ def test_gmail_action_outcome_is_kept_in_chat_and_rule_history(pg_db, monkeypatc
             kind="archive", reason="Synthetic", items=[
                 proposals.ProposalItem(id=target, kind="mail", title="Synthetic", subtitle=""),
             ]), context_id=context.id)
-        chat = proposals.proposal_view(await proposals.confirm(card.id, selected_ids=[target])).result
+        confirmed = await proposals.confirm(card.id, selected_ids=[target])
+        assert confirmed.proposal_status == "failed"
+        chat = proposals.proposal_view(confirmed).result
         assert chat.done == 0 and chat.undo_action_ids == []
         assert [problem.model_dump() for problem in chat.failed] == [
             {"id": target, "code": code or "action_failed", "outcome": outcome},
