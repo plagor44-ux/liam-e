@@ -283,7 +283,9 @@ async def change_gmail_labels(
                 raise
             except LabelChangeUnconfirmed as error:
                 if not has_receipt and error.labels is not None and set(error.labels) == labels_before:
-                    await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged")
+                    paused = await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged")
+                    if paused:
+                        raise write_result.PermissionMissing(error.labels) from None
                 raise
             except (httpx.HTTPError, TimeoutError):
                 if not has_confirmed_step:

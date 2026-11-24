@@ -98,8 +98,11 @@ async def dispatch_rule_run(run, *, recover: bool = False):
             continue
         try:
             await actions.apply_action(run.message_id, kind)
-        except connector_write_results.PermissionMissing:
-            run, _ = await mail_rule_run.record_action(run.id, kind, expected="dispatching", result="skipped_permission")
+        except (connector_write_results.PermissionMissing, actions.ActionPartialError) as error:
+            missing = (isinstance(error, connector_write_results.PermissionMissing)
+                       or error.error_code == connector_write_results.PERMISSION_MISSING)
+            outcome = "skipped_permission" if missing else "unknown"
+            run, _ = await mail_rule_run.record_action(run.id, kind, expected="dispatching", result=outcome)
         except HTTPException as error:
             outcome = "skipped_permission" if error.status_code == 403 else "unknown"
             run, _ = await mail_rule_run.record_action(run.id, kind, expected="dispatching", result=outcome)

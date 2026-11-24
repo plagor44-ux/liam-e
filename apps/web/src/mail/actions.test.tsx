@@ -74,9 +74,11 @@ test('permission-denied trash rolls back the inbox and only shows the permission
   spyOn(sdk, 'mailMessageAction').mockResolvedValue({
     error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 },
   } as never)
-  setup()
+  const { client } = setup()
+  const invalidate = spyOn(client, 'invalidateQueries')
   fireEvent.click(screen.getByText('trash 2'))
   expect((await screen.findByRole('status')).textContent).toBe(de.errors.provider_permission_missing)
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] })
   expect(screen.getByText('Zweite:false')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
 })

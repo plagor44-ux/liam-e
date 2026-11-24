@@ -105,12 +105,14 @@ Account responses expose `action_capabilities` for individual actions, including
 `label`. A verified Gmail Studio binding can change read status, archive, move to Trash and restore.
 The first ordinary action confirms the provider change through a current point read; the stored
 write evidence applies to that binding. Folder actions check the live source before dispatch.
-Read-status Undo compares the saved flag with the live labels. A recognized permission denial pauses these actions
-immediately with `provider_permission_missing`. An unconfirmed write without a receipt whose point
-readback stays unchanged returns `provider_failed`. Two consecutive unchanged results pause the
-binding. A positive write receipt or a point readback that shows a requested label change resets
-that streak. Reauthentication in Studio and an explicit retry from Accounts allow a new
-action attempt. Spam, moves to provider folders and provider labels return `409 provider_action_unsupported` before dispatch. A bulk request with known
+Read-status Undo compares the saved flag with the live labels. A mixed Undo checks each token
+separately if an account is paused or its verification is lost. A recognized permission denial
+pauses mail actions immediately with `provider_permission_missing`. Without a receipt, the first
+unchanged point readback returns `provider_failed`. The second consecutive unchanged result pauses
+the binding and returns `provider_permission_missing` on that request. A positive receipt or an
+observed change to a requested label resets the streak. Reauthentication in Studio and an explicit
+retry from Accounts allow a new action attempt. Spam, moves to provider folders and provider
+labels return `409 provider_action_unsupported` before dispatch. A bulk request with known
 unavailable targets is declined before dispatch. If a denial is discovered during a bulk request,
 successful actions on other accounts retain their individual results. Read tools and explicitly
 confirmed sending retain their existing paths.
@@ -1048,7 +1050,8 @@ The folder probe returned HTTP 200 without a positive receipt. Gmail Studio perm
 actions through a verified binding and checks the current exact message before recording success.
 Gmail Studio point readbacks retry at approximately one and three seconds. A recognized
 permission denial pauses the binding immediately. Without a receipt or permission diagnostic,
-two consecutive unchanged readbacks from separate writes pause the binding. A positive receipt
+two consecutive unchanged readbacks from separate writes pause the binding. The second reports
+`provider_permission_missing` on that action. A positive receipt
 or a change to a requested label resets the streak. After reauthentication in Studio, the
 account action allows another attempt.
 Spam, provider folder moves and provider label changes remain unavailable.

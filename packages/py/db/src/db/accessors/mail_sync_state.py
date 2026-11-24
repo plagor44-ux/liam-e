@@ -131,17 +131,20 @@ async def fail_poll(account_id: str, previous: MailSyncState, code: str) -> None
 
 async def record_connector_write(
     account_id: str, proof: tuple[str, str], *, outcome: Literal["confirmed", "unchanged", "blocked"],
-) -> None:
-    """A reply may update evidence only for the binding and retry generation that dispatched it."""
+) -> bool:
+    """Update the dispatching binding and retry generation, and report whether it is paused."""
     async with get_session_maker().begin() as session:
         state = await session.scalar(select(MailSyncState).where(MailSyncState.account_id == account_id).with_for_update())
         evidence = state.write_evidence() if state else None
-        if evidence is None or evidence[:2] != proof or evidence[2] == "blocked":
-            return
+        if evidence is None or evidence[:2] != proof:
+            return False
+        if evidence[2] == "blocked":
+            return True
         assert state is not None
         if outcome == evidence[2] == "unchanged":
             outcome = "blocked"
         state.connector_write_evidence = f"{proof[0]}:{proof[1]}:{outcome}"
+        return outcome == "blocked"
 
 
 async def retry_connector_writes(account_id: str) -> bool:
