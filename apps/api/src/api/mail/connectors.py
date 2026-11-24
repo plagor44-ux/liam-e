@@ -244,29 +244,31 @@ async def change_gmail_labels(
         if source_folders is not None and destination_labels is not None:
             if "SPAM" in initial_labels:
                 raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
-            live_folder = observed_folder(initial_labels)
             current = folder_labels.intersection(initial_labels)
             if folder_undo:
-                if live_folder == destination:
-                    if current == destination_labels:
-                        return initial_labels, initial_labels
-                    # An added destination label can mask the source of a partial move.
-                    live_folder = observed_folder(set(initial_labels) - destination_labels)
-                added, removed = sorted(destination_labels - current), sorted(current - destination_labels)
-            elif action == "trash" and message.folder == "TRASH":
-                if current != folder_labels:
-                    # An out-of-date retry must not start a new provider move.
+                source_labels = folder_labels.intersection(source_folders)
+                if current == destination_labels:
+                    return initial_labels, initial_labels
+                # A retry may see the destination label added before the source label was removed.
+                if current not in (source_labels, source_labels | destination_labels):
                     raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
-                # Complete only the missing removal. A subsequent Undo restores the Inbox.
-                undo_snapshot = [label for label in initial_labels if label != "TRASH"]
-                live_folder = observed_folder(undo_snapshot)
-                added, removed = [], ["INBOX"]
-            elif destination == "INBOX":
-                # Restore changes only folder labels. The pinned read supplies the source.
-                added = ["INBOX"]
-                removed = ["TRASH"] if live_folder == "TRASH" else []
-            if live_folder not in source_folders:
-                raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
+                added, removed = sorted(destination_labels - current), sorted(current - destination_labels)
+            else:
+                live_folder = observed_folder(initial_labels)
+                if action == "trash" and message.folder == "TRASH":
+                    if current != folder_labels:
+                        # An out-of-date retry must not start a new provider move.
+                        raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
+                    # Complete only the missing removal. A subsequent Undo restores the Inbox.
+                    undo_snapshot = [label for label in initial_labels if label != "TRASH"]
+                    live_folder = observed_folder(undo_snapshot)
+                    added, removed = [], ["INBOX"]
+                elif destination == "INBOX":
+                    # Restore changes only folder labels. The pinned read supplies the source.
+                    added = ["INBOX"]
+                    removed = ["TRASH"] if live_folder == "TRASH" else []
+                if live_folder not in source_folders:
+                    raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
         if read_status is not None:
             # Undo derives its UNREAD change from Gmail, even if sync already replayed the saved flag.
             added = ["UNREAD"] if not read_status and "UNREAD" not in initial_labels else []

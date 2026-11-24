@@ -2108,6 +2108,7 @@ def test_gmail_forward_trash_retries_only_the_missing_inbox_removal(pg_db, monke
     ("trash", {"INBOX"}, set()),
     ("restore", {"TRASH"}, set()),
     ("trash", {"INBOX"}, {"TRASH", "SPAM"}),
+    pytest.param("trash", set(), {"TRASH", "INBOX"}, id="archive-undo-with-external-restore"),
 ])
 def test_gmail_undo_leaves_a_third_party_folder_move_alone(pg_db, monkeypatch, kind, initial, external):
     async def run():
@@ -2115,12 +2116,15 @@ def test_gmail_undo_leaves_a_third_party_folder_move_alone(pg_db, monkeypatch, k
         ids = await provider.connect(monkeypatch, provider="gmail")
         target = ids["target"]
         provider.labels["target"] = set(initial)
-        if kind == "restore":
-            await mail_message.set_state(target, folder="TRASH", labels_json='["TRASH"]')
+        source = connectors.observed_folder(initial)
+        if source != "INBOX":
+            await mail_message.set_state(target, folder=source, labels_json=json.dumps(sorted(initial)))
         async with client() as browser:
             changed = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": kind})
             assert changed.status_code == 200
             token = changed.json()["action_id"]
+            recorded, = await mail_action.get_many([token])
+            assert json.loads(recorded.previous_json)["folder"] == source
             observed = external | {"STARRED", "UNREAD", "Label_synthetic"}
             provider.labels["target"] = set(observed)
             writes = list(provider.writes)

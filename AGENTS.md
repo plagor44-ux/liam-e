@@ -1060,9 +1060,11 @@ or a change to a requested label resets the streak. After reauthentication in St
 account action allows another attempt.
 A repeated Trash can finish a partial Gmail move when a current point read shows both
 `TRASH` and `INBOX` on the exact message. It removes only `INBOX` and records the action and
-Undo token only after the full destination is confirmed. Folder Undo only changes mail in
-the original action's destination or completes a verified partial inverse move. It preserves
-unrelated labels and flags and accepts an already-restored destination without writing.
+Undo token only after the full destination is confirmed. Folder Undo checks the complete
+folder-label set against the original action's destination and the intermediate state its own
+writes can produce. It preserves unrelated labels and flags and accepts an already-restored
+destination without writing. If another client has started restoring a trashed mail to the
+Inbox and Undo would return it to Archive, Undo preserves both labels and keeps the token open.
 Index-only corrections and partial provider changes have distinct feedback in the inbox,
 chat confirmation cards and rule history. Group Undo reports unsupported tokens separately
 from skipped tokens. Permission guidance in the inbox stays visible until dismissed.
