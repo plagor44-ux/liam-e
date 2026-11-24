@@ -177,7 +177,12 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
         accounts = {account.id: account for account in await account_access.list_accounts()}
         for row in rows:
             if account := accounts.get(row.account_id):
-                await action_capabilities.require_action(account, row.kind)
+                try:
+                    await action_capabilities.require_action(account, row.kind)
+                except HTTPException as error:
+                    # A paused binding fails only its own tokens in the per-row check below.
+                    if error.status_code != 403:
+                        raise
     known = {row.id for row in rows}
     result.skipped.extend(key for key in dict.fromkeys(action_ids) if key not in known)
     for action in sorted(rows, key=lambda row: (_aware(row.created_at), row.id), reverse=True):

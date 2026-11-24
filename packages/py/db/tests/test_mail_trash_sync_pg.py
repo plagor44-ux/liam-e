@@ -1279,6 +1279,58 @@ def test_gmail_denial_in_mixed_bulk_keeps_other_accounts_and_blocks_only_its_bin
     asyncio.run(run())
 
 
+def test_mixed_bulk_undo_restores_other_account_when_gmail_binding_is_paused(pg_db, monkeypatch):
+    from api.mail.seed_ids import seed_id
+    from db.models.mail_account import MailAccount
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        other = seed_id("account", "privat")
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id=other, provider="google", auth_type="oauth2", email_address="other@example.test"))
+        control = await mail_message.upsert_message(account_id=other, folder="INBOX", provider_uid="control")
+
+        async with client() as browser:
+            bulk = await browser.post(f"{MAIL}/messages/actions", json={"kind": "trash", "message_ids": [target, control.id]})
+            assert bulk.status_code == 200
+            gmail, other_result = bulk.json()["results"]
+            assert gmail["status"] == other_result["status"] == "done"
+            gmail_token, other_token = gmail["action_id"], other_result["action_id"]
+            assert gmail_token and other_token
+            assert await listed(browser, "TRASH") == {target, control.id}
+
+            provider.reject = {"content": [{"type": "text", "text": "Insufficient authentication scopes."}]}
+            denied = await browser.post(f"{MAIL}/messages/{ids['sibling']}/actions", json={"kind": "trash"})
+            assert denied.status_code == 403
+            assert denied.json()["detail"]["code"] == "provider_permission_missing"
+            writes = list(provider.writes)
+
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [gmail_token, other_token]})
+            assert undo.status_code == 200
+            assert undo.json()["restored"] == [other_token]
+            assert undo.json()["failed"] == [gmail_token]
+            assert undo.json()["error_code"] == "provider_permission_missing"
+            assert provider.writes == writes
+            assert provider.labels["target"] == {"TRASH"}
+            assert await listed(browser, "INBOX") == {ids["sibling"], control.id}
+            assert await listed(browser, "TRASH") == {target}
+            assert (await mail_action.latest_open(target)).id == gmail_token
+
+            provider.reject = None
+            retry = await browser.post(f"{MAIL}/accounts/{provider.account.id}/retry-provider-actions")
+            assert retry.status_code == 200
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [gmail_token, other_token]})
+            assert undo.status_code == 200
+            assert undo.json()["restored"] == [gmail_token]
+            assert undo.json()["skipped"] == [other_token]
+            assert provider.labels["target"] == {"INBOX"}
+            assert await listed(browser, "TRASH") == set()
+
+    asyncio.run(run())
+
+
 def test_gmail_archive_reconciles_a_conflicting_trash_destination_without_undo(pg_db, monkeypatch):
     async def run():
         provider = StudioMailbox()
