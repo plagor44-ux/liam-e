@@ -1709,6 +1709,44 @@ def test_gmail_rechecks_the_live_binding_before_the_second_trash_write(pg_db, mo
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(("indexed_folder", "live_folder"), [("ARCHIVE", "TRASH"), ("TRASH", "ARCHIVE")])
+def test_gmail_restore_plans_from_the_live_source_and_undo_restores_it(pg_db, monkeypatch, indexed_folder, live_folder):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        indexed_labels = ["TRASH"] if indexed_folder == "TRASH" else []
+        await mail_message.set_state(target, folder=indexed_folder, is_read=False, labels_json=json.dumps(indexed_labels))
+
+        original_labels = {"STARRED", "Label_synthetic"}
+        if live_folder == "TRASH":
+            original_labels.update({"TRASH", "UNREAD"})
+        provider.labels["target"] = set(original_labels)
+        async with client() as browser:
+            restored = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "restore"})
+            assert restored.status_code == 200
+            writes = [("label_message", "target", ("INBOX",))]
+            if live_folder == "TRASH":
+                writes.append(("unlabel_message", "target", ("TRASH",)))
+            assert provider.writes == writes
+            assert provider.labels["target"] == (original_labels - {"TRASH"}) | {"INBOX"}
+            assert restored.json()["message"]["is_read"] == ("UNREAD" not in original_labels)
+            assert await listed(browser, "INBOX") == {target, ids["sibling"]}
+
+            token = restored.json()["action_id"]
+            record = await mail_action.latest_open(target)
+            assert record.id == token
+            previous = json.loads(record.previous_json)
+            assert previous["folder"] == live_folder
+            assert set(json.loads(previous["labels_json"])) == original_labels
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
+            assert undo.json()["restored"] == [token]
+            assert provider.labels["target"] == original_labels
+            assert await listed(browser, live_folder) == {target}
+
+    asyncio.run(run())
+
+
 def test_gmail_trash_undo_restores_the_observed_archive_source(pg_db, monkeypatch):
     async def run():
         provider = StudioMailbox()

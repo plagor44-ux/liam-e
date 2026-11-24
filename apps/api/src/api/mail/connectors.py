@@ -237,8 +237,14 @@ async def change_gmail_labels(
         initial_labels = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
         if initial_labels is None:
             raise LabelChangeUnconfirmed(None)
-        if source_folders is not None and observed_folder(initial_labels) not in source_folders:
-            raise LabelChangeUnconfirmed(initial_labels)
+        if source_folders is not None:
+            live_folder = observed_folder(initial_labels)
+            if live_folder not in source_folders:
+                raise LabelChangeUnconfirmed(initial_labels)
+            if destination == "INBOX":
+                # Restore changes only folder labels. The pinned read supplies the source.
+                added = ["INBOX"]
+                removed = ["TRASH"] if live_folder == "TRASH" else []
         if read_status is not None:
             # Undo derives its UNREAD change from Gmail, even if sync already replayed the saved flag.
             added = ["UNREAD"] if not read_status and "UNREAD" not in initial_labels else []
