@@ -1666,6 +1666,50 @@ def test_gmail_pause_reconciles_folder_without_reporting_a_provider_change(pg_db
     asyncio.run(run())
 
 
+def test_gmail_undo_retry_finishes_partial_trash_before_consuming_token(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].update({"UNREAD", "STARRED"})
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        action_path = f"{MAIL}/messages/{target}/actions"
+        undo_path = f"{MAIL}/actions/undo"
+        async with client() as browser:
+            trashed = await browser.post(action_path, json={"kind": "trash"})
+            assert trashed.status_code == 200
+            restored = await browser.post(action_path, json={"kind": "restore"})
+            assert restored.status_code == 200
+            token = restored.json()["action_id"]
+
+            provider.reject_tool = "unlabel_message"
+            provider.reject = {"isError": True, "content": [{"type": "text", "text": "Synthetic refusal."}]}
+            writes = len(provider.writes)
+            incomplete = await browser.post(undo_path, json={"action_ids": [token]})
+            assert incomplete.status_code == 200
+            assert incomplete.json()["failed"] == [token]
+            assert incomplete.json()["restored"] == []
+            assert provider.writes[writes:] == [
+                ("label_message", "target", ("TRASH",)), ("unlabel_message", "target", ("INBOX",))]
+            assert provider.labels["target"] == {"TRASH", "INBOX", "UNREAD", "STARRED"}
+            assert (await mail_action.latest_open(target)).id == token
+
+            provider.reject = None
+            writes = len(provider.writes)
+            retry = await browser.post(undo_path, json={"action_ids": [token]})
+            assert retry.status_code == 200
+            assert retry.json()["restored"] == [token]
+            assert provider.writes[writes:] == [("unlabel_message", "target", ("INBOX",))]
+            assert provider.labels["target"] == {"TRASH", "UNREAD", "STARRED"}
+            indexed = await mail_message.get_message(target)
+            assert indexed.folder == "TRASH"
+            assert set(json.loads(indexed.labels_json)) == provider.labels["target"]
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            record, = await mail_action.get_many([token])
+            assert record.undone_at is not None
+
+    asyncio.run(run())
+
+
 def test_gmail_undo_restore_reconciles_live_spam_without_dispatch(pg_db, monkeypatch):
     async def run():
         provider = StudioMailbox()
