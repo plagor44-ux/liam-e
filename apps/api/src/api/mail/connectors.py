@@ -301,6 +301,7 @@ async def change_gmail_labels(
                     paused = await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged")
                     if paused:
                         raise write_result.PermissionMissing(error.labels, provider_unchanged=not provider_changed) from None
+                    error.provider_unchanged = not provider_changed
                 raise
             except (httpx.HTTPError, TimeoutError):
                 if not has_confirmed_step:

@@ -1586,6 +1586,54 @@ def test_gmail_group_undo_reports_unsupported_when_every_token_loses_verificatio
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("entry_point", ["single", "bulk"])
+@pytest.mark.parametrize("provider_changed", [False, True], ids=["local-correction", "partial-write"])
+def test_gmail_first_unchanged_result_reports_whether_the_provider_changed(pg_db, monkeypatch, entry_point, provider_changed):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].add("UNREAD")
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        provider.reject = {"content": [{"type": "text", "text": "{}"}]}
+        if provider_changed:
+            kind, folder = "trash", "TRASH"
+            provider.reject_tool = "unlabel_message"
+            expected_labels = {"INBOX", "TRASH", "UNREAD"}
+            expected_writes = [("label_message", "target", ("TRASH",)), ("unlabel_message", "target", ("INBOX",))]
+        else:
+            kind, folder = "mark_read", "ARCHIVE"
+            expected_labels = {"UNREAD"}
+            provider.labels["target"] = set(expected_labels)
+            expected_writes = [("unlabel_message", "target", ("UNREAD",))]
+
+        async def no_delay(_seconds):
+            pass
+
+        monkeypatch.setattr(connectors, "sleep", no_delay)
+        async with client() as browser:
+            if entry_point == "bulk":
+                response = await browser.post(f"{MAIL}/messages/actions", json={"kind": kind, "message_ids": [target]})
+                assert response.status_code == 200
+                detail, = response.json()["results"]
+                assert detail["status"] == "partial" and detail["action_id"] is None
+            else:
+                response = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": kind})
+                assert response.status_code == 409
+                detail = response.json()["detail"]
+                assert detail["code"] == "provider_partial"
+                assert ("nicht verschoben" in detail["message"]) == (not provider_changed)
+            assert detail["folder"] == folder
+            assert detail.get("reconciled", False) == (not provider_changed)
+            assert provider.labels["target"] == expected_labels
+            assert provider.writes == expected_writes
+            assert await listed(browser, folder) == {target}
+            assert await mail_action.latest_open(target) is None
+            state = await mail_sync_state.get_state(provider.account.id)
+            assert state.write_evidence()[2] == "unchanged"
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("denial", ["explicit", "unchanged"])
 def test_gmail_pause_reconciles_folder_without_reporting_a_provider_change(pg_db, monkeypatch, denial):
     async def run():
