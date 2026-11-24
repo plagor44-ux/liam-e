@@ -430,3 +430,22 @@ test('cancel during source loading ignores a late response', async () => {
   expect(name.matches(':disabled')).toBe(false)
   expect(screen.queryByText('Vorschläge aus dieser Mail: Wähle die Bedingungen, die du verwenden möchtest.')).toBeNull()
 })
+
+test('rule history describes reconciliation, partial writes and permission independently', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL((input instanceof Request ? input : new Request(input, init)).url).pathname
+    if (path.endsWith('/runs')) return Response.json([{
+      id: 'run', status: 'done', provider_results_json: '{"mark_read":"reconciled","archive":"partial_permission"}',
+    }])
+    if (path.endsWith('/folders') || path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Example', version: 1, sender_domain: 'example.test', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Letzte Ausführungen' }))
+  expect(await screen.findByText(/Die Mail wurde durch diese Aktion nicht verschoben/)).toBeTruthy()
+  expect(screen.getByText(/Der Anbieter hat nur einen Teil der Änderung ausgeführt/)).toBeTruthy()
+  expect(screen.getByText(/Für diese Aktion fehlt dem Connector die Berechtigung/)).toBeTruthy()
+})

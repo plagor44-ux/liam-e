@@ -1756,6 +1756,10 @@ export type ItemProblem = {
      * Id
      */
     id: string;
+    /**
+     * Outcome
+     */
+    outcome?: 'reconciled' | 'partial' | null;
 };
 
 /**
@@ -4608,6 +4612,10 @@ export type UndoOut = {
      * Skipped
      */
     skipped: Array<string>;
+    /**
+     * Unsupported
+     */
+    unsupported?: Array<string>;
 };
 
 /**

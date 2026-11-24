@@ -66,6 +66,7 @@ class FilingCommand(BaseModel):
 class ItemProblem(BaseModel):
     id: str
     code: str
+    outcome: Literal["reconciled", "partial"] | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ManualStep(BaseModel):
@@ -278,7 +279,7 @@ async def _apply(item: ProposalItem, kind: ProposalKind, result: ProposalResult,
     except write_result.PermissionMissing as error:
         fail(error.code)
     except actions.ActionPartialError as error:
-        fail(error.error_code or "action_failed")
+        result.failed.append(ItemProblem(id=item.id, code=error.error_code or "action_failed", outcome=error.outcome))
     except HTTPException as error:
         if error.status_code != 404:
             logger.warning("%s", type(error).__name__)

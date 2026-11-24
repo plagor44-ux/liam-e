@@ -24,13 +24,13 @@ function setup(mobile = false) {
   const time = makeClock()
   function Harness() {
     const { data } = useQuery<InfiniteData<MessagePageOut>>({ queryKey: key, queryFn: async () => client.getQueryData<InfiniteData<MessagePageOut>>(key)!, enabled: false })
-    const { run, runBulk, undo, notify, toast, entries, capacityAvailable } = useMailActions({ clock: time.clock })
+    const { run, runBulk, undo, notify, toast, entries, capacityAvailable, dismissNotice } = useMailActions({ clock: time.clock })
     return <><div>{data?.pages.flatMap(page => page.items).map(row => <div key={row.id}>{row.subject}:{String(row.is_read)}</div>)}</div>
       <button onClick={() => { void runBulk(['1', '2'], 'archive') }}>bulk archive</button><button onClick={() => { void runBulk(['1', '2'], 'trash') }}>bulk trash</button><button onClick={() => { void runBulk(['1', '2'], 'mark_read') }}>bulk read</button>
       <button onClick={() => { void run('1', 'archive') }}>archive 1</button><button onClick={() => { void run('2', 'archive') }}>archive 2</button><button onClick={() => { void run('2', 'trash') }}>trash 2</button><button onClick={() => { void run('1', 'spam') }}>spam 1</button><button onClick={() => { void run('1', 'mark_read') }}>read 1</button><button onClick={() => { void run('1', 'mark_unread') }}>unread 1</button>
       <button onClick={() => { void run('2', 'mark_read', { silent: true }) }}>silent read 2</button><button onClick={() => { void run('1', 'mark_read', { silent: true }) }}>silent read 1</button><button onClick={() => notify('refresh failed')}>notify</button><button onClick={() => { void undo() }}>force undo</button>
       <div data-testid="capacity">{String(capacityAvailable)}</div><div data-testid="entries">{entries.map(entry => <button key={entry.actionId} onClick={() => { void undo(entry.actionId) }}>{entry.actionId}</button>)}</div>
-      {toast && <div role="status" data-tone={toast.tone}>{toast.text}{toast.undoable && <button onClick={() => { void undo() }}>Rückgängig</button>}</div>}</>
+      {toast && <div role="status" data-tone={toast.tone}>{toast.text}{toast.dismissible && <button onClick={dismissNotice} aria-label="Hinweis schließen" />}{toast.undoable && <button onClick={() => { void undo() }}>Rückgängig</button>}</div>}</>
   }
   render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
   return { client, ...time }
@@ -701,4 +701,33 @@ test('two provider consumers share a single toast', async () => {
   render(<QueryClientProvider client={client}><MailActionsProvider><Trigger /><Display /></MailActionsProvider></QueryClientProvider>)
   fireEvent.click(screen.getByText('shared archive'))
   expect(await screen.findByText('„Erste“ archiviert.')).toBeTruthy()
+})
+
+test('permission guidance survives the undo deadline and another action until dismissed', async () => {
+  const action = success()
+  action.mockResolvedValueOnce({ error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 } } as never)
+  const time = setup()
+  fireEvent.click(screen.getByText('trash 2'))
+  expect(await screen.findByText(de.errors.provider_permission_missing)).toBeTruthy()
+  fireEvent.click(screen.getByText('archive 1'))
+  await screen.findByRole('button', { name: 'Rückgängig' })
+  act(() => time.advance(60_000))
+  expect(screen.getByRole('status').textContent).toContain(de.errors.provider_permission_missing)
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Hinweis schließen' }))
+  expect(screen.queryByRole('status')).toBeNull()
+})
+
+test('bulk undo explains a mixed unsupported and skipped outcome', async () => {
+  spyOn(sdk, 'mailMessagesBulkAction').mockResolvedValue({
+    data: { results: ['1', '2'].map(id => ({ message_id: id, status: 'done', action_id: `action-${id}` })) }, response: { ok: true },
+  } as never)
+  spyOn(sdk, 'mailActionsUndo').mockResolvedValue({
+    data: { restored: [], failed: ['action-1'], unsupported: ['action-1'], expired: [], skipped: ['action-2'] },
+  } as never)
+  setup()
+  fireEvent.click(screen.getByText('bulk archive'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Rückgängig' }))
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain(de.errors.provider_action_unsupported))
+  expect(screen.getByRole('status').textContent).toContain(de.inbox.bulkUndoFailed(1))
 })

@@ -25,6 +25,7 @@ FOLDER_ACTION_SOURCES = {
     "spam": ("INBOX", "ARCHIVE"),
     "restore": ("ARCHIVE", "TRASH"),
 }
+FOLDER_ACTION_DESTINATIONS = {"archive": "ARCHIVE", "trash": "TRASH", "spam": "SPAM", "restore": "INBOX"}
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +41,7 @@ class ActionPartialError(ActionFailedError):
         self.folder = folder
         self.error_code = error_code
         self.reconciled = reconciled
+        self.outcome: Literal["reconciled", "partial"] = "reconciled" if reconciled else "partial"
 
 
 class ActionUnsupportedError(RuntimeError):
@@ -53,6 +55,7 @@ class UndoResult:
     skipped: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
     error_code: str | None = None
+    unsupported: list[str] = field(default_factory=list)
 
 
 async def write_connector_labels(account, message: MailMessage, *, added: list[str], removed: list[str]) -> None:
@@ -122,11 +125,13 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
     await action_capabilities.require_action(account, kind)
     if message.folder in {"IMAP_DELETED", IMAP_RETIRED}:
         raise ActionUnsupportedError()
-    if kind in FOLDER_ACTION_SOURCES and message.folder not in FOLDER_ACTION_SOURCES[kind]:
+    retry_partial_trash = (kind == "trash" and gmail_studio(account) and message.folder == "TRASH"
+                           and {"INBOX", "TRASH"} <= set(json.loads(message.labels_json)))
+    if kind in FOLDER_ACTION_SOURCES and message.folder not in FOLDER_ACTION_SOURCES[kind] and not retry_partial_trash:
         raise ActionUnsupportedError()
     backend = action_backends.backend_for(account)
     previous = {key: getattr(message, key) for key in ("folder", "is_read", "provider_uid", "labels_json")}
-    changes = {"folder": {"archive": "ARCHIVE", "trash": "TRASH", "spam": "SPAM", "restore": "INBOX"}[kind]} if kind in FOLDER_ACTION_SOURCES else {"is_read": kind == "mark_read"}
+    changes = {"folder": FOLDER_ACTION_DESTINATIONS[kind]} if kind in FOLDER_ACTION_SOURCES else {"is_read": kind == "mark_read"}
     if gmail_studio(account) or kind == "trash" or (kind == "restore" and message.folder == "TRASH"):
         try:
             updates = await backend.apply(message, kind)
@@ -180,7 +185,7 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
     result = UndoResult()
     rows = await action_access.get_many(action_ids)
     # Keep the single-token unsupported response. Groups resolve capabilities per token.
-    if len(rows) == 1:
+    if len(set(action_ids)) == 1 and rows and rows[0].undone_at is None:
         row, = rows
         if account := await account_access.get_account(row.account_id):
             try:
@@ -188,7 +193,6 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
             except HTTPException as error:
                 if error.status_code != 403:
                     raise
-    unsupported = 0
     known = {row.id for row in rows}
     result.skipped.extend(key for key in dict.fromkeys(action_ids) if key not in known)
     for action in sorted(rows, key=lambda row: (_aware(row.created_at), row.id), reverse=True):
@@ -234,7 +238,7 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
                 if code == write_result.PERMISSION_MISSING:
                     result.error_code = code
                 elif error.status_code == 409 and code == action_capabilities.ERROR_CODE:
-                    unsupported += 1
+                    result.unsupported.append(action.id)
             logger.warning("%s", type(error).__name__)
             await action_access.release(action.id)
             result.failed.append(action.id)
@@ -244,6 +248,6 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
             else:
                 await _write_provider_state(message, previous | updates, folder=previous["folder"])
             result.restored.append(action.id)
-    if unsupported and unsupported == len(set(action_ids)):
+    if result.unsupported and not result.restored and len(result.unsupported) == len(result.failed):
         result.error_code = action_capabilities.ERROR_CODE
     return result

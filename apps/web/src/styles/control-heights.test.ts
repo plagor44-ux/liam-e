@@ -108,3 +108,9 @@ test('mobile quick filing and row menu actions keep 44 px targets', async () => 
 test('the mobile quick-action exception rejects an unconditional height', () => {
   expect(offending(rule('.le-quick-actions .le-btn'))).toEqual(['.le-quick-actions .le-btn'])
 })
+
+test('grouping a mail row menu keeps its base width and wraps the hint', async () => {
+  const css = await Bun.file(new URL('./ds-app.css', import.meta.url)).text()
+  expect(css).toContain('.le-menu--grouped:not(.le-menu--mailrow) { width: 24rem; }')
+  expect(css).toContain('.le-menu--mailrow .le-menu-group-label { overflow-wrap: anywhere; }')
+})

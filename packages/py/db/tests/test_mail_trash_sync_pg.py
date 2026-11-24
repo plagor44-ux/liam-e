@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from api.mail import connector_mailbox, connectors, service, sync
 from api.routers.api.v1.mail import accounts, actions, messages
+from api.routers.api.v1.mail import rules as rule_routes
 from db.accessors import mail_action, mail_message, mail_sync_state
 from db.engine import get_session_maker
 from db.models.mail_message import MailMessage
@@ -27,6 +28,7 @@ def client():
     app.include_router(messages.router, prefix=MAIL + "/messages")
     app.include_router(actions.router, prefix=MAIL + "/actions")
     app.include_router(accounts.router, prefix=MAIL + "/accounts")
+    app.include_router(rule_routes.router, prefix=MAIL + "/rules")
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
@@ -1288,7 +1290,8 @@ def test_gmail_action_that_pauses_reports_permission_to_its_caller(pg_db, monkey
                     provider.labels["target"].remove("INBOX")
                 rule = await mail_rule.create(name="Read", mark_read=True)
                 run = await rules.execute_rule_run(rule.id, rule.version, target)
-                assert json.loads(run.provider_results_json) == {"mark_read": "skipped_permission"}
+                expected = "reconciled_permission" if consumer == "rule with folder reconciliation" else "skipped_permission"
+                assert json.loads(run.provider_results_json) == {"mark_read": expected}
                 if consumer == "rule with folder reconciliation":
                     assert (await mail_message.get_message(target)).folder == "ARCHIVE"
             state = await mail_sync_state.get_state(provider.account.id)
@@ -1559,7 +1562,8 @@ def test_mixed_bulk_undo_restores_other_account_when_gmail_binding_is_unavailabl
     asyncio.run(run())
 
 
-def test_gmail_group_undo_reports_unsupported_when_every_token_loses_verification(pg_db, monkeypatch):
+@pytest.mark.parametrize("extra_tokens", ["none", "unknown", "already undone"])
+def test_gmail_group_undo_reports_unsupported_for_actionable_tokens(pg_db, monkeypatch, extra_tokens):
     from db.accessors import chat_settings
 
     async def run():
@@ -1571,17 +1575,27 @@ def test_gmail_group_undo_reports_unsupported_when_every_token_loses_verificatio
             assert all(row["status"] == "done" for row in bulk.json()["results"])
             tokens = [row["action_id"] for row in bulk.json()["results"]]
             assert len(tokens) == 2 and all(tokens)
+            skipped = []
+            if extra_tokens == "unknown":
+                skipped = ["unknown-synthetic-token"]
+            elif extra_tokens == "already undone":
+                skipped = [tokens.pop()]
+                first = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": skipped})
+                assert first.json()["restored"] == skipped
             await chat_settings.invalidate_connector(provider.account.id)
             writes = list(provider.writes)
 
-            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": tokens})
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": tokens + skipped})
             assert undo.status_code == 200
             assert set(undo.json()["failed"]) == set(tokens)
             assert undo.json()["restored"] == []
+            assert undo.json()["skipped"] == skipped
+            assert set(undo.json()["unsupported"]) == set(tokens)
             assert undo.json()["error_code"] == "provider_action_unsupported"
             assert provider.writes == writes
-            for mid in ids.values():
-                assert (await mail_action.latest_open(mid)).id in tokens
+            for token in tokens:
+                row, = await mail_action.get_many([token])
+                assert row.undone_at is None
 
     asyncio.run(run())
 
@@ -2042,4 +2056,128 @@ def test_gmail_trash_undo_restores_the_observed_archive_source(pg_db, monkeypatc
             assert provider.labels["target"] == {"UNREAD"}
             assert await listed(browser, "ARCHIVE") == {target}
             assert await listed(browser, "INBOX") == {ids["sibling"]}
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("entry_point", ["single", "bulk"])
+def test_gmail_forward_trash_retries_only_the_missing_inbox_removal(pg_db, monkeypatch, entry_point):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].update({"UNREAD", "STARRED", "Label_synthetic"})
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        async with client() as browser:
+            async def trash():
+                if entry_point == "bulk":
+                    answer = await browser.post(f"{MAIL}/messages/actions", json={"kind": "trash", "message_ids": [target]})
+                    return answer, answer.json()["results"][0]
+                answer = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+                return answer, answer.json()
+
+            provider.reject_tool = "unlabel_message"
+            provider.reject = {"isError": True, "content": [{"type": "text", "text": "Synthetic refusal."}]}
+            response, result = await trash()
+            assert response.status_code == (409 if entry_point == "single" else 200)
+            assert not result.get("action_id")
+            assert (await mail_message.get_message(target)).folder == "TRASH"
+            assert provider.labels["target"] == {"TRASH", "INBOX", "UNREAD", "STARRED", "Label_synthetic"}
+
+            writes = len(provider.writes)
+            _, unconfirmed = await trash()
+            assert provider.writes[writes:] == [("unlabel_message", "target", ("INBOX",))]
+            assert not unconfirmed.get("action_id")
+            assert await mail_action.latest_open(target) is None
+
+            provider.reject = None
+            writes = len(provider.writes)
+            response, result = await trash()
+            assert response.status_code == 200
+            assert provider.writes[writes:] == [("unlabel_message", "target", ("INBOX",))]
+            assert provider.labels["target"] == {"TRASH", "UNREAD", "STARRED", "Label_synthetic"}
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [result["action_id"]]})
+            assert undo.json()["restored"] == [result["action_id"]]
+            assert provider.labels["target"] == {"INBOX", "UNREAD", "STARRED", "Label_synthetic"}
+            assert await listed(browser, "INBOX") == set(ids.values())
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(("kind", "initial", "external"), [
+    ("archive", {"INBOX"}, {"TRASH"}),
+    ("trash", {"INBOX"}, set()),
+    ("restore", {"TRASH"}, set()),
+    ("trash", {"INBOX"}, {"TRASH", "SPAM"}),
+])
+def test_gmail_undo_leaves_a_third_party_folder_move_alone(pg_db, monkeypatch, kind, initial, external):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        provider.labels["target"] = set(initial)
+        if kind == "restore":
+            await mail_message.set_state(target, folder="TRASH", labels_json='["TRASH"]')
+        async with client() as browser:
+            changed = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": kind})
+            assert changed.status_code == 200
+            token = changed.json()["action_id"]
+            observed = external | {"STARRED", "UNREAD", "Label_synthetic"}
+            provider.labels["target"] = set(observed)
+            writes = list(provider.writes)
+
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
+            assert undo.status_code == 200
+            assert undo.json()["failed"] == [token] and undo.json()["restored"] == []
+            assert provider.labels["target"] == observed and provider.writes == writes
+            indexed = await mail_message.get_message(target)
+            assert indexed.folder == connectors.observed_folder(observed)
+            assert set(json.loads(indexed.labels_json)) == observed
+            assert (await mail_action.latest_open(target)).id == token
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("outcome", ["reconciled", "partial"])
+@pytest.mark.parametrize("permission_missing", [False, True])
+def test_gmail_action_outcome_is_kept_in_chat_and_rule_history(pg_db, monkeypatch, outcome, permission_missing):
+    from api.mail import actions, proposals, rules
+    from db.accessors import chat_context, chat_settings, mail_rule
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        code = "provider_permission_missing" if permission_missing else None
+
+        async def incomplete(message_id, kind):
+            assert (message_id, kind) == (target, "archive")
+            raise actions.ActionPartialError("ARCHIVE", code, reconciled=outcome == "reconciled")
+
+        monkeypatch.setattr(actions, "apply_action", incomplete)
+        await chat_settings.update(1, [provider.account.id])
+        conversation, context, _ = await chat_context.resolve(
+            conversation_id=None, title="Synthetic", model=None, revision_id=None,
+            account_id=provider.account.id, app_prompt_version="test")
+        card = await proposals.create_proposal(conversation.id, proposals.Proposal(
+            kind="archive", reason="Synthetic", items=[
+                proposals.ProposalItem(id=target, kind="mail", title="Synthetic", subtitle=""),
+            ]), context_id=context.id)
+        chat = proposals.proposal_view(await proposals.confirm(card.id, selected_ids=[target])).result
+        assert chat.done == 0 and chat.undo_action_ids == []
+        assert [problem.model_dump() for problem in chat.failed] == [
+            {"id": target, "code": code or "action_failed", "outcome": outcome},
+        ]
+
+        rule = await mail_rule.create(name="Archive", archive=True)
+        run = await rules.execute_rule_run(rule.id, rule.version, target)
+        async with client() as browser:
+            history = await browser.get(f"{MAIL}/rules/{rule.id}/runs")
+            assert history.status_code == 200
+            row, = history.json()
+            assert row["status"] == run.status == "done"
+            assert json.loads(row["provider_results_json"]) == {
+                "archive": outcome + ("_permission" if permission_missing else ""),
+            }
+        assert not provider.writes
+
     asyncio.run(run())

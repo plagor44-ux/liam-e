@@ -7,7 +7,8 @@
 /* Menus for triggers at the bottom of the screen open upwards and size to their items. */
 .le-menu--up-start, .le-menu--up-end { width: max-content; min-width: calc(3 * var(--space-8)); }
 .le-menu-item--danger, .le-menu-item--danger .le-ico { color: var(--danger); }
-.le-menu--grouped { width: 24rem; }
+.le-menu--grouped:not(.le-menu--mailrow) { width: 24rem; }
+.le-menu--mailrow .le-menu-group-label { overflow-wrap: anywhere; }
 .le-menu-group-label { padding: var(--space-2) var(--space-3); font-size: var(--font-size-small); font-weight: 600; color: var(--ink-muted); }
 .le-menu--grouped > * + * { margin-top: var(--space-2); border-top: 1px solid var(--line); }
 .le-menu--grouped a.le-menu-item { color: var(--accent); text-decoration: none; }

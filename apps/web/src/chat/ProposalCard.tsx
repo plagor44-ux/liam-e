@@ -95,7 +95,7 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
     pending.current = true; setBusy(true); setError(undefined)
     try {
       const outcome = await unwrap(mailActionsUndo({ body: { action_ids: ids }, throwOnError: true }))
-      if (outcome.expired.length || outcome.failed.length || outcome.skipped.length) setError(failureText(outcome.error_code ?? undefined, proposal.kind, texts))
+      if (outcome.expired.length || outcome.failed.length || outcome.skipped.length) setError(failureText(outcome.error_code ?? (outcome.unsupported?.length ? 'provider_action_unsupported' : undefined), proposal.kind, texts))
       else { expire(); setUndone(true); onUndone() }
     } catch (failure) {
       setError(failureText(errorCode(failure instanceof Error ? failure.cause : failure), proposal.kind, texts))
@@ -116,9 +116,13 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
   const failed = result?.failed ?? []
   const gone = failed.filter(item => item.code === 'item_gone').length
   const changed = failed.filter(item => item.code === 'item_changed').length
-  const other = failed.length - gone - changed
+  const reconciled = failed.filter(item => item.outcome === 'reconciled').length
+  const partlyChanged = failed.filter(item => item.outcome === 'partial').length
+  const other = failed.length - gone - changed - reconciled - partlyChanged
   return <><Notice tone={message.proposal_status === 'done' ? 'success' : 'info'} action={ids.length && visible && !busy ? { label: texts.proposal.undo, onClick: () => { void undo() } } : undefined}>
-    <span>{text}{message.proposal_status === 'partial' && <>{gone > 0 && texts.proposal.partialGone[proposal.kind](gone)}{changed > 0 && texts.proposal.partialChanged(changed)}{other > 0 && texts.proposal.partial[proposal.kind](other)}</>}</span>
+    <span>{text}{message.proposal_status === 'partial' && <>{gone > 0 && texts.proposal.partialGone[proposal.kind](gone)}{changed > 0 && texts.proposal.partialChanged(changed)}{other > 0 && texts.proposal.partial[proposal.kind](other)}</>}
+      {reconciled > 0 && <> {texts.inbox.bulkProviderReconciled(reconciled)}</>}
+      {partlyChanged > 0 && <> {texts.inbox.bulkProviderPartial(partlyChanged)}</>}</span>
   </Notice>{result?.manual?.map(entry => {
     const href = safeLink(entry.link)
     const item = proposal.items.find(candidate => candidate.id === entry.id)

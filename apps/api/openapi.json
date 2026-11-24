@@ -3222,6 +3222,21 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "reconciled",
+                  "partial"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
           }
         },
         "required": [
@@ -8436,6 +8451,13 @@
               "type": "string"
             },
             "title": "Skipped",
+            "type": "array"
+          },
+          "unsupported": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unsupported",
             "type": "array"
           }
         },

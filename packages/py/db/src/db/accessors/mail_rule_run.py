@@ -6,6 +6,9 @@ from sqlalchemy.dialects.postgresql import insert
 from db.engine import get_session_maker
 from db.models.mail_rule_run import MailRuleRun
 
+_OBSERVED_OUTCOMES = ("partial_permission", "partial", "reconciled_permission", "reconciled")
+_TERMINAL_OUTCOMES = {"done", "skipped_permission", "skipped_unsupported", "skipped_stale", "overridden", *_OBSERVED_OUTCOMES}
+
 
 async def record_imap_rebuild(session, account_id: str, generation: str) -> None:
     """Record a rule-level notice without creating runs for ambiguous messages."""
@@ -52,6 +55,8 @@ async def merge_verified(session, keep_id: str, duplicate_id: str) -> None:
                 merged[kind] = 'unknown'
             elif 'done' in values:
                 merged[kind] = 'done'
+            elif observed := next((outcome for outcome in _OBSERVED_OUTCOMES if outcome in values), None):
+                merged[kind] = observed
             elif 'skipped_permission' in values:
                 merged[kind] = 'skipped_permission'
             elif 'skipped_unsupported' in values:
@@ -154,7 +159,7 @@ async def record_action(run_id: str, kind: str, *, expected: str, result: str) -
             run.provider_results_json = json.dumps(states)
             if "unknown" in states.values():
                 run.status = "unknown"
-            elif all(state in {"done", "skipped_permission", "skipped_unsupported", "skipped_stale", "overridden"} for state in states.values()):
+            elif _TERMINAL_OUTCOMES.issuperset(states.values()):
                 run.status = "done"
             run.updated_at = utcnow()
         return run, changed

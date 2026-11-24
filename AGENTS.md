@@ -1058,6 +1058,14 @@ two consecutive unchanged readbacks from separate writes pause the binding. The 
 `provider_permission_missing` on that action. A positive receipt
 or a change to a requested label resets the streak. After reauthentication in Studio, the
 account action allows another attempt.
+A repeated Trash can finish a partial Gmail move when a current point read shows both
+`TRASH` and `INBOX` on the exact message. It removes only `INBOX` and records the action and
+Undo token only after the full destination is confirmed. Folder Undo only changes mail in
+the original action's destination or completes a verified partial inverse move. It preserves
+unrelated labels and flags and accepts an already-restored destination without writing.
+Index-only corrections and partial provider changes have distinct feedback in the inbox,
+chat confirmation cards and rule history. Group Undo reports unsupported tokens separately
+from skipped tokens. Permission guidance in the inbox stays visible until dismissed.
 Spam, provider folder moves and provider label changes remain unavailable.
 `send_email` takes `replyToMessageId`. The Outlook connector returned HTTP 401 in the earlier probe.
 

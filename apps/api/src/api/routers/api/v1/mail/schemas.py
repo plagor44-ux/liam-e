@@ -119,3 +119,4 @@ class UndoOut(BaseModel):
     skipped: list[str]
     failed: list[str]
     error_code: str | None = Field(default=None, exclude_if=lambda code: code is None)
+    unsupported: list[str] = Field(default_factory=list, exclude_if=lambda ids: not ids)

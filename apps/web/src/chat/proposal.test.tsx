@@ -718,3 +718,19 @@ test('rule card shows scope and actions before confirmation', async () => {
   await waitFor(() => expect(confirm).toHaveBeenCalledWith({ path: { proposal_id: 'p' }, body: { selected_ids: [] }, throwOnError: true }))
   expect(await screen.findByText('Regel erstellt.')).toBeTruthy()
 })
+
+test('mail proposal results distinguish an index correction from a partial write', async () => {
+  const card = message('partial', {
+    done: 0,
+    failed: [
+      { id: 'a', code: 'action_failed', outcome: 'reconciled' },
+      { id: 'b', code: 'provider_permission_missing', outcome: 'partial' },
+    ],
+  })
+  card.proposal!.kind = 'archive'
+  setup(card)
+  expect(await screen.findByText(/1 Mail wurde nicht verschoben/)).toBeTruthy()
+  expect(screen.getByText(/Der Anbieter hat 1 Mail teilweise geändert/)).toBeTruthy()
+  expect(screen.getByText(/Für diese Aktion fehlt dem Connector die Berechtigung/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+})

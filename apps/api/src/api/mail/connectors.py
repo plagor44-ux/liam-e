@@ -235,21 +235,32 @@ async def change_gmail_labels(
     present: set[str] = set()
     absent: set[str] = set()
     folder_labels = {"INBOX", "TRASH"}
-    undo_labels = folder_labels.intersection({destination}) if folder_undo else None
+    destination_labels = folder_labels.intersection({destination}) if destination is not None else None
     async with bound_mailbox(account, cursor=state.connector_cursor, generation=state.connector_generation, observed=state):
         initial_labels = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
         if initial_labels is None:
             raise LabelChangeUnconfirmed(None)
-        if source_folders is not None:
+        undo_snapshot = initial_labels
+        if source_folders is not None and destination_labels is not None:
+            if "SPAM" in initial_labels:
+                raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
             live_folder = observed_folder(initial_labels)
-            if undo_labels is not None:
-                current = folder_labels.intersection(initial_labels)
+            current = folder_labels.intersection(initial_labels)
+            if folder_undo:
                 if live_folder == destination:
-                    if current == undo_labels:
+                    if current == destination_labels:
                         return initial_labels, initial_labels
                     # An added destination label can mask the source of a partial move.
-                    live_folder = observed_folder(set(initial_labels) - undo_labels)
-                added, removed = sorted(undo_labels - current), sorted(current - undo_labels)
+                    live_folder = observed_folder(set(initial_labels) - destination_labels)
+                added, removed = sorted(destination_labels - current), sorted(current - destination_labels)
+            elif action == "trash" and message.folder == "TRASH":
+                if current != folder_labels:
+                    # An out-of-date retry must not start a new provider move.
+                    raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
+                # Complete only the missing removal. A subsequent Undo restores the Inbox.
+                undo_snapshot = [label for label in initial_labels if label != "TRASH"]
+                live_folder = observed_folder(undo_snapshot)
+                added, removed = [], ["INBOX"]
             elif destination == "INBOX":
                 # Restore changes only folder labels. The pinned read supplies the source.
                 added = ["INBOX"]
@@ -297,14 +308,13 @@ async def change_gmail_labels(
                 raise write_result.PermissionMissing(labels, provider_unchanged=not provider_changed) from None
             except write_result.WriteRefused:
                 if has_confirmed_step:
-                    raise LabelChangeUnconfirmed(labels) from None
+                    raise LabelChangeUnconfirmed(labels, provider_unchanged=not provider_changed) from None
                 raise
             except LabelChangeUnconfirmed as error:
-                if not has_receipt and error.labels is not None and set(error.labels) == labels_before:
-                    paused = await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged")
-                    if paused:
-                        raise write_result.PermissionMissing(error.labels, provider_unchanged=not provider_changed) from None
+                if error.labels is not None and set(error.labels) == labels_before:
                     error.provider_unchanged = not provider_changed
+                    if not has_receipt and await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged"):
+                        raise write_result.PermissionMissing(error.labels, provider_unchanged=not provider_changed) from None
                 raise
             except (httpx.HTTPError, TimeoutError):
                 if not has_confirmed_step:
@@ -317,21 +327,23 @@ async def change_gmail_labels(
                 async with bound_mailbox(account, cursor=recovery.connector_cursor,
                                          generation=recovery.connector_generation, observed=recovery, check_after=True):
                     observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
-                raise LabelChangeUnconfirmed(observed) from None
+                unchanged = observed is not None and set(observed) == labels_before
+                raise LabelChangeUnconfirmed(observed, provider_unchanged=unchanged and not provider_changed) from None
             else:
                 changed_labels = labels_before.symmetric_difference(labels)
-                provider_changed = provider_changed or bool(changed_labels)
-                step_has_evidence = has_receipt or not changed_labels.isdisjoint(changes)
+                changed_requested_labels = not changed_labels.isdisjoint(changes)
+                provider_changed = provider_changed or changed_requested_labels
+                step_has_evidence = has_receipt or changed_requested_labels
 
-    if destination is not None and (
-        observed_folder(labels) != destination
-        or (undo_labels is not None and folder_labels.intersection(labels) != undo_labels)
+    if destination_labels is not None and (
+        "SPAM" in labels or observed_folder(labels) != destination
+        or folder_labels.intersection(labels) != destination_labels
     ):
-        raise LabelChangeUnconfirmed(labels)
+        raise LabelChangeUnconfirmed(labels, provider_unchanged=not provider_changed)
     if step_has_evidence:
         # The write is already confirmed. A replaced pin cannot acquire this evidence.
         await mail_sync_state.record_connector_write(account.id, proof, outcome="confirmed")
-    return initial_labels, labels
+    return undo_snapshot, labels
 
 
 async def _confirm_label_change(
