@@ -366,8 +366,10 @@ Quoted German labels and the German icon names in this section are UI text.
     the keyboard shortcut in parentheses to the tooltip.
   - Chip pressed (`aria-pressed`, active filter) and `quiet` (without border on `surface-soft`,
     for selection chips such as account and model).
-  - Notice `info`, `success`, `danger`, optionally with an action as a link. The icon stays
-    beside the first line. Wrapped lines align with the start of the text.
+  - Notice `info`, `success`, `danger`, optionally with an action as a link or a trailing
+    control. The icon and trailing control stay beside the first line. Wrapped lines align
+    with the start of the text. Inbox permission guidance stays visible until dismissed;
+    long unsupported-action guidance wraps and the close tooltip prefers the lower side.
   - Tag `default`, `warm` (deadline, with `clock`) and `on-surface` (account in lists, with account dot).
   - Avatar `md` and `lg` (account card).
   - Badge shows „999+“ from 1,000.

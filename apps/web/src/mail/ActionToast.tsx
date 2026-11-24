@@ -31,7 +31,7 @@ export function ActionToast({ inline }: { inline?: boolean }) {
   const single = entries.length === 1 ? latest : undefined
   return <div ref={root} className={inline ? 'le-inbox-toast le-inbox-toast--inline' : 'le-inbox-toast'}>
     {latest && <Notice tone={latest.partial ? 'danger' : 'success'}>
-      <span className={latest.wrap ? 'le-inbox-toast-text--wrap' : undefined}>{latest.text}</span>
+      <span className={`le-inbox-toast-text${latest.wrap ? ' le-inbox-toast-text--wrap' : ''}`}>{latest.text}</span>
       {single && <button type="button" className="le-link" disabled={single.pending} onClick={() => { void undo(single.actionId) }}>{texts.proposal.undo}</button>}
       {entries.length > 1 && <Menu placement="up-end"
         trigger={props => <button type="button" className="le-link" {...props}>{texts.inbox.recentActions(entries.length)}</button>}
@@ -44,11 +44,10 @@ export function ActionToast({ inline }: { inline?: boolean }) {
       />}
     </Notice>}
     {notice && <Notice tone={notice.tone}>
-      <span className={notice.wrap ? 'le-inbox-toast-text--wrap' : undefined}>{notice.text}</span>
+      <span className={`le-inbox-toast-text${notice.wrap ? ' le-inbox-toast-text--wrap' : ''}`}>{notice.text}</span>
     </Notice>}
-    {permissionNotice && <Notice tone="danger">
-      <span className="le-inbox-toast-text--wrap">{permissionNotice}</span>
-      <IconButton icon="x" label={texts.inbox.dismissNotice} onClick={dismissPermissionNotice} />
+    {permissionNotice && <Notice tone="danger" trailing={<IconButton icon="x" label={texts.inbox.dismissNotice} tipPosition="top-end" onClick={dismissPermissionNotice} />}>
+      <span className="le-inbox-toast-text le-inbox-toast-text--wrap">{permissionNotice}</span>
     </Notice>}
   </div>
 }

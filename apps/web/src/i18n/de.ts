@@ -48,7 +48,7 @@ export const de = {
     ruleInactive: 'Die Regel ist pausiert. Aktiviere sie, um fortzufahren.',
     applyDescription: 'Die Vorschau zeigt den aktuellen Stand. Anbieteraktionen werden nur einmal vorgemerkt und nur ausgeführt, wenn das Konto sie unterstützt.',
     outcomes: 'Letzte Ausführungen', noRuns: 'Noch keine Ausführungen.', localDone: 'App-Zuordnung gespeichert', skipped: 'Beim Anbieter übersprungen', providerIncomplete: 'Aktion beim Anbieter nicht abgeschlossen', unknown: 'Ergebnis beim Anbieter unklar', completed: 'Ausgeführt', stale: 'Regel inzwischen geändert', conflict: 'Mail nicht mehr im Posteingang', pending: 'Ausführung ausstehend',
-    folderOverridden: 'Ordner nicht zugeordnet: Eine höher priorisierte Regel hat Vorrang.',
+    folderOverridden: 'Ordner nicht zugeordnet: Eine höher priorisierte Regel hat Vorrang.', providerReconciled: 'Die Mail wurde nicht verschoben.',
     imapRebuild: 'Nach dem Neuaufbau dieses IMAP-Postfachs wurden Regeln für diese Mails nicht automatisch angewendet. Du kannst sie manuell anwenden. Zusammenfassungen für ungelesene Mails werden wie gewohnt erstellt.',
     initialImport: 'Beim Import dieses Kontos ohne gespeicherten Synchronisationsstand wurden Regeln für diese Mails nicht automatisch angewendet. Das kann auch neue Mails während des Imports betreffen. Du kannst die Regeln manuell anwenden. Zusammenfassungen für ungelesene Mails werden wie gewohnt erstellt.',
     ruleConfirm: 'Regel erstellen?', filingConfirm: 'Mails zuordnen?', filingPending: 'Vorgeschlagene Zuordnung — wartet auf Bestätigung.', ruleDone: 'Regel erstellt.', filingDone: 'Mails zugeordnet.',
@@ -631,7 +631,7 @@ export const de = {
     },
     unsupportedSelection: 'Einige Aktionen sind für die ausgewählten Mails nicht verfügbar. Wähle dafür nur Mails aus Konten aus, die die Aktion unterstützen.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'Der Anbieter hat # Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.', other: 'Der Anbieter hat # Mails teilweise geändert. Die Liste zeigt die gemeldeten Ordner.' }),
-    providerReconciled: 'Die Liste zeigt den aktuellen Ordner. Die Mail wurde durch diese Aktion nicht verschoben.',
+    providerReconciled: 'Die Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.',
     bulkProviderReconciled: (n: number) => plural(n, { one: '# Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.', other: '# Mails wurden nicht verschoben. Die Liste zeigt ihre aktuellen Ordner.' }),
     providerPartial: {
       INBOX: 'Der Anbieter hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Posteingang.',

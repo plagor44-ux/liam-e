@@ -243,6 +243,7 @@ small { font-size: var(--font-size-small); }
 
 /* Notice */
 .le-notice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-2); padding: 12px 16px; border-radius: var(--radius-md); font-weight: 600; }
+.le-notice--trailing { grid-template-columns: auto minmax(0, 1fr) auto; }
 .le-notice > .le-ico { margin-block-start: max(0px, calc((1lh - 16px) / 2)); }
 .le-notice-body { display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-2); overflow-wrap: anywhere; }
 .le-notice--success { background: var(--accent-soft); color: var(--accent); }

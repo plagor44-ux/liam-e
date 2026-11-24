@@ -55,7 +55,7 @@ export const en = {
     ruleInactive: 'The rule is paused. Activate it to continue.',
     applyDescription: 'The preview shows the current state. Provider actions are queued only once and run only if the account supports them.',
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', providerIncomplete: 'Provider action incomplete', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
-    folderOverridden: 'Folder not assigned: a higher-priority rule takes precedence.',
+    folderOverridden: 'Folder not assigned: a higher-priority rule takes precedence.', providerReconciled: 'The email stayed in its folder.',
     imapRebuild: 'Rules were not automatically applied to emails from this IMAP mailbox rebuild. You can apply them manually. Summaries for unread emails are filled as usual.',
     initialImport: 'Rules were not automatically applied to emails imported for this account without saved sync progress. This can also include new emails received during the import. You can apply the rules manually. Summaries for unread emails are filled as usual.',
     ruleConfirm: 'Create rule?', filingConfirm: 'File emails?', filingPending: 'Proposed filing — awaiting confirmation.', ruleDone: 'Rule created.', filingDone: 'Emails filed.',
@@ -645,7 +645,7 @@ export const en = {
     },
     unsupportedSelection: 'Some actions are unavailable for the selected emails. Select only emails from accounts that support the action.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'The provider partly changed # email. The list shows its reported folder.', other: 'The provider partly changed # emails. The list shows their reported folders.' }),
-    providerReconciled: 'The list shows the current folder. This action didn’t move the email.',
+    providerReconciled: 'The email stayed in its folder. The list shows its current folder.',
     bulkProviderReconciled: (n: number) => plural(n, { one: '# email stayed in its folder. The list shows its current folder.', other: '# emails stayed in their folders. The list shows their current folders.' }),
     providerPartial: {
       INBOX: 'The provider only applied part of the change. The email is in the inbox.',

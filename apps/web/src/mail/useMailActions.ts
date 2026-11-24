@@ -173,7 +173,10 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         return Boolean(retained?.length)
       } else if (result.response?.status === 409) {
         rollback()
-        if (!options?.silent) notify(errorCode(result.error) === 'provider_action_unsupported' ? texts.errors.provider_action_unsupported : texts.proposalErrors.action_unsupported)
+        if (!options?.silent) {
+          const unsupported = errorCode(result.error) === 'provider_action_unsupported'
+          notify(unsupported ? texts.errors.provider_action_unsupported : texts.proposalErrors.action_unsupported, 'danger', unsupported)
+        }
         return changes.length > 0
       } else if (!result.data || result.response?.status !== 200) {
         rollback()
@@ -241,7 +244,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
             void client.invalidateQueries({ queryKey: ['summary'] })
           }
           if (code === 'provider_permission_missing') notifyPermission()
-          else notify(texts.inbox.unsupportedSelection)
+          else notify(texts.inbox.unsupportedSelection, 'danger', true)
           return
         }
         if (!result.data || !result.response?.ok) throw new Error('bulk action failed') // i18n-exempt
@@ -319,7 +322,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
               if (code === 'provider_permission_missing') notifyPermission()
               notify(notice, 'danger', true)
             } else if (code === 'provider_permission_missing') notifyPermission()
-            else notify(code === 'provider_action_unsupported' ? texts.errors.provider_action_unsupported : texts.inbox.bulkUndoFailed(remaining))
+            else notify(code === 'provider_action_unsupported' ? texts.errors.provider_action_unsupported : texts.inbox.bulkUndoFailed(remaining), 'danger', code === 'provider_action_unsupported')
           }
         } else if (result.data?.restored.includes(selected.actionId)) {
           restore(selected.changes, removes(selected.kind))
@@ -327,7 +330,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         } else if (result.data?.skipped.includes(selected.actionId)) notify(texts.inbox.undoSkipped)
         else if (result.data?.expired.includes(selected.actionId)) notify(texts.inbox.undoExpired)
         else if (code === 'provider_permission_missing') notifyPermission()
-        else if (code === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported)
+        else if (code === 'provider_action_unsupported') notify(texts.errors.provider_action_unsupported, 'danger', true)
         else if (result.data?.failed.includes(selected.actionId)) notify(texts.inbox.undoFailed)
         else notify(texts.inbox.undoUncertain)
       } catch { notify(timedOut ? texts.inbox.undoTimeout : texts.inbox.undoUncertain) }

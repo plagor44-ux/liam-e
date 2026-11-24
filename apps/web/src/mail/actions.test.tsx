@@ -7,6 +7,7 @@ import { MailActionsProvider, useMailActions, useMailActionsContext, type Clock 
 import { ActionToast } from './ActionToast'
 import { de } from '../i18n/de'
 import { en } from '../i18n/en'
+import { readFileSync } from 'node:fs'
 
 const originalMatchMedia = window.matchMedia
 const rows = ['Erste', 'Zweite'].map((subject, i) => ({ id: String(i + 1), subject, is_read: false }) as MessageListItemOut)
@@ -84,7 +85,7 @@ test.each(['provider_partial', 'provider_permission_missing'] as const)('a recon
   setup()
   fireEvent.click(screen.getByText('trash 2'))
   const status = await screen.findByRole('status')
-  expect(status.textContent).toContain('Die Mail wurde durch diese Aktion nicht verschoben.')
+  expect(status.textContent).toContain('Die Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.')
   expect(status.textContent).not.toContain('nur einen Teil')
   expect(status.textContent?.includes(de.errors.provider_permission_missing)).toBe(code === 'provider_permission_missing')
   expect(screen.queryByText('Zweite:false')).toBeNull()
@@ -726,6 +727,10 @@ test('permission guidance stays open alongside later success, Undo and failure f
   action.mockResolvedValueOnce({ error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 } } as never)
   fireEvent.click(screen.getByText('trash 2'))
   const guidance = await screen.findByText(de.errors.provider_permission_missing)
+  const permission = guidance.closest('.le-notice') as HTMLElement
+  const close = within(permission).getByRole('button', { name: 'Hinweis schließen' })
+  expect(close.closest('.le-notice-body')).toBeNull()
+  expect(permission.classList.contains('le-notice--trailing')).toBe(true)
 
   fireEvent.click(screen.getByText('archive 1'))
   const archived = await screen.findByText(de.inbox.done.archive('Erste'))
@@ -744,6 +749,25 @@ test('permission guidance stays open alongside later success, Undo and failure f
   expect(screen.getByText(de.errors.provider_permission_missing)).toBe(guidance)
   fireEvent.click(screen.getByRole('button', { name: 'Hinweis schließen' }))
   expect(screen.queryByText(de.errors.provider_permission_missing)).toBeNull()
+})
+
+test.each(['action', 'undo'] as const)('unsupported %s guidance wraps in the actual toast', async mode => {
+  const action = success()
+  if (mode === 'action') action.mockResolvedValueOnce({ error: { detail: { code: 'provider_action_unsupported' } }, response: { status: 409 } } as never)
+  else spyOn(sdk, 'mailActionsUndo').mockResolvedValue({ data: { restored: [], failed: ['action-1'], skipped: [], expired: [], error_code: 'provider_action_unsupported' }, response: { status: 200 } } as never)
+  const client = new QueryClient()
+  function Trigger() { const { run } = useMailActionsContext(); return <button onClick={() => { void run('1', 'archive') }}>archive</button> }
+  render(<QueryClientProvider client={client}><MailActionsProvider><Trigger /><ActionToast /></MailActionsProvider></QueryClientProvider>)
+  fireEvent.click(screen.getByText('archive'))
+  if (mode === 'undo') fireEvent.click(await screen.findByRole('button', { name: 'Rückgängig' }))
+  const message = await screen.findByText(de.errors.provider_action_unsupported)
+  expect(message.classList.contains('le-inbox-toast-text--wrap')).toBe(true)
+})
+
+test('toast clipping applies only to text, never tooltip or menu anchors', () => {
+  const css = readFileSync(new URL('../styles/ds-app.css', import.meta.url), 'utf8')
+  expect(css).toContain('.le-inbox-toast .le-inbox-toast-text {')
+  expect(css).not.toContain('.le-inbox-toast .le-notice-body > span')
 })
 
 test('bulk undo explains a mixed unsupported and skipped outcome', async () => {

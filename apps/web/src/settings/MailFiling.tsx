@@ -193,7 +193,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
         const label = kind === 'mark_read' ? t.markRead : kind === 'mark_unread' ? t.markUnread : kind === 'archive' ? t.archive : null
         if (label && status === 'skipped_permission') return [`${label}: ${texts.errors.provider_permission_missing}`]
         if (label && (status === 'reconciled' || status === 'reconciled_permission' || status === 'partial' || status === 'partial_permission')) {
-          const detail = status === 'reconciled' || status === 'reconciled_permission' ? texts.inbox.providerReconciled : texts.errors.provider_partial
+          const detail = status === 'reconciled' || status === 'reconciled_permission' ? t.providerReconciled : texts.errors.provider_partial
           const reason = status.endsWith('_permission') ? ` ${texts.errors.provider_permission_missing}` : ''
           return [`${label}: ${detail}${reason}`]
         }
