@@ -48,7 +48,7 @@ export const en = {
     none: 'None', markRead: 'Mark as read', markUnread: 'Mark as unread', archive: 'Archive at provider',
     active: 'Rule active', priority: 'Order', addRule: 'Add rule', editRule: 'Edit rule', deleteRule: 'Delete rule',
     ruleEmpty: 'No rules yet. Create a rule for new emails.', ruleDelay: 'Rules run after fetching mail. A sleeping Studio instance delays them until the next fetch.',
-    preview: 'Preview', alreadyFiledMatches: n => `${n} already filed: Selected labels will be added and folders kept. Selected provider actions still apply.`, matches: n => plural(n, { one: '# matching email', other: '# matching emails' }), apply: 'Apply to existing emails', applyTitle: 'Apply rule to existing emails?',
+    preview: 'Preview', alreadyFiledMatches: n => `${n} already filed: Selected labels will be added and folders kept. Provider actions run only when the account supports them.`, matches: n => plural(n, { one: '# matching email', other: '# matching emails' }), apply: 'Apply to existing emails', applyTitle: 'Apply rule to existing emails?',
     queued: n => plural(n, { one: '# email queued for processing.', other: '# emails queued for processing.' }),
     applyDescription: 'Matching provider inbox emails are queued for processing. Already filed emails keep their folders. A sleeping Studio instance delays processing. Provider actions run only when the account supports them.',
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', providerIncomplete: 'Provider action incomplete', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',

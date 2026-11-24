@@ -509,7 +509,7 @@ test('rule preview explains already-filed matches keep their folders', async () 
   fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
   fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
   expect(await screen.findByText('3 passende Mails')).toBeTruthy()
-  expect(screen.getByText('2 bereits zugeordnet: Gewählte Labels werden ergänzt, der Ordner bleibt erhalten. Anbieteraktionen gelten wie ausgewählt.')).toBeTruthy()
+  expect(screen.getByText('2 bereits zugeordnet: Gewählte Labels werden ergänzt, der Ordner bleibt erhalten. Anbieteraktionen erfolgen nur, wenn das Konto sie unterstützt.')).toBeTruthy()
 })
 
 test('label group describes its hint and keeps the label prefix with a long name', async () => {
