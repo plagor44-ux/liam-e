@@ -24,6 +24,7 @@ class RulePreviewOut(BaseModel):
 class RulePreviewIn(RuleIn):
     saved_rule_id: str | None = None
     expected_version: int | None = Field(default=None, ge=1)
+    preview_draft: bool = False
 
 
 class ApplyIn(BaseModel):
@@ -116,6 +117,7 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
     from db.engine import get_session_maker
 
     saved_id = getattr(body, 'saved_rule_id', None)
+    draft_changed = False
     if saved_id:
         rule = await mail_rule.get(saved_id)
         if rule is None:
@@ -124,10 +126,16 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
             raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
         if rule.version != body.expected_version:
             raise refuse(409, 'rule_version_conflict', 'Die Regel wurde inzwischen geändert.')
+        if body.preview_draft:
+            if not body.is_active:
+                raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
+            values = body.model_dump(exclude={'saved_rule_id', 'expected_version', 'preview_draft'})
+            draft_changed = any(getattr(rule, key) != value for key, value in values.items())
+            rule = MailRule.model_validate(rule.model_dump() | values)
     else:
         if not body.is_active:
             raise refuse(409, 'rule_inactive', 'Die Regel ist pausiert. Aktiviere sie, um sie anzuwenden.')
-        rule = MailRule(**body.model_dump(exclude={'saved_rule_id', 'expected_version'}))
+        rule = MailRule(**body.model_dump(exclude={'saved_rule_id', 'expected_version', 'preview_draft'}))
     active = [item for item in await mail_rule.list_rules() if item.is_active and item.id != rule.id]
     active.append(rule)
     active.sort(key=lambda item: (item.position, item.created_at, item.id))
@@ -138,7 +146,7 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
         async with get_session_maker()() as session:
             existing = set((await session.scalars(select(MailRuleRun.message_id).where(
                 MailRuleRun.rule_id == rule.id, MailRuleRun.rule_version == rule.version,
-                MailRuleRun.message_id.in_([message.id for message in page])))).all()) if saved_id else set()
+                MailRuleRun.message_id.in_([message.id for message in page])))).all()) if saved_id and not draft_changed else set()
         for message in page:
             filing = filings[message.id]
             _, folder_change, labels = mail_rule_run.local_changes(message, rule, active, filing.folder_id, filing.label_ids, rule_engine.matches)

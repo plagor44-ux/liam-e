@@ -3288,6 +3288,10 @@ export type RulePreviewIn = {
      */
     position?: number;
     /**
+     * Preview Draft
+     */
+    preview_draft?: boolean;
+    /**
      * Recipient
      */
     recipient?: string;

@@ -5909,6 +5909,11 @@
             "title": "Position",
             "type": "integer"
           },
+          "preview_draft": {
+            "default": false,
+            "title": "Preview Draft",
+            "type": "boolean"
+          },
           "recipient": {
             "default": "",
             "maxLength": 320,

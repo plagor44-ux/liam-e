@@ -669,10 +669,13 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   overflow, focus rings have space and label prefixes stay with names. Empty action summaries are
   omitted, and the required-target hint distinguishes creating from editing. Rule summaries and
   chat confirmation cards show every selected label. Preview counts current actionable provider-inbox
-  matches and identifies already-filed mail whose folder stays while selected labels are added.
-  Applying to existing mail needs a separate dialog with a saved-rule preview. The result reports
-  actual app changes, previously handled provider actions, queued provider actions and conflicts;
-  mail can change after the preview, and a changed rule requires a fresh preview. Paused rules cannot
+  matches and identifies already-filed mail whose folder stays while selected labels are added. A
+  saved rule's editor preview evaluates its current draft in place of its saved copy. Applying to
+  existing mail needs a separate dialog with a saved-rule preview: show counts separately, omit the
+  already-filed line when it is zero, and disable confirmation after a failed refresh until a fresh
+  preview succeeds. Clear an earlier result when a new preview or application starts. The result
+  reports actual app changes, previously handled or queued provider actions and explains that
+  conflicts are mail changed since preview and left untouched. A changed rule requires a fresh preview. Paused rules cannot
   be previewed or applied; their disabled Apply button has a visible, accessible reason, also shown
   if a stale tab tries to apply a rule that has since been paused. Rule rows summarize their conditions, targets
   and active state. Open run outcomes refresh while visible and identify skipped provider actions

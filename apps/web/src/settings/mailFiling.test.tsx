@@ -284,20 +284,52 @@ test('applying a rule to existing mail requires confirmation', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
   expect(requests.some(request => request.url.includes('/apply'))).toBe(false)
   expect(await within(screen.getByRole('dialog')).findByText(/1 passende Mail/)).toBeTruthy()
+  expect(within(screen.getByRole('dialog')).getByText('1 bereits zugeordnet: Der Ordner bleibt erhalten.').tagName).toBe('P')
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
   await waitFor(() => expect(requests.some(request => request.url.includes('/apply') && (request.body as { confirm_apply: boolean }).confirm_apply)).toBe(true))
   expect((requests.find(request => request.url.includes('/apply'))?.body as { preview_message_ids: string[] }).preview_message_ids).toEqual(['synthetic-message'])
-  expect(await screen.findByText('App-Zuordnungen geändert: 1. Anbieteraktionen bereits behandelt oder unklar: 1; vorgemerkt oder laufend: 0. Konflikte: 0.')).toBeTruthy()
+  expect(await screen.findByText('App-Zuordnungen geändert: 1. Anbieteraktionen bereits behandelt oder unklar: 1; vorgemerkt oder laufend: 0. Konflikte: 0 (Mails seit der Vorschau geändert; nicht überschrieben).')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+  expect(screen.queryByText('App-Zuordnungen geändert: 1. Anbieteraktionen bereits behandelt oder unklar: 1; vorgemerkt oder laufend: 0. Konflikte: 0 (Mails seit der Vorschau geändert; nicht überschrieben).')).toBeNull()
 })
 
 test('a changed rule requires a fresh preview before applying', async () => {
   const { RuleSettings } = await import('./MailFiling')
+  let ruleReads = 0
+  const previewVersions: number[] = []
   api.setConfig({ baseUrl: window.location.origin })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(input, init)
     const path = new URL(req.url).pathname
     if (path.endsWith('/apply')) return Response.json({ detail: { code: 'rule_version_conflict' } }, { status: 409 })
-    if (path.endsWith('/preview')) return Response.json({ matched: 1, already_filed: 0, message_ids: ['synthetic-message'] })
+    if (path.endsWith('/preview')) { previewVersions.push((await req.clone().json()).expected_version); return Response.json({ matched: 1, already_filed: 0, message_ids: ['synthetic-message'] }) }
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Projects', version: ++ruleReads === 1 ? 1 : 2, sender_domain: 'example.test', folder_id: 'folder', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+  const dialog = screen.getByRole('dialog')
+  expect(await within(dialog).findByText(/1 passende Mail/)).toBeTruthy()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+  expect(await within(dialog).findByText('Die Vorschau ist nicht mehr aktuell oder nicht verfügbar. Lade sie erneut.')).toBeTruthy()
+  expect(within(dialog).queryByText('1 passende Mail')).toBeNull()
+  expect((within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Vorschau erneut laden' }))
+  expect(await within(dialog).findByText('1 passende Mail')).toBeTruthy()
+  expect(previewVersions.at(-1)).toBe(2)
+  expect((within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('starting an editor preview clears an earlier apply result', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/apply')) return Response.json({ matched: 1, app_changed: 1, provider_skipped: 0, provider_queued: 0, conflicts: 0 })
+    if (path.endsWith('/preview')) return Response.json({ matched: 1, already_filed: 0, message_ids: ['mail'] })
     if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
     if (path.endsWith('/accounts')) return Response.json([])
     return Response.json([{ id: 'rule', name: 'Projects', version: 1, sender_domain: 'example.test', folder_id: 'folder', is_active: true }])
@@ -306,10 +338,69 @@ test('a changed rule requires a fresh preview before applying', async () => {
   render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
   fireEvent.click(await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
   const dialog = screen.getByRole('dialog')
-  expect(await within(dialog).findByText(/1 passende Mail/)).toBeTruthy()
+  expect(await within(dialog).findByText('1 passende Mail')).toBeTruthy()
   fireEvent.click(within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
-  expect(await screen.findByText('Die Regel wurde geändert oder die Vorschau ist nicht verfügbar. Lade die Regeln neu und öffne eine neue Vorschau.')).toBeTruthy()
-  expect(screen.queryByRole('dialog')).toBeNull()
+  const result = 'App-Zuordnungen geändert: 1. Anbieteraktionen bereits behandelt oder unklar: 0; vorgemerkt oder laufend: 0. Konflikte: 0 (Mails seit der Vorschau geändert; nicht überschrieben).'
+  expect(await screen.findByText(result)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+  expect(screen.queryByText(result)).toBeNull()
+  expect(await screen.findByText('1 passende Mail')).toBeTruthy()
+})
+
+test('failed preview refresh hides cached counts and disables confirmation until retry', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  let calls = 0
+  const preview = spyOn(sdk, 'mailRulesPreview').mockImplementation(async () => {
+    calls++
+    if (calls === 2) throw { detail: { code: 'rule_version_conflict' } }
+    return { data: { matched: calls === 1 ? 2 : 1, already_filed: 0, message_ids: ['mail'] } } as never
+  })
+  let ruleReads = 0
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Projects', version: ++ruleReads === 1 ? 1 : 2, sender_domain: 'example.test', folder_id: 'folder', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Auf vorhandene Mails anwenden' }))
+  const dialog = screen.getByRole('dialog')
+  expect(await within(dialog).findByText('2 passende Mails')).toBeTruthy()
+  expect(within(dialog).queryByText(/bereits zugeordnet/u)).toBeNull()
+  await act(async () => { await client.invalidateQueries({ queryKey: ['mail-rule-apply-preview'] }) })
+  await waitFor(() => expect(within(dialog).queryByText('2 passende Mails')).toBeNull())
+  expect(within(dialog).getByText('Die Vorschau ist nicht mehr aktuell oder nicht verfügbar. Lade sie erneut.')).toBeTruthy()
+  expect((within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Vorschau erneut laden' }))
+  expect(await within(dialog).findByText('1 passende Mail')).toBeTruthy()
+  expect(preview.mock.calls[2]?.[0]?.body.expected_version).toBe(2)
+  expect((within(dialog).getByRole('button', { name: 'Auf vorhandene Mails anwenden' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('English apply preview omits zero filed mail and explains conflicts', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailRulesPreview').mockResolvedValue({ data: { matched: 1, already_filed: 0, message_ids: ['mail'] } } as never)
+  spyOn(sdk, 'mailRuleApply').mockResolvedValue({ data: { matched: 0, app_changed: 0, provider_skipped: 0, provider_queued: 0, conflicts: 1 } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Filed', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Projects', version: 1, sender_domain: 'example.test', folder_id: 'folder', is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<I18nProvider locale="en"><QueryClientProvider client={client}><RuleSettings /></QueryClientProvider></I18nProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Apply to existing emails' }))
+  const dialog = screen.getByRole('dialog')
+  expect(await within(dialog).findByText('1 matching email')).toBeTruthy()
+  expect(within(dialog).queryByText(/already filed/u)).toBeNull()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Apply to existing emails' }))
+  expect(await screen.findByText('App filings changed: 0. Provider actions previously handled or unknown: 0; queued or in progress: 0. Conflicts: 1 (emails changed since the preview; not overwritten).')).toBeTruthy()
 })
 
 test('paused rules show why manual application is disabled', async () => {
@@ -578,7 +669,28 @@ test('rule preview explains already-filed matches keep their folders', async () 
   fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'Example' } })
   fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
   expect(await screen.findByText('3 passende Mails')).toBeTruthy()
-  expect(screen.getByText('2 bereits zugeordnet: Gewählte Labels werden ergänzt, der Ordner bleibt erhalten. Anbieteraktionen erfolgen nur, wenn das Konto sie unterstützt.')).toBeTruthy()
+  expect(screen.getByText('2 bereits zugeordnet: Der Ordner bleibt erhalten.')).toBeTruthy()
+})
+
+test('previewing an edited saved rule sends its identity and current draft', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const preview = spyOn(sdk, 'mailRulesPreview').mockResolvedValue({ data: { matched: 1, already_filed: 0, message_ids: ['mail'] } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input, init)
+    const path = new URL(req.url).pathname
+    if (path.endsWith('/folders')) return Response.json([{ id: 'folder', name: 'Projects', kind: 'folder' }])
+    if (path.endsWith('/accounts')) return Response.json([])
+    return Response.json([{ id: 'rule', name: 'Example', sender_domain: 'example.org', folder_id: 'folder', version: 3, is_active: true }])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.change(screen.getByLabelText('Betreff enthält'), { target: { value: 'Changed subject' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Vorschau' }))
+  await waitFor(() => expect(preview).toHaveBeenCalled())
+  expect(preview.mock.calls[0]?.[0]?.body).toMatchObject({ saved_rule_id: 'rule', expected_version: 3, preview_draft: true, subject_contains: 'Changed subject' })
+  expect(await screen.findByText('1 passende Mail')).toBeTruthy()
 })
 
 test('label group describes its hint and keeps the label prefix with a long name', async () => {

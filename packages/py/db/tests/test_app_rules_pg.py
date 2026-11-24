@@ -1097,6 +1097,58 @@ def test_saved_preview_counts_only_changes_and_stale_rule_rejects_apply(pg_db):
     asyncio.run(run())
 
 
+def test_saved_rule_editor_preview_replaces_its_saved_copy(pg_db):
+    async def run():
+        from fastapi import HTTPException
+        from api.routers.api.v1.mail.rules import ApplyIn, RulePreviewIn, apply_rule, preview
+        from db.accessors import mail_filing, mail_message, mail_rule
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
+        old_folder = await mail_filing.create_destination('Old', 'folder')
+        new_folder = await mail_filing.create_destination('New', 'folder')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org', subject='New subject')
+        rule = await mail_rule.create(name='Example', sender_domain='example.org', folder_id=old_folder.id, position=2)
+        body = RulePreviewIn(name=rule.name, sender_domain=rule.sender_domain, subject_contains='New subject', folder_id=new_folder.id,
+                             position=rule.position, saved_rule_id=rule.id, expected_version=rule.version, preview_draft=True)
+        assert (await preview(body))['message_ids'] == [message.id]
+        assert (await preview(body.model_copy(update={'subject_contains': 'No match'})))['matched'] == 0
+        unchanged = body.model_copy(update={'subject_contains': '', 'folder_id': old_folder.id})
+        estimate = await preview(unchanged)
+        result = await apply_rule(rule.id, ApplyIn(expected_version=rule.version, confirm_apply=True,
+                                                   preview_message_ids=estimate['message_ids']))
+        assert estimate['matched'] == result['matched'] == result['app_changed'] == 1
+        assert (await mail_filing.for_message(message.id)).folder_id == old_folder.id
+        await mail_rule.update(rule.id, rule.version, name='Changed elsewhere')
+        with pytest.raises(HTTPException) as exc:
+            await preview(body)
+        assert exc.value.status_code == 409 and exc.value.detail['code'] == 'rule_version_conflict'
+    asyncio.run(run())
+
+
+def test_saved_rule_draft_preview_accounts_for_future_rule_version(pg_db):
+    async def run():
+        from api.mail import rules
+        from api.routers.api.v1.mail.rules import RulePreviewIn, preview
+        from db.accessors import mail_filing, mail_message, mail_rule
+        from db.engine import get_session_maker
+        from db.models.mail_account import MailAccount
+
+        async with get_session_maker().begin() as session:
+            session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
+        label = await mail_filing.create_destination('Work', 'label')
+        message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org')
+        rule = await mail_rule.create(name='Example', sender_domain='example.org', label_ids=[label.id], mark_read=True)
+        await rules.prepare_rule_run(rule.id, rule.version, message.id)
+        body = RulePreviewIn(name=rule.name, sender_domain=rule.sender_domain, label_ids=[label.id], mark_read=True,
+                             saved_rule_id=rule.id, expected_version=rule.version, preview_draft=True)
+        assert (await preview(body))['matched'] == 0
+        assert (await preview(body.model_copy(update={'name': 'Edited'})))['message_ids'] == [message.id]
+    asyncio.run(run())
+
+
 def test_manual_apply_reports_mail_changed_after_preview(pg_db):
     async def run():
         from api.routers.api.v1.mail.rules import ApplyIn, RulePreviewIn, apply_rule, preview
