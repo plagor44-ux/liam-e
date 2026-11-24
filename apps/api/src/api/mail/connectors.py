@@ -238,11 +238,12 @@ async def change_gmail_labels(
             raise LabelChangeUnconfirmed(None)
 
         labels = initial_labels
+        step_has_evidence = False
         for tool, changes, expected in (("label_message", added, present), ("unlabel_message", removed, absent)):
             if not changes:
                 continue
             has_confirmed_step = bool(present or absent)
-            if has_confirmed_step:
+            if step_has_evidence:
                 await mail_sync_state.record_connector_write(account.id, proof, outcome="confirmed")
             current = await mail_sync_state.get_state(account.id)
             current_proof = current.write_evidence() if current else None
@@ -256,6 +257,7 @@ async def change_gmail_labels(
             binding = (bound_mailbox(account, cursor=current.connector_cursor,
                                      generation=current.connector_generation, observed=current)
                        if has_confirmed_step else nullcontext())
+            labels_before = set(labels)
             has_receipt = True
             try:
                 async with binding:
@@ -273,7 +275,7 @@ async def change_gmail_labels(
                     raise LabelChangeUnconfirmed(labels) from None
                 raise
             except LabelChangeUnconfirmed as error:
-                if not has_receipt and error.labels is not None and set(error.labels) == set(labels):
+                if not has_receipt and error.labels is not None and set(error.labels) == labels_before:
                     await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged")
                 raise
             except (httpx.HTTPError, TimeoutError):
@@ -288,10 +290,12 @@ async def change_gmail_labels(
                                          generation=recovery.connector_generation, observed=recovery, check_after=True):
                     observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
                 raise LabelChangeUnconfirmed(observed) from None
+            else:
+                step_has_evidence = has_receipt or not labels_before.symmetric_difference(labels).isdisjoint(changes)
 
     if destination is not None and observed_folder(labels) != destination:
         raise LabelChangeUnconfirmed(labels)
-    if present or absent:
+    if step_has_evidence:
         # The write is already confirmed. A replaced pin cannot acquire this evidence.
         await mail_sync_state.record_connector_write(account.id, proof, outcome="confirmed")
     return initial_labels, labels

@@ -1274,6 +1274,53 @@ def test_confirmed_gmail_write_resets_unchanged_readback_streak(pg_db, monkeypat
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("intervening", ["already read", "already trashed step", "positive receipt"])
+def test_gmail_unchanged_streak_needs_receipt_or_requested_label_transition(pg_db, monkeypatch, intervening):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].add("UNREAD")
+        ids = await provider.connect(monkeypatch, provider="gmail")
+
+        async def no_delay(_seconds):
+            pass
+
+        monkeypatch.setattr(connectors, "sleep", no_delay)
+        empty_receipt = {"content": [{"type": "text", "text": "{}"}]}
+        target = f"{MAIL}/messages/{ids['target']}/actions"
+        sibling = f"{MAIL}/messages/{ids['sibling']}/actions"
+        provider.reject = empty_receipt
+        async with client() as browser:
+            unchanged = await browser.post(target, json={"kind": "mark_read"})
+            assert unchanged.status_code == 502
+            assert unchanged.json()["detail"]["code"] == "provider_failed"
+            state = await mail_sync_state.get_state(provider.account.id)
+            assert state.write_evidence()[2] == "unchanged"
+
+            if intervening == "already trashed step":
+                provider.labels["sibling"].add("TRASH")
+                move = await browser.post(sibling, json={"kind": "trash"})
+                assert move.status_code == 409
+                assert move.json()["detail"]["folder"] == "TRASH"
+                assert provider.writes[-2:] == [
+                    ("label_message", "sibling", ("TRASH",)), ("unlabel_message", "sibling", ("INBOX",))]
+            else:
+                if intervening == "positive receipt":
+                    provider.reject = None
+                satisfied = await browser.post(sibling, json={"kind": "mark_read"})
+                assert satisfied.status_code == 200
+                assert provider.labels["sibling"] == {"INBOX"}
+                provider.reject = empty_receipt
+                unchanged = await browser.post(target, json={"kind": "mark_read"})
+                assert unchanged.status_code == 502
+
+            state = await mail_sync_state.get_state(provider.account.id)
+            assert state.write_evidence()[2] == ("unchanged" if intervening == "positive receipt" else "blocked")
+            assert provider.labels["target"] == {"INBOX", "UNREAD"}
+            assert await mail_action.latest_open(ids["target"]) is None
+
+    asyncio.run(run())
+
+
 def test_gmail_commits_confirmed_action_after_pin_is_replaced(pg_db, monkeypatch):
     async def run():
         provider = StudioMailbox()
@@ -1331,6 +1378,8 @@ def test_gmail_point_readback_can_confirm_after_three_seconds(pg_db, monkeypatch
             assert result.json()["message"]["is_read"]
             assert sleeps == [1.0, 2.0]
             assert len(provider.writes) == 1
+            state = await mail_sync_state.get_state(provider.account.id)
+            assert state.write_evidence()[2] == "confirmed"
 
     asyncio.run(run())
 
