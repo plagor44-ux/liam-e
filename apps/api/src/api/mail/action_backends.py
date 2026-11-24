@@ -88,11 +88,15 @@ class LabelBackend:
         if gmail_studio(self.account):
             # Undo restores the labels controlled by this action and leaves other provider changes alone.
             managed = {"UNREAD"} if kind in {"mark_read", "mark_unread"} else {"INBOX", "TRASH"}
-            return await self._change(message, current, (current - managed) | (desired & managed))
+            destination = previous["folder"] if managed != {"UNREAD"} else None
+            return await self._change(message, current, (current - managed) | (desired & managed), destination=destination)
         await self._change(message, current, desired)
         return {"labels_json": previous["labels_json"]}
 
-    async def _change(self, message: MailMessage, current: set[str], desired: set[str], *, kind: ActionKind | None = None) -> dict:
+    async def _change(
+        self, message: MailMessage, current: set[str], desired: set[str], *,
+        kind: ActionKind | None = None, destination: str | None = None,
+    ) -> dict:
         trash_transition = ("TRASH" in desired) != (message.folder == "TRASH")
         if kind == "trash" or (kind in (None, "restore") and trash_transition):
             # Reassert both folder labels. Legacy copies can contain contradictory labels.
@@ -110,10 +114,18 @@ class LabelBackend:
                     action = "archive"
                 else:
                     action = "mark_unread" if "UNREAD" in added else "mark_read"
-            labels = await connectors.change_gmail_labels(self.account, message, added, removed, action=action)
-            folder = next((label for label in ("TRASH", "SPAM", "INBOX") if label in labels), "ARCHIVE")
-            return {"folder": folder, "is_read": "UNREAD" not in labels, "is_flagged": "STARRED" in labels,
-                    "labels_json": json.dumps(sorted(labels))}
+            if kind is not None:
+                destination = {"archive": "ARCHIVE", "trash": "TRASH", "restore": "INBOX"}.get(kind)
+            before, labels = await connectors.change_gmail_labels(
+                self.account, message, added, removed, action=action, destination=destination)
+            updates = {"folder": connectors.observed_folder(labels), "is_read": "UNREAD" not in labels,
+                       "is_flagged": "STARRED" in labels, "labels_json": json.dumps(sorted(labels))}
+            if kind is not None:
+                updates["connector_previous"] = {
+                    "folder": connectors.observed_folder(before), "is_read": "UNREAD" not in before,
+                    "labels_json": json.dumps(sorted(before)),
+                }
+            return updates
         if self.connector:
             await write_connector_labels(self.account, message, added=added, removed=removed)
         else:

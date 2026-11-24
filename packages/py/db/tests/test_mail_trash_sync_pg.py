@@ -1277,3 +1277,110 @@ def test_gmail_denial_in_mixed_bulk_keeps_other_accounts_and_blocks_only_its_bin
             assert gmail["action_capabilities"]["archive"] and not gmail["provider_actions_blocked"]
 
     asyncio.run(run())
+
+
+def test_gmail_archive_reconciles_a_conflicting_trash_destination_without_undo(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        provider.labels["target"] = {"TRASH", "UNREAD"}
+        provider.reject = {"content": [{"type": "text", "text": "{}"}]}
+        async with client() as browser:
+            target = ids["target"]
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "archive"})
+            assert result.status_code == 409
+            assert result.json()["detail"]["code"] == "provider_partial"
+            assert result.json()["detail"]["folder"] == "TRASH"
+            assert await listed(browser, "TRASH") == {target}
+            assert await mail_action.latest_open(target) is None
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["timeout", "http-500"])
+def test_gmail_trash_reads_current_state_after_the_second_write_fails(pg_db, monkeypatch, failure):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        original = provider.dispatch
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            if tool == "unlabel_message":
+                provider.writes.append((tool, "target", ("INBOX",)))
+                provider.labels["target"].add("STARRED")
+                request = httpx.Request("POST", "https://connector.example.test")
+                if failure == "timeout":
+                    raise httpx.ReadTimeout("synthetic timeout", request=request)
+                raise httpx.HTTPStatusError("synthetic error", request=request,
+                    response=httpx.Response(500, request=request))
+            result = await original(path, payload)
+            if tool == "label_message":
+                provider.labels["target"].discard("INBOX")
+            return result
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            target = ids["target"]
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert result.status_code == 409
+            assert result.json()["detail"]["folder"] == "TRASH"
+            assert result.json()["detail"]["code"] == "provider_partial"
+            assert await listed(browser, "TRASH") == {target}
+            assert (await mail_message.get_message(target)).is_flagged
+            assert await mail_action.latest_open(target) is None
+            assert [(tool, labels) for tool, _, labels in provider.writes] == [
+                ("label_message", ("TRASH",)), ("unlabel_message", ("INBOX",))]
+    asyncio.run(run())
+
+
+def test_gmail_rechecks_the_live_binding_before_the_second_trash_write(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        original = provider.dispatch
+        replacement = False
+
+        async def dispatch(path, payload):
+            nonlocal replacement
+            tool = urlsplit(path).path.split("/")[-2]
+            if tool == "get_thread" and payload["arguments"].get("threadId") == "anchor" and replacement:
+                return {"content": [{"type": "text", "text": json.dumps({"id": "anchor", "messages": []})}]}
+            result = await original(path, payload)
+            if tool == "get_thread" and payload["arguments"].get("threadId") == "mixed" and "TRASH" in provider.labels["target"]:
+                replacement = True
+            return result
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            target = ids["target"]
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert replacement
+            assert provider.writes == [("label_message", "target", ("TRASH",))]
+            assert result.status_code == 502
+            assert not (await mail_sync_state.get_state(provider.account.id)).connector_verified
+            assert await mail_action.latest_open(target) is None
+    asyncio.run(run())
+
+
+def test_gmail_trash_undo_restores_the_observed_archive_source(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].add("UNREAD")
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        provider.labels["target"].discard("INBOX")
+        async with client() as browser:
+            target = ids["target"]
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert result.status_code == 200
+            token = result.json()["action_id"]
+            record, = await mail_action.get_many([token])
+            prior = json.loads(record.previous_json)
+            assert prior["folder"] == "ARCHIVE"
+            assert json.loads(prior["labels_json"]) == ["UNREAD"]
+            assert not prior["is_read"]
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]})
+            assert undo.json()["restored"] == [token]
+            assert provider.labels["target"] == {"UNREAD"}
+            assert await listed(browser, "ARCHIVE") == {target}
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+    asyncio.run(run())

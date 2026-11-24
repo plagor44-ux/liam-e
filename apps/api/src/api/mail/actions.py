@@ -84,7 +84,7 @@ async def _reconcile_connector_labels(message: MailMessage, labels: list[str] | 
     folder_labels = ("TRASH", "SPAM", "INBOX")
     observed = set(labels)
     current = set(json.loads(message.labels_json)) | {message.folder}
-    folder = next((label for label in folder_labels if label in observed), "ARCHIVE")
+    folder = connectors.observed_folder(observed)
     if message.folder == folder and current.intersection(folder_labels) == observed.intersection(folder_labels):
         return None
     await message_access.commit_trash_move(message, {
@@ -140,6 +140,7 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
         except Exception as error:
             logger.warning("%s", type(error).__name__)
             raise ActionFailedError() from None
+        previous.update(updates.pop("connector_previous", {}))
         action = MailAction(message_id=message.id, account_id=account.id, kind=kind, previous_json=json.dumps(previous))
         await message_access.commit_trash_move(message, changes | updates, action=action)
         return action
