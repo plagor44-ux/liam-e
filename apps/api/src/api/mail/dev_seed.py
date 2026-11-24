@@ -123,6 +123,7 @@ async def seed_filing() -> None:
     from db.models.mail_filing import MailFiling
     from db.models.mail_label_assignment import MailLabelAssignment
     from db.models.mail_rule import MailRule
+    from db.models.mail_rule_action import MailRuleAction
     from db.models.mail_rule_run import MailRuleRun
     from db.models.mail_filing_usage import MailFilingUsage
 
@@ -141,8 +142,10 @@ async def seed_filing() -> None:
     runs = [MailRuleRun(id=seed_id("rule-run", "studio-skip"), rule_id=rules[1].id, rule_version=1,
                         message_id=seed_id("mail", "hausverwaltung-nebenkosten"), account_id=seed_id("account", "privat"),
                         status="done", provider_results_json=json.dumps({"mark_read": "skipped_unsupported"}))]
+    actions = [MailRuleAction(id=seed_id("rule-action", "studio-skip"), rule_id=runs[0].rule_id, message_id=runs[0].message_id,
+                              kind="mark_read", run_id=runs[0].id, status="skipped_unsupported")]
     usage = [MailFilingUsage(destination_id=folder.id, use_count=7), MailFilingUsage(destination_id=label.id, use_count=4)]
-    await seed_access.replace_filing([folder, label], filings, labels, rules, runs, usage)
+    await seed_access.replace_filing([folder, label], filings, labels, rules, runs, usage, actions)
 
 
 async def seed(now: datetime | None = None) -> SeedResult:

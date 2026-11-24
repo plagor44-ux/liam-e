@@ -328,10 +328,23 @@ Confirmation checks the rule version and refuses paused rules with `409 rule_ina
 mail and reports actual app changes, provider actions previously handled or
 queued, and conflicts. App assignments and first-time provider jobs commit in one transaction.
 Manual application restores removed labels and preserves existing folders; automatic reruns remain
-deduplicated. Existing provider outcomes, including unknown, are never dispatched again for the same
-rule version and message. Newly queued provider work uses the durable worker and recovery protocol;
+deduplicated. Runs stay unique per rule version and mail, but each provider action has one durable
+identity per rule, mail and action kind across versions (`mail_rule_action`): it runs at most once
+for that rule and mail, and only the run holding the claim dispatches it. A rename or any edit that
+adds no action queues nothing; a newly added action runs on the next apply; an action removed and
+added again stays handled for mail it already reached. Unknown, dispatched and observed outcomes
+are never sent again. An explicit manual apply, never an automatic run, claims again a skip that
+was recorded before any dispatch (`skipped_unsupported`, `skipped_permission` or `skipped_stale`
+with `dispatched` false) and a pending claim of an older version, which can no longer dispatch;
+`require_action` then checks the capability again. A run with an uncertain outcome still stops its
+remaining actions. Preview and confirmation count an already claimed action as handled, or as
+queued while its run can still finish it. The generated migration collapses existing runs per
+action: unknown, in-flight and unrecognized states become unknown, then done, observed partial
+results and permission skips win, all marked dispatched; historical permission skips stay blocked
+because they cannot prove the write was never sent. Only pending claims and unsupported or stale
+skips stay undispatched. Newly queued provider work uses the durable worker and recovery protocol;
 an interrupted provider dispatch becomes unknown without being resent. Verified duplicate merges retain rule-run
-deduplication; conflicting uncertain dispatches become unknown. Run outcomes identify a folder
+and claim deduplication; conflicting uncertain dispatches become unknown. Run outcomes identify a folder
 assignment overridden by a higher-priority match using the reserved `_folder: overridden` entry in
 the run results (not a provider action). On an IMAP UIDVALIDITY change, the rebuilt page
 has no reliable old/new delivery identity, so it is conservatively excluded from new-mail rule
@@ -800,6 +813,7 @@ never executed or loaded; instructions in descriptions remain plain data.
 - `mail_message` — mail index with `folder`, `provider_uid`, `thread_id`, `subject`, `sender`, `sender_address`, `recipients_json`, `cc_json`, `reply_to_json` (Reply-To addresses; replies go there instead of the sender; the Gmail connector does not provide them), `snippet`, `body_text`, `body_version` (text version, 0 = before versioning), `internal_date`, read/priority flags, `labels_json`, `attachments_json`, `list_unsubscribe` and `list_unsubscribe_post`; unique (`account_id`, `folder`, `provider_uid`), full-text index `search_tsv`.
 - `mail_sync_state` — cursor, status, error and last sync per account.
 - `mail_action` — executed action with `previous_json` and `undone_at` for undo.
+- `mail_rule_run`, `mail_rule_action` — one run per rule version and mail with its local result and per-action outcomes; one provider-action claim per rule, mail and action kind across versions with the owning run, status and whether a dispatch may have happened.
 - `mail_insight` — summary (`points_json`), deadline, reply need, follow-up suggestions and model per mail.
 - `mail_job` — durable sync/insight queue with status, deduplication, attempts and lock time.
 - `chat_conversation`, `chat_message` — history; proposals in `proposal_json` with `proposal_status`, mail references/proposals/model in `extras_json`; older drafts carry `draft_json`.

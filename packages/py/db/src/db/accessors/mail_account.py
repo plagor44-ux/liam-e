@@ -82,6 +82,7 @@ async def update_display_name(account_id: str, display_name: str) -> MailAccount
 async def delete_account(account_id: str) -> bool:
     from db.accessors import chat_settings, user_preference
     from db.models.mail_rule import MailRule
+    from db.models.mail_rule_action import MailRuleAction
     from db.models.mail_rule_run import MailRuleRun
     async with get_session_maker()() as session:
         await user_preference.lock(session)
@@ -91,6 +92,7 @@ async def delete_account(account_id: str) -> bool:
         await chat_settings.remove_account(session, account_id)
         await user_preference.remove_account_in_session(session, account_id)
         rule_ids = select(MailRule.id).where(MailRule.account_id == account_id)
+        await session.execute(delete(MailRuleAction).where(MailRuleAction.rule_id.in_(rule_ids)))
         await session.execute(delete(MailRuleRun).where(MailRuleRun.rule_id.in_(rule_ids)))
         await session.execute(delete(MailRule).where(MailRule.account_id == account_id))
         await session.delete(account)

@@ -113,9 +113,6 @@ async def matching_messages(rule: MailRule):
 
 @router.post("/preview", operation_id="mail_rules_preview", response_model=RulePreviewOut)
 async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
-    from sqlalchemy import select
-    from db.engine import get_session_maker
-
     saved_id = getattr(body, 'saved_rule_id', None)
     draft_changed = False
     if saved_id:
@@ -143,15 +140,13 @@ async def preview(body: RulePreviewIn) -> dict[str, int | list[str]]:
     message_ids = []
     async for page in matching_pages(rule):
         filings = await mail_filing.for_messages([message.id for message in page])
-        async with get_session_maker()() as session:
-            existing = set((await session.scalars(select(MailRuleRun.message_id).where(
-                MailRuleRun.rule_id == rule.id, MailRuleRun.rule_version == rule.version,
-                MailRuleRun.message_id.in_([message.id for message in page])))).all()) if saved_id and not draft_changed else set()
+        # Provider actions count only where no version of this rule has claimed them for the mail yet.
+        provider_work = await mail_rule_run.new_provider_work(rule.id, rule.version, mail_rule_run.enabled_kinds(rule),
+            [message.id for message in page], new_version=not saved_id or draft_changed)
         for message in page:
             filing = filings[message.id]
             _, folder_change, labels = mail_rule_run.local_changes(message, rule, active, filing.folder_id, filing.label_ids, rule_engine.matches)
-            provider = any((rule.mark_read, rule.mark_unread, rule.archive)) and message.id not in existing
-            if folder_change or labels or provider:
+            if folder_change or labels or message.id in provider_work:
                 matched += 1
                 already_filed += bool(filing.folder_id)
                 message_ids.append(message.id)

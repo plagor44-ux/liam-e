@@ -55,7 +55,7 @@ export const en = {
     editorConflict: 'The rule was changed elsewhere. Load the saved rule and discard your draft, or keep your draft. The next save will replace the newer version.',
     editorLoadSaved: 'Load saved rule', editorKeepDraft: 'Keep draft', editorRuleMissing: 'The rule no longer exists. Your draft is retained; you can cancel it.', editorLoadFailed: 'The saved rule could not be loaded. Try again.',
     ruleInactive: 'The rule is paused. Activate it to continue.',
-    applyDescription: 'The preview shows the current state. Provider actions are queued only once and run only if the account supports them.',
+    applyDescription: 'The preview shows the current state. The rule runs each provider action at most once per email, even after you edit it. An action skipped before it was sent can run when you apply the rule again and the account supports it.',
     outcomes: 'Recent runs', noRuns: 'No runs yet.', localDone: 'App filing saved', skipped: 'Skipped at provider', providerIncomplete: 'Provider action incomplete', unknown: 'Provider result unknown', completed: 'Completed', stale: 'Rule has changed', conflict: 'Email no longer in inbox', pending: 'Waiting to run',
     folderOverridden: 'Folder not assigned: a higher-priority rule takes precedence.', providerReconciled: 'The email stayed in its folder.',
     imapRebuild: 'Rules were not automatically applied to emails from this IMAP mailbox rebuild. You can apply them manually. Summaries for unread emails are filled as usual.',

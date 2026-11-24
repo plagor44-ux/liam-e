@@ -1128,24 +1128,34 @@ def test_saved_rule_editor_preview_replaces_its_saved_copy(pg_db):
     asyncio.run(run())
 
 
-def test_saved_rule_draft_preview_accounts_for_future_rule_version(pg_db):
+def test_saved_rule_draft_preview_counts_only_unclaimed_provider_actions(pg_db, monkeypatch):
     async def run():
-        from api.mail import rules
+        from unittest.mock import AsyncMock
+        from api.mail import action_capabilities, actions, rules
         from api.routers.api.v1.mail.rules import RulePreviewIn, preview
         from db.accessors import mail_filing, mail_message, mail_rule
         from db.engine import get_session_maker
         from db.models.mail_account import MailAccount
 
+        monkeypatch.setattr(action_capabilities, 'require_action', AsyncMock())
+        monkeypatch.setattr(actions, 'apply_action', writer := AsyncMock())
         async with get_session_maker().begin() as session:
             session.add(MailAccount(id='synthetic', provider='imap', auth_type='imap_password', email_address='owner@example.org'))
         label = await mail_filing.create_destination('Work', 'label')
         message = await mail_message.upsert_message(account_id='synthetic', folder='INBOX', provider_uid='test', sender_address='person@example.org')
         rule = await mail_rule.create(name='Example', sender_domain='example.org', label_ids=[label.id], mark_read=True)
-        await rules.prepare_rule_run(rule.id, rule.version, message.id)
+        prepared = await rules.prepare_rule_run(rule.id, rule.version, message.id)
         body = RulePreviewIn(name=rule.name, sender_domain=rule.sender_domain, label_ids=[label.id], mark_read=True,
                              saved_rule_id=rule.id, expected_version=rule.version, preview_draft=True)
+        renamed = body.model_copy(update={'name': 'Edited'})
         assert (await preview(body))['matched'] == 0
-        assert (await preview(body.model_copy(update={'name': 'Edited'})))['message_ids'] == [message.id]
+        # Saving the rename would leave the queued run stale before it dispatches, so the action is still open.
+        assert (await preview(renamed))['message_ids'] == [message.id]
+        await rules.dispatch_rule_run(prepared)
+        writer.assert_awaited_once_with(message.id, 'mark_read')
+        # Once dispatched, a rename claims nothing this rule already handled for the mail.
+        assert (await preview(renamed))['matched'] == 0
+        assert (await preview(body.model_copy(update={'name': 'Edited', 'archive': True})))['message_ids'] == [message.id]
     asyncio.run(run())
 
 

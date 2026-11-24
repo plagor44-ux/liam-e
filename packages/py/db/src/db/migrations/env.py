@@ -58,6 +58,43 @@ def compare_removed_checks(autogen_context, modify_ops, schema, name, reflected,
 
 mail_downgrade = rewriter.Rewriter()
 
+# One identity per rule, mail and provider action, collapsed from every rule version's run. An
+# uncertain, dispatched or observed outcome wins over every skip; a historical permission skip may
+# have followed a dispatch and stays blocked. Only an unsupported or stale skip, which the old code
+# recorded strictly before dispatch, and a still-pending claim remain undispatched.
+RULE_ACTION_BACKFILL = """
+    WITH entries AS (
+        SELECT run.id AS run_id, run.rule_id, run.message_id, run.rule_version, entry.key AS kind, entry.value AS status
+        FROM mail_rule_run AS run
+        CROSS JOIN LATERAL jsonb_each_text(CASE WHEN jsonb_typeof(run.provider_results_json::jsonb) = 'object'
+                                                THEN run.provider_results_json::jsonb ELSE '{}'::jsonb END) AS entry
+        WHERE entry.key IN ('mark_read', 'mark_unread', 'archive')
+    ), ranked AS (
+        SELECT entries.*, CASE
+            WHEN status = 'done' THEN 2
+            WHEN status IN ('partial_permission', 'partial', 'reconciled_permission', 'reconciled') THEN 3
+            WHEN status = 'skipped_permission' THEN 4
+            WHEN status = 'pending' THEN 5
+            WHEN status = 'skipped_unsupported' THEN 6
+            WHEN status = 'skipped_stale' THEN 7
+            ELSE 1 END AS rank
+        FROM entries
+    )
+    INSERT INTO mail_rule_action (id, rule_id, message_id, kind, run_id, status, dispatched, created_at, updated_at)
+    SELECT DISTINCT ON (rule_id, message_id, kind) gen_random_uuid()::text, rule_id, message_id, kind, run_id,
+           CASE WHEN rank = 1 THEN 'unknown' ELSE status END, rank < 5, now(), now()
+    FROM ranked
+    ORDER BY rule_id, message_id, kind, rank, rule_version DESC, run_id
+"""
+
+
+@mail_downgrade.rewrites(ops.CreateTableOp)
+def backfill_rule_actions(context, revision, operation):
+    """Generate the conservative per-action backfill from existing rule runs."""
+    if operation.table_name != "mail_rule_action":
+        return operation
+    return [operation, ops.ExecuteSQLOp(RULE_ACTION_BACKFILL)]
+
 
 @mail_downgrade.rewrites(ops.DropColumnOp)
 def rewrite_data_handoffs(context, revision, operation):

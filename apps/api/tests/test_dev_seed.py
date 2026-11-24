@@ -45,10 +45,12 @@ async def test_filing_seed_includes_unsupported_studio_action(monkeypatch):
     replace = AsyncMock()
     monkeypatch.setattr(dev_seed.seed_access, 'replace_filing', replace)
     await dev_seed.seed_filing()
-    destinations, _, labels, rules, runs, usage = replace.await_args.args
+    destinations, _, labels, rules, runs, usage, actions = replace.await_args.args
     rule = next(row for row in rules if row.id == dev_seed.seed_id('rule', 'studio-skip'))
     assert rule.mark_read and rule.account_id == dev_seed.seed_id('account', 'privat')
     assert runs[0].rule_id == rule.id and json.loads(runs[0].provider_results_json) == {'mark_read': 'skipped_unsupported'}
+    assert [(row.run_id, row.message_id, row.kind, row.status, row.dispatched) for row in actions] == [
+        (runs[0].id, runs[0].message_id, 'mark_read', 'skipped_unsupported', False)]
     assert any(row.message_id == runs[0].message_id and row.label_id in rule.label_ids for row in labels)
     assert {row.destination_id for row in usage} == {row.id for row in destinations}
     assert all(row.use_count > 0 for row in usage)
