@@ -70,6 +70,53 @@ test('permission-denied partial trash keeps the reported trash row and explains 
   expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
 })
 
+test.each(['provider_partial', 'provider_permission_missing'] as const)('a reconciled folder explains that Gmail did not move the message (%s)', async code => {
+  spyOn(sdk, 'mailMessageAction').mockResolvedValue({
+    error: { detail: { code, folder: 'TRASH', reconciled: true } }, response: { status: 409 },
+  } as never)
+  setup()
+  fireEvent.click(screen.getByText('trash 2'))
+  const status = await screen.findByRole('status')
+  expect(status.textContent).toContain('Die Mail wurde durch diese Aktion nicht verschoben.')
+  expect(status.textContent).not.toContain('nur einen Teil')
+  expect(status.textContent?.includes(de.errors.provider_permission_missing)).toBe(code === 'provider_permission_missing')
+  expect(screen.queryByText('Zweite:false')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+})
+
+test('bulk feedback distinguishes a reconciled row from a partially applied change', async () => {
+  spyOn(sdk, 'mailMessagesBulkAction').mockResolvedValue({
+    data: { results: [
+      { message_id: '1', status: 'partial', folder: 'TRASH', reconciled: true },
+      { message_id: '2', status: 'partial', folder: 'TRASH' },
+    ] }, response: { ok: true },
+  } as never)
+  setup()
+  fireEvent.click(screen.getByText('bulk trash'))
+  const status = await screen.findByRole('status')
+  expect(status.textContent).toContain('1 Mail wurde nicht verschoben.')
+  expect(status.textContent).toContain(de.inbox.bulkProviderPartial(1))
+  expect(status.textContent).not.toContain(de.inbox.bulkProviderPartial(2))
+  expect(screen.queryByRole('button', { name: 'Rückgängig' })).toBeNull()
+})
+
+test('group undo displays the unsupported hint when all tokens fail verification', async () => {
+  spyOn(sdk, 'mailMessagesBulkAction').mockResolvedValue({
+    data: { results: ['1', '2'].map(id => ({ message_id: id, status: 'done', action_id: `action-${id}` })) }, response: { ok: true },
+  } as never)
+  spyOn(sdk, 'mailActionsUndo').mockResolvedValue({
+    data: { restored: [], failed: ['action-1', 'action-2'], skipped: [], expired: [], error_code: 'provider_action_unsupported' },
+    response: { status: 200 },
+  } as never)
+  setup()
+  fireEvent.click(screen.getByText('bulk archive'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Rückgängig' }))
+  expect((await screen.findByRole('status')).textContent).toBe(de.errors.provider_action_unsupported)
+  expect(screen.queryByText('Erste:false')).toBeNull()
+  expect(screen.queryByText('Zweite:false')).toBeNull()
+})
+
+
 test('permission-denied trash rolls back the inbox and only shows the permission reason', async () => {
   spyOn(sdk, 'mailMessageAction').mockResolvedValue({
     error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 },

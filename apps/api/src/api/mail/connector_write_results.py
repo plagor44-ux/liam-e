@@ -20,9 +20,10 @@ class WriteRefused(ValueError):
 class PermissionMissing(WriteRefused):
     code = PERMISSION_MISSING
 
-    def __init__(self, labels: list[str] | None = None):
+    def __init__(self, labels: list[str] | None = None, *, provider_unchanged: bool = False):
         super().__init__()
         self.labels = labels
+        self.provider_unchanged = provider_unchanged
 
 
 class WriteUnconfirmed(WriteRefused):

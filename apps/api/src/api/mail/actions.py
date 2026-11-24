@@ -33,12 +33,13 @@ class ActionFailedError(RuntimeError):
 
 
 class ActionPartialError(ActionFailedError):
-    """The provider changed the folder labels but did not complete the action."""
+    """The action failed, but the observed folder was reconciled in the index."""
 
-    def __init__(self, folder: str, error_code: str | None = None):
-        super().__init__("The provider only partly applied the action")
+    def __init__(self, folder: str, error_code: str | None = None, *, reconciled: bool = False):
+        super().__init__("The provider folder was reconciled after an incomplete action")
         self.folder = folder
         self.error_code = error_code
+        self.reconciled = reconciled
 
 
 class ActionUnsupportedError(RuntimeError):
@@ -134,12 +135,12 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
         except write_result.PermissionMissing as error:
             folder = await _reconcile_connector_labels(message, error.labels)
             if folder is not None:
-                raise ActionPartialError(folder, error.code) from None
+                raise ActionPartialError(folder, error.code, reconciled=error.provider_unchanged) from None
             raise
         except connectors.LabelChangeUnconfirmed as error:
             folder = await _reconcile_connector_labels(message, error.labels)
             if folder is not None:
-                raise ActionPartialError(folder) from None
+                raise ActionPartialError(folder, reconciled=error.provider_unchanged) from None
             logger.warning("%s", type(error).__name__)
             raise ActionFailedError() from None
         except Exception as error:
@@ -187,6 +188,7 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
             except HTTPException as error:
                 if error.status_code != 403:
                     raise
+    unsupported = 0
     known = {row.id for row in rows}
     result.skipped.extend(key for key in dict.fromkeys(action_ids) if key not in known)
     for action in sorted(rows, key=lambda row: (_aware(row.created_at), row.id), reverse=True):
@@ -227,8 +229,12 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
                 await action_access.release(action.id)
             result.failed.append(action.id)
         except Exception as error:
-            if isinstance(error, HTTPException) and isinstance(error.detail, dict) and error.detail.get("code") == write_result.PERMISSION_MISSING:
-                result.error_code = write_result.PERMISSION_MISSING
+            if isinstance(error, HTTPException) and isinstance(error.detail, dict):
+                code = error.detail.get("code")
+                if code == write_result.PERMISSION_MISSING:
+                    result.error_code = code
+                elif error.status_code == 409 and code == action_capabilities.ERROR_CODE:
+                    unsupported += 1
             logger.warning("%s", type(error).__name__)
             await action_access.release(action.id)
             result.failed.append(action.id)
@@ -238,4 +244,6 @@ async def undo_actions(action_ids: list[str], *, now: datetime) -> UndoResult:
             else:
                 await _write_provider_state(message, previous | updates, folder=previous["folder"])
             result.restored.append(action.id)
+    if unsupported and unsupported == len(set(action_ids)):
+        result.error_code = action_capabilities.ERROR_CODE
     return result

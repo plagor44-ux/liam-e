@@ -17,7 +17,7 @@ type Change = { key: QueryKey; page: number; index: number; row: MessageListItem
 type GroupItem = { actionId: string; messageId: string; changes: Change[]; previousRead?: boolean }
 export type UndoEntry = { actionId: string; messageId: string; kind: Kind; changes: Change[]; previousRead?: boolean; group?: GroupItem[]; partial?: boolean; wrap?: boolean; text: string; label: string; deadline: number; pending: boolean }
 const LIMIT = 20
-const partialFolder = z.object({ detail: z.object({ folder: z.enum(['INBOX', 'TRASH', 'ARCHIVE', 'SPAM']) }) })
+const partialFolder = z.object({ detail: z.object({ folder: z.enum(['INBOX', 'TRASH', 'ARCHIVE', 'SPAM']), reconciled: z.boolean().optional() }) })
 const inFolder = ({ key }: Change, folder: string) => {
   const filters = key[1]
   const listedFolder = filters && typeof filters === 'object' && 'folder' in filters ? filters.folder : 'INBOX'
@@ -159,8 +159,9 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         const retained = folder && changes.filter(change => inFolder(change, folder))
         if (retained) restore(retained, removal)
         reconcile.current = true
-        const partial = folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial
-        if (!options?.silent) notify(code === 'provider_permission_missing' ? `${partial} ${texts.errors.provider_permission_missing}` : partial, 'danger', code === 'provider_permission_missing')
+        const reconciled = parsed.success && parsed.data.detail.reconciled === true
+        const partial = reconciled ? texts.inbox.providerReconciled : folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial
+        if (!options?.silent) notify(code === 'provider_permission_missing' ? `${partial} ${texts.errors.provider_permission_missing}` : partial, 'danger', reconciled || code === 'provider_permission_missing')
         void client.invalidateQueries({ queryKey: ['summary'] })
         void client.invalidateQueries({ queryKey: ['message', id] })
         return Boolean(retained?.length)
@@ -252,12 +253,16 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         const base = texts.inbox.bulkResult(kind, group.length, ids.length)
         const permissionMissing = result.data.results.some(row => row.error_code === 'provider_permission_missing')
         if (permissionMissing) void client.invalidateQueries({ queryKey: ['accounts'] })
-        const text = [base, partial.length ? texts.inbox.bulkProviderPartial(partial.length) : '',
+        const reconciled = partial.filter(row => row.reconciled).length
+        const partlyChanged = partial.length - reconciled
+        const wrap = permissionMissing || reconciled > 0
+        const text = [base, partlyChanged ? texts.inbox.bulkProviderPartial(partlyChanged) : '',
+          reconciled ? texts.inbox.bulkProviderReconciled(reconciled) : '',
           permissionMissing ? texts.errors.provider_permission_missing : ''].filter(Boolean).join(' ')
         if (group.length) {
           setNotice(null)
-          publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, wrap: permissionMissing, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
-        } else notify(text, 'danger', permissionMissing)
+          publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, wrap, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
+        } else notify(text, 'danger', wrap)
         reconcile.current = true
         void client.invalidateQueries({ queryKey: ['summary'] })
       } catch {
@@ -300,8 +305,12 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           const restored = group.filter(item => result.data!.restored.includes(item.actionId))
           restore(restored.flatMap(item => item.changes).sort((a, b) => a.page - b.page || a.index - b.index), removes(selected.kind))
           for (const item of restored) if (!removes(selected.kind) && item.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', item.messageId], data => data && { ...data, is_read: item.previousRead! })
-          if (restored.length !== group.length) notify(result.data.error_code === 'provider_permission_missing'
-            ? texts.errors.provider_permission_missing : texts.inbox.bulkUndoFailed(group.length - restored.length), 'danger', code === 'provider_permission_missing')
+          if (restored.length !== group.length) {
+            const notice = code === 'provider_permission_missing' ? texts.errors.provider_permission_missing
+              : code === 'provider_action_unsupported' ? texts.errors.provider_action_unsupported
+                : texts.inbox.bulkUndoFailed(group.length - restored.length)
+            notify(notice, 'danger', code === 'provider_permission_missing')
+          }
         } else if (result.data?.restored.includes(selected.actionId)) {
           restore(selected.changes, removes(selected.kind))
           if (!removes(selected.kind) && selected.previousRead !== undefined) client.setQueryData<MessageDetailOut>(['message', selected.messageId], data => data && { ...data, is_read: selected.previousRead! })

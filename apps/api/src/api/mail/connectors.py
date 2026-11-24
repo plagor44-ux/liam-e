@@ -101,9 +101,10 @@ class ToolNotAllowedError(ValueError):
 class LabelChangeUnconfirmed(ValueError):
     """A failed mutation can still leave a message-specific provider state."""
 
-    def __init__(self, labels: list[str] | None):
+    def __init__(self, labels: list[str] | None, *, provider_unchanged: bool = False):
         super().__init__("Connector label change not confirmed")
         self.labels = labels
+        self.provider_unchanged = provider_unchanged
 
 
 async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeout: float = _TOOL_TIMEOUT_SECONDS) -> str:
@@ -240,7 +241,7 @@ async def change_gmail_labels(
         if source_folders is not None:
             live_folder = observed_folder(initial_labels)
             if live_folder not in source_folders:
-                raise LabelChangeUnconfirmed(initial_labels)
+                raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
             if destination == "INBOX":
                 # Restore changes only folder labels. The pinned read supplies the source.
                 added = ["INBOX"]
@@ -252,6 +253,7 @@ async def change_gmail_labels(
 
         labels = initial_labels
         step_has_evidence = False
+        provider_changed = False
         for tool, changes, expected in (("label_message", added, present), ("unlabel_message", removed, absent)):
             if not changes:
                 continue
@@ -263,7 +265,7 @@ async def change_gmail_labels(
             if current is None or current_proof is None or current_proof[:2] != proof:
                 raise MailboxUnavailable()
             if current_proof[2] == "blocked":
-                raise write_result.PermissionMissing(labels if has_confirmed_step else None)
+                raise write_result.PermissionMissing(labels, provider_unchanged=not provider_changed)
 
             # The first write uses the anchor just checked above. Later writes recheck it
             # because Studio can reconnect the same credential name to another mailbox.
@@ -282,7 +284,7 @@ async def change_gmail_labels(
                     labels = await _confirm_label_change(provider, thread, uid, present, absent, point_only=True)
             except write_result.PermissionMissing:
                 await mail_sync_state.record_connector_write(account.id, proof, outcome="blocked")
-                raise write_result.PermissionMissing(labels if has_confirmed_step else None) from None
+                raise write_result.PermissionMissing(labels, provider_unchanged=not provider_changed) from None
             except write_result.WriteRefused:
                 if has_confirmed_step:
                     raise LabelChangeUnconfirmed(labels) from None
@@ -291,7 +293,7 @@ async def change_gmail_labels(
                 if not has_receipt and error.labels is not None and set(error.labels) == labels_before:
                     paused = await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged")
                     if paused:
-                        raise write_result.PermissionMissing(error.labels) from None
+                        raise write_result.PermissionMissing(error.labels, provider_unchanged=not provider_changed) from None
                 raise
             except (httpx.HTTPError, TimeoutError):
                 if not has_confirmed_step:
@@ -306,7 +308,9 @@ async def change_gmail_labels(
                     observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
                 raise LabelChangeUnconfirmed(observed) from None
             else:
-                step_has_evidence = has_receipt or not labels_before.symmetric_difference(labels).isdisjoint(changes)
+                changed_labels = labels_before.symmetric_difference(labels)
+                provider_changed = provider_changed or bool(changed_labels)
+                step_has_evidence = has_receipt or not changed_labels.isdisjoint(changes)
 
     if destination is not None and observed_folder(labels) != destination:
         raise LabelChangeUnconfirmed(labels)

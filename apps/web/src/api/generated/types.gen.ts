@@ -340,6 +340,10 @@ export type BulkMessageActionResult = {
      */
     message_id: string;
     /**
+     * Reconciled
+     */
+    reconciled?: boolean;
+    /**
      * Status
      */
     status: 'done' | 'not_found' | 'unsupported' | 'failed' | 'partial';

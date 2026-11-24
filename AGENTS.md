@@ -107,8 +107,9 @@ The first ordinary action confirms the provider change through a current point r
 write evidence applies to that binding. Folder actions and their inverses check the live source
 before dispatch. Restore uses that source and preserves the observed read flag. Read-status Undo
 compares the saved flag with the live labels. If the original action left the flag unchanged, Undo
-only refreshes the local row. A mixed Undo checks each token
-separately if an account is paused or its verification is lost. A recognized permission denial
+only refreshes the local row. A mixed Undo checks each token separately. If all tokens are
+unsupported, the group shows the unsupported hint. When an action only reconciles the local
+folder, its response marks that result so the UI can explain it. A recognized permission denial
 pauses mail actions immediately with `provider_permission_missing`. Without a receipt, the first
 unchanged point readback returns `provider_failed`. The second consecutive unchanged result pauses
 the binding and returns `provider_permission_missing` on that request. A positive receipt or an

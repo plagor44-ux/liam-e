@@ -559,6 +559,11 @@
             "title": "Message Id",
             "type": "string"
           },
+          "reconciled": {
+            "default": false,
+            "title": "Reconciled",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "done",

@@ -1559,6 +1559,65 @@ def test_mixed_bulk_undo_restores_other_account_when_gmail_binding_is_unavailabl
     asyncio.run(run())
 
 
+def test_gmail_group_undo_reports_unsupported_when_every_token_loses_verification(pg_db, monkeypatch):
+    from db.accessors import chat_settings
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        async with client() as browser:
+            bulk = await browser.post(f"{MAIL}/messages/actions", json={"kind": "archive", "message_ids": list(ids.values())})
+            assert bulk.status_code == 200
+            assert all(row["status"] == "done" for row in bulk.json()["results"])
+            tokens = [row["action_id"] for row in bulk.json()["results"]]
+            assert len(tokens) == 2 and all(tokens)
+            await chat_settings.invalidate_connector(provider.account.id)
+            writes = list(provider.writes)
+
+            undo = await browser.post(f"{MAIL}/actions/undo", json={"action_ids": tokens})
+            assert undo.status_code == 200
+            assert set(undo.json()["failed"]) == set(tokens)
+            assert undo.json()["restored"] == []
+            assert undo.json()["error_code"] == "provider_action_unsupported"
+            assert provider.writes == writes
+            for mid in ids.values():
+                assert (await mail_action.latest_open(mid)).id in tokens
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("denial", ["explicit", "unchanged"])
+def test_gmail_pause_reconciles_folder_without_reporting_a_provider_change(pg_db, monkeypatch, denial):
+    async def run():
+        provider = StudioMailbox()
+        provider.labels["target"].add("UNREAD")
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+
+        async def no_delay(_seconds):
+            pass
+
+        monkeypatch.setattr(connectors, "sleep", no_delay)
+        provider.reject = {"content": [{"type": "text", "text": "Insufficient authentication scopes." if denial == "explicit" else "{}"}]}
+        async with client() as browser:
+            path = f"{MAIL}/messages/{target}/actions"
+            if denial == "unchanged":
+                first = await browser.post(path, json={"kind": "mark_read"})
+                assert first.status_code == 502
+            provider.labels["target"] = {"UNREAD", "STARRED"}
+            paused = await browser.post(path, json={"kind": "mark_read"})
+            assert paused.status_code == 409
+            detail = paused.json()["detail"]
+            assert detail["code"] == "provider_permission_missing"
+            assert detail["folder"] == "ARCHIVE" and detail["reconciled"] is True
+            assert "nicht verschoben" in detail["message"]
+            assert provider.labels["target"] == {"UNREAD", "STARRED"}
+            assert await listed(browser, "ARCHIVE") == {target}
+            assert await mail_action.latest_open(target) is None
+
+    asyncio.run(run())
+
+
 def test_gmail_undo_restore_reconciles_live_spam_without_dispatch(pg_db, monkeypatch):
     async def run():
         provider = StudioMailbox()
@@ -1671,8 +1730,9 @@ def test_gmail_undo_uses_live_read_flag_and_releases_an_unconfirmed_token(pg_db,
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("entry_point", ["single", "bulk"])
 @pytest.mark.parametrize("live_folder", ["SPAM", "TRASH"])
-def test_gmail_trash_reconciles_a_disallowed_live_source_without_writing(pg_db, monkeypatch, live_folder):
+def test_gmail_trash_reconciles_a_disallowed_live_source_without_writing(pg_db, monkeypatch, live_folder, entry_point):
     async def run():
         provider = StudioMailbox()
         ids = await provider.connect(monkeypatch, provider="gmail")
@@ -1680,10 +1740,18 @@ def test_gmail_trash_reconciles_a_disallowed_live_source_without_writing(pg_db, 
         labels = {live_folder, "UNREAD"}
         provider.labels["target"] = set(labels)
         async with client() as browser:
-            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
-            assert result.status_code == 409
-            assert result.json()["detail"]["code"] == "provider_partial"
-            assert result.json()["detail"]["folder"] == live_folder
+            if entry_point == "bulk":
+                result = await browser.post(f"{MAIL}/messages/actions", json={"kind": "trash", "message_ids": [target]})
+                assert result.status_code == 200
+                detail, = result.json()["results"]
+                assert detail["status"] == "partial" and detail["action_id"] is None
+            else:
+                result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+                assert result.status_code == 409
+                detail = result.json()["detail"]
+                assert detail["code"] == "provider_partial"
+                assert "nicht verschoben" in detail["message"]
+            assert detail["folder"] == live_folder and detail["reconciled"] is True
             assert not provider.writes
             assert provider.labels["target"] == labels
             actual = await mail_message.get_message(target)

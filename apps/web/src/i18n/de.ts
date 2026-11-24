@@ -628,6 +628,8 @@ export const de = {
     },
     unsupportedSelection: 'Einige Aktionen sind für die ausgewählten Mails nicht verfügbar. Wähle dafür nur Mails aus Konten aus, die die Aktion unterstützen.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'Der Anbieter hat # Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.', other: 'Der Anbieter hat # Mails teilweise geändert. Die Liste zeigt die gemeldeten Ordner.' }),
+    providerReconciled: 'Die Liste zeigt den aktuellen Ordner. Die Mail wurde durch diese Aktion nicht verschoben.',
+    bulkProviderReconciled: (n: number) => plural(n, { one: '# Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.', other: '# Mails wurden nicht verschoben. Die Liste zeigt ihre aktuellen Ordner.' }),
     providerPartial: {
       INBOX: 'Der Anbieter hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Posteingang.',
       TRASH: 'Der Anbieter hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Papierkorb.',

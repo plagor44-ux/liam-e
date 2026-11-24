@@ -110,7 +110,8 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
             try:
                 action = await actions.apply_action(message_id, body.kind)
             except actions.ActionPartialError as error:
-                return BulkMessageActionResult(message_id=message_id, status="partial", folder=error.folder, error_code=error.error_code)
+                return BulkMessageActionResult(message_id=message_id, status="partial", folder=error.folder,
+                                               error_code=error.error_code, reconciled=error.reconciled)
             except write_result.PermissionMissing as error:
                 return BulkMessageActionResult(message_id=message_id, status="failed", error_code=error.code)
             except actions.ActionUnsupportedError:
@@ -152,11 +153,15 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
     except actions.ActionUnsupportedError:
         raise refuse(409, "action_unsupported", "Das geht bei dieser Mail nicht.") from None
     except actions.ActionPartialError as error:
-        raise HTTPException(status_code=409, detail={
+        detail: dict[str, str | bool] = {
             "code": error.error_code or "provider_partial",
             "message": "Der Anbieter hat nur einen Teil der Änderung ausgeführt.",
             "folder": error.folder,
-        }) from None
+        }
+        if error.reconciled:
+            detail["reconciled"] = True
+            detail["message"] = "Die Liste zeigt den aktuellen Ordner. Die Mail wurde durch diese Aktion nicht verschoben."
+        raise HTTPException(status_code=409, detail=detail) from None
     except write_result.PermissionMissing as error:
         raise refuse(403, error.code, "Für diese Aktion fehlt dem Connector die Berechtigung.") from None
     except actions.ActionFailedError:

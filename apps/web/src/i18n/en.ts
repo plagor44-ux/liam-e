@@ -642,6 +642,8 @@ export const en = {
     },
     unsupportedSelection: 'Some actions are unavailable for the selected emails. Select only emails from accounts that support the action.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'The provider partly changed # email. The list shows its reported folder.', other: 'The provider partly changed # emails. The list shows their reported folders.' }),
+    providerReconciled: 'The list shows the current folder. This action didn’t move the email.',
+    bulkProviderReconciled: (n: number) => plural(n, { one: '# email stayed in its folder. The list shows its current folder.', other: '# emails stayed in their folders. The list shows their current folders.' }),
     providerPartial: {
       INBOX: 'The provider only applied part of the change. The email is in the inbox.',
       TRASH: 'The provider only applied part of the change. The email is in the trash.',
