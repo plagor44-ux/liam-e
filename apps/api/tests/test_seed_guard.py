@@ -56,6 +56,8 @@ async def seeded(fake_store, monkeypatch):
     monkeypatch.setattr(calendar_seed, "replace", AsyncMock())
     monkeypatch.setattr(dev_seed.seed_access, "replace_conversations", AsyncMock())
     monkeypatch.setattr(dev_seed.seed_access, "add_context", AsyncMock(side_effect=lambda row: row))
+    # The grant writes through a real session; test_dev_seed_grant_pg.py covers it.
+    monkeypatch.setattr(dev_seed.seed_access, "grant_chat_accounts", AsyncMock())
     # The task seed writes through real sessions; its own tests cover it (test_dev_seed.py).
     monkeypatch.setattr(dev_seed, "seed_tasks", AsyncMock())
     monkeypatch.setattr(dev_seed, "seed_filing", AsyncMock())

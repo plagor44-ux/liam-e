@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock
-from db.accessors import calendar_seed
+from db.accessors import calendar_seed, chat_settings
 
 import pytest
 
@@ -139,8 +139,15 @@ async def test_seed_is_repeatable_and_preserves_other_rows(fake_store, monkeypat
     async def replace_calendars(*_rows):
         order.append("calendars")
 
+    grants = []
+
+    async def grant_chat_accounts(account_ids):
+        order.append("grant")
+        grants.append(account_ids)
+
     monkeypatch.setattr(dev_seed.seed_access, "replace_conversations", replace_conversations)
     monkeypatch.setattr(dev_seed.seed_access, "add_context", add_context)
+    monkeypatch.setattr(dev_seed.seed_access, "grant_chat_accounts", grant_chat_accounts)
     monkeypatch.setattr(dev_seed.chat_access, "add_message", add_message)
     monkeypatch.setattr(dev_seed.chat_access, "cancel_open_proposals", cancel_open_proposals)
 
@@ -172,7 +179,9 @@ async def test_seed_is_repeatable_and_preserves_other_rows(fake_store, monkeypat
         result = await dev_seed.seed(now)
         # Every seeded turn binds a context of its own conversation, taken after the calendars exist,
         # so the seeded history matches a new turn's scope and the web offers the composer.
-        assert order[0] == "calendars" and order.count("context") == 4
+        # The seed grants its accounts before any context binds the grant.
+        assert order[:2] == ["grant", "calendars"] and order.count("context") == 4
+        assert grants[-1] == [dev_seed.seed_id("account", key) for key in ("privat", "arbeit", "verein", "familie")]
         seeded = [row for row in chats.values() if row.conversation_id != outsider_conversation.id]
         assert seeded and all(row.context_id in contexts for row in seeded)
         assert all(contexts[row.context_id].conversation_id == row.conversation_id for row in seeded)
@@ -197,10 +206,18 @@ async def test_seed_is_repeatable_and_preserves_other_rows(fake_store, monkeypat
         first = [row for row in chats.values() if row.conversation_id == first_id]
         assert [row.role for row in first] == ["user", "assistant"]
         extras = ChatExtrasOut.model_validate_json(first[1].extras_json)
-        assert extras.mails == [dev_seed.seed_id("mail", key) for key in ("hausverwaltung-nebenkosten", "meyer-angebot-4471", "kita-elternabend")]
-        assert extras.suggestions == ["Antworten entwerfen", "Nur die Hausverwaltung", "Was steht in der Abrechnung?"]
+        assert extras.mails == [dev_seed.seed_id("mail", key) for key in ("meyer-angebot-4471", "kita-elternabend", "sportverein-hallenzeiten")]
+        assert extras.suggestions == ["Antworten entwerfen", "Nur die Meyer GmbH", "Was steht im Angebot?"]
         assert extras.model == "mistral-medium-latest"
-        assert first[1].content.startswith("Auf drei Mails solltest du heute antworten.\n\n")
+        assert first[1].content.startswith("Auf zwei Mails solltest du heute antworten.\n\n")
+        # Every citation belongs to an account Settings → Chat can grant, so it loads within the seeded grant.
+        for mail_id in extras.mails:
+            account_id = fake_store.messages[mail_id].account_id
+            assert chat_settings.eligibility(fake_store.accounts[account_id], fake_store.states.get(account_id)) == "eligible"
+        # Negative case: the Studio connector account awaits verification and is never cited.
+        connector = dev_seed.seed_id("account", "privat")
+        assert chat_settings.eligibility(fake_store.accounts[connector], fake_store.states[connector]) == "awaiting_verification"
+        assert all(fake_store.messages[mail_id].account_id != connector for mail_id in extras.mails)
         assert conversations[first_id].updated_at == datetime(2026, 11, 13, 7, 57, tzinfo=UTC)
         assert len(fake_store.accounts) == 5
         assert len(fake_store.messages) == 68

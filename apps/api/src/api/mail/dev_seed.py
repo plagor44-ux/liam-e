@@ -65,6 +65,9 @@ BOARD_MAILS = [
     ("techdigest-woche", "arbeit", "TechDigest Weekly", "newsletter@techdigest-weekly.example", "Die Woche in fünf Minuten", "Diese Woche: neue Modelle, ein Sicherheitsupdate und drei Lesetipps …", 3, "10:00", True, False),
 ]
 
+# The first seeded answer cites these mails; each belongs to an account the seed grants for chat.
+FIRST_ANSWER_MAILS = ("meyer-angebot-4471", "kita-elternabend", "sportverein-hallenzeiten")
+
 HOUSE_BODY = "Sehr geehrte Mieterinnen und Mieter,\n\nanbei erhalten Sie die Nebenkostenabrechnung für das Jahr 2025. Für Ihre Wohnung ergibt sich eine Nachzahlung von 184,20 €, die wir am 15.12. von Ihrem Konto einziehen.\n\nDer Anstieg geht vor allem auf die Heizkosten zurück, die gegenüber dem Vorjahr um 18 % gestiegen sind. Die Einzelaufstellung finden Sie im Anhang.\n\nEinwände gegen die Abrechnung können Sie bis zum 20.11. schriftlich bei uns einreichen.\n\nMit freundlichen Grüßen\nIhre Hausverwaltung Kurz"
 
 NEWSLETTERS = [
@@ -230,6 +233,8 @@ async def seed(now: datetime | None = None) -> SeedResult:
                     dedupe_key=f"seed-sync-{by_key['familie'].id}", locked_at=started,
                     created_at=started, updated_at=started)]
     await seed_access.replace_mail_data(accounts, states, messages, [insight], jobs)
+    # The seeded turn contexts below bind this grant; the Studio connector account is not eligible.
+    await seed_access.grant_chat_accounts([account.id for account in accounts])
     await seed_tasks(local_now.astimezone(UTC))
     await seed_filing()
     # Calendars come before conversations: each seeded turn context binds the readable calendars.
@@ -250,12 +255,13 @@ async def seed(now: datetime | None = None) -> SeedResult:
     contexts = {conversation.id: (await seed_context(conversation.id)).id for conversation in (first, second, third, fourth)}
     await chat_access.add_message(conversation_id=first.id, role="user", context_id=contexts[first.id], content="Was ist heute wichtig?")
     extras = ChatExtrasOut(
-        mails=[seed_id("mail", key) for key in ("hausverwaltung-nebenkosten", "meyer-angebot-4471", "kita-elternabend")],
-        suggestions=["Antworten entwerfen", "Nur die Hausverwaltung", "Was steht in der Abrechnung?"],
+        # Only mails of chat-eligible accounts, so the citations load within the seeded grant.
+        mails=[seed_id("mail", key) for key in FIRST_ANSWER_MAILS],
+        suggestions=["Antworten entwerfen", "Nur die Meyer GmbH", "Was steht im Angebot?"],
         model="mistral-medium-latest",
     )
     await chat_access.add_message(conversation_id=first.id, role="assistant", context_id=contexts[first.id], extras_json=extras.model_dump_json(),
-        content="Auf drei Mails solltest du heute antworten.\n\nAm dringendsten ist die Nebenkostenabrechnung der Hausverwaltung Kurz, denn Einwände nimmt sie nur bis nächsten Freitag an. Die Meyer GmbH möchte bis Montag wissen, ob du ihr Angebot annimmst, und die Kita fragt, ob du zum Elternabend kommst.")
+        content="Auf zwei Mails solltest du heute antworten.\n\nDie Meyer GmbH möchte bis Montag wissen, ob du ihr Angebot annimmst, und die Kita fragt, ob du zum Elternabend kommst. Außerdem ändert der Sportverein Lindenau über die Feiertage die Hallenzeiten.")
     await chat_access.add_message(conversation_id=second.id, role="user", context_id=contexts[second.id], content="Räum meine Newsletter auf.")
     await chat_access.add_message(conversation_id=second.id, role="assistant", context_id=contexts[second.id],
         content="Ich habe 14 Absender gefunden, die dir regelmäßig Newsletter schicken. Fünf davon hast du seit über drei Monaten nicht geöffnet; die schlage ich zum Abbestellen vor. Die anderen neun liest du, sie bleiben, wie sie sind.",

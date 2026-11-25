@@ -29,6 +29,26 @@ async def replace_conversations(conversations: list[ChatConversation]) -> None:
         await session.commit()
 
 
+async def grant_chat_accounts(account_ids: list[str]) -> None:
+    """Add the chat-eligible ones of these seeded accounts to the owner's grant, keeping every other grant.
+
+    Seeded turn contexts bind the grant, so a fresh seed's citations load only once its accounts are
+    granted. Ineligible accounts (an unverified Studio connector) are left out like in Settings → Chat.
+    The revision changes only when an account is added, so a repeated seed keeps its history current.
+    """
+    from db.accessors import chat_settings, user_preference
+
+    async with get_session_maker()() as session:
+        await user_preference.lock(session)
+        row = await chat_settings.in_session(session)
+        ids = sorted(set(row.account_ids) | set(await chat_settings.active_ids(session, account_ids)))
+        if ids != row.account_ids:
+            row.account_ids = ids
+            row.version += 1
+            session.add(row)
+        await session.commit()
+
+
 async def add_context(context: ChatContext) -> ChatContext:
     """Store one seeded turn context bound like a real turn; replace_conversations removes it again.
 
