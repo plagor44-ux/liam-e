@@ -324,7 +324,7 @@ async def change_gmail_labels(
                        if has_confirmed_step else nullcontext())
             labels_before = set(labels)
             has_receipt = True
-            dispatched = False
+            pending_confirmation = False
             try:
                 async with binding:
                     try:
@@ -332,17 +332,16 @@ async def change_gmail_labels(
                                          before_retry=lambda: verify_retry_binding(labels_before, changes))
                     except write_result.WriteUnconfirmed:
                         has_receipt = False
-                    dispatched = True
+                    pending_confirmation = True
                     expected.update(changes)
                     labels = await _confirm_label_change(provider, thread, uid, present, absent, point_only=True)
+                    pending_confirmation = False
             except connector_throttle.RateLimited as error:
-                if dispatched:
-                    await mail_job.queue_connector_label_check(account.id, proof[0], message.id, thread, uid)
-                if dispatched or provider_changed:
+                if pending_confirmation or provider_changed:
                     # A step may already have taken effect. Keep confirmed intermediate
                     # evidence and leave uncertain changes to the next sync.
                     raise connector_throttle.RateLimited(
-                        retryable=not dispatched and error.retryable,
+                        retryable=not pending_confirmation and error.retryable,
                         labels=labels if provider_changed else None) from None
                 raise
             except write_result.PermissionMissing:
@@ -354,6 +353,7 @@ async def change_gmail_labels(
                 raise
             except LabelChangeUnconfirmed as error:
                 if error.labels is not None:
+                    pending_confirmation = False
                     observed = set(error.labels)
                     requested_unchanged = labels_before.symmetric_difference(observed).isdisjoint(changes)
                     error.provider_unchanged = requested_unchanged and not provider_changed
@@ -363,9 +363,9 @@ async def change_gmail_labels(
                         if await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged"):
                             raise write_result.PermissionMissing(error.labels, provider_unchanged=error.provider_unchanged) from None
                 raise
-            except (httpx.HTTPError, TimeoutError) as error:
+            except (httpx.HTTPError, TimeoutError, json.JSONDecodeError) as error:
                 if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 503:
-                    await mail_job.queue_connector_label_check(account.id, proof[0], message.id, thread, uid)
+                    pending_confirmation = True
                     raise connector_throttle.RateLimited(
                         retryable=False, labels=labels if provider_changed else None) from None
                 if not has_confirmed_step:
@@ -378,6 +378,8 @@ async def change_gmail_labels(
                 async with bound_mailbox(account, cursor=recovery.connector_cursor,
                                          generation=recovery.connector_generation, observed=recovery, check_after=True):
                     observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
+                if observed is not None:
+                    pending_confirmation = False
                 requested_unchanged = observed is not None and labels_before.symmetric_difference(observed).isdisjoint(changes)
                 raise LabelChangeUnconfirmed(observed, provider_unchanged=requested_unchanged and not provider_changed) from None
             else:
@@ -385,6 +387,9 @@ async def change_gmail_labels(
                 changed_requested_labels = not changed_labels.isdisjoint(changes)
                 provider_changed = provider_changed or changed_requested_labels
                 step_has_evidence = has_receipt or changed_requested_labels
+            finally:
+                if pending_confirmation:
+                    await mail_job.queue_connector_label_check(account.id, proof[0], message.id, thread, uid)
 
     if destination_labels is not None and (
         "SPAM" in labels or observed_folder(labels) != destination

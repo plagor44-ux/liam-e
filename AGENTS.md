@@ -899,9 +899,9 @@ second write and readback. Exhausted throttling
 reports `provider_rate_limited` with a retry only when no write took effect or the remaining
 step of a verified partial move was refused before dispatch. A partial move is reflected in the
 index without returning success or an Undo token. An unavailable confirmation leaves the last
-known state. The sync queue keeps a bounded batch of exact delivery checks on the verified
-binding, independent of the Inbox search date. Incomplete point reads stay queued and never
-replay a provider write.
+known state and queues an exact delivery check when no usable point read has settled the write.
+Sync checks a bounded batch on the verified binding, independent of the Inbox search date.
+Incomplete point reads stay queued and never replay a provider write.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 
 A confirmed missing or mismatched identity withdraws chat access. Temporary transport or provider failures stop the operation and leave the binding available for a later sync. Incoming-only accounts with a placeholder address can sync the ordinary inbox and keep every row outside chat. Settings show the server’s eligibility for each active account and explain incoming-only and pending-verification states. A checkbox edit preserves grants absent from the cached account list. The owner can reselect the account after a

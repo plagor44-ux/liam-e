@@ -2523,3 +2523,66 @@ def test_gmail_undo_reconciles_second_write_503_and_keeps_token_open(pg_db, monk
             assert await mail_action.latest_open(target) is None
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["timeout", "missing_labels", "invalid_json"])
+def test_sync_repairs_old_archive_when_successful_replay_loses_confirmation(pg_db, monkeypatch, failure):
+    from api.mail import connector_throttle
+
+    async def run():
+        provider = StudioMailbox()
+        provider.date = (datetime.now(UTC) - timedelta(days=21)).isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        mutation_attempts = 0
+        reading_during_sync = False
+        sync_reads = []
+
+        async def no_delay(_seconds):
+            pass
+
+        async def dispatch(path, payload):
+            nonlocal mutation_attempts
+            tool = urlsplit(path).path.split("/")[-2]
+            arguments = payload["arguments"]
+            request = httpx.Request("POST", "https://example.test")
+            if tool == "search_threads":
+                return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+            if tool == "unlabel_message":
+                mutation_attempts += 1
+                if mutation_attempts == 1:
+                    httpx.Response(429, request=request).raise_for_status()
+            if tool == "get_thread" and arguments.get("threadId") == "mixed" and provider.writes:
+                if reading_during_sync:
+                    sync_reads.append(arguments["messageFormat"])
+                elif failure == "timeout":
+                    raise httpx.ReadTimeout("synthetic timeout", request=request)
+                elif failure == "missing_labels":
+                    return {"content": [{"type": "text", "text": '{"id":"mixed","messages":[{"id":"target"}]}'}]}
+                else:
+                    return {"content": [{"type": "text", "text": "synthetic diagnostic"}]}
+            return await provider.dispatch(path, payload)
+
+        monkeypatch.setattr(connector_throttle, "sleep", no_delay)
+        monkeypatch.setattr(connectors, "sleep", no_delay)
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            response = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "archive"})
+            assert response.status_code == 502
+            assert response.json()["detail"]["code"] == "provider_failed"
+            assert await listed(browser, "INBOX") == {target, ids["sibling"]}
+            assert await mail_action.latest_open(target) is None
+            assert mutation_attempts == 2
+            assert provider.writes == [("unlabel_message", "target", ("INBOX",))]
+
+            reading_during_sync = True
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert sync_reads == ["MINIMAL"]
+            assert await listed(browser, "ARCHIVE") == {target}
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await mail_action.latest_open(target) is None
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert sync_reads == ["MINIMAL"]
+            assert mutation_attempts == 2
+
+    asyncio.run(run())
