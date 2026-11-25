@@ -906,7 +906,8 @@ Incomplete point reads stay queued. A verified thread 404 settles absence from t
 Neither case replays a provider write. If initial history is throttled, sync publishes the new-mail
 page it independently verified before backfill and keeps the historical page token. Both
 resumed initial import and steady-state sync verify the delta before optional delivery or
-deferred-thread reads, retaining that work across cooldowns.
+deferred-thread reads, retaining that work across cooldowns. A queued delivery check on the
+verified binding replaces the ordinary trash probe for that delivery.
 Undo identifies safely retryable tokens separately from uncertain results.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 

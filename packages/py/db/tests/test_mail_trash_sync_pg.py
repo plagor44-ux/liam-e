@@ -2765,3 +2765,56 @@ def test_steady_state_probe_throttle_preserves_verified_new_mail(pg_db, monkeypa
                 assert not (await mail_sync_state.get_state(provider.account.id)).connector_deferred_threads
 
     asyncio.run(run())
+
+
+def test_pending_restore_from_trash_uses_one_point_read_per_poll(pg_db, monkeypatch):
+    from db.accessors import mail_job
+
+    async def run():
+        provider = StudioMailbox()
+        provider.date = (datetime.now(UTC) - timedelta(days=21)).isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        reading_during_sync = False
+        point_reads = 0
+
+        async def dispatch(path, payload):
+            nonlocal point_reads
+            tool = urlsplit(path).path.split("/")[-2]
+            arguments = payload["arguments"]
+            request = httpx.Request("POST", "https://example.test")
+            if reading_during_sync and tool == "search_threads":
+                return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+            if reading_during_sync and tool == "get_thread" and arguments.get("threadId") == "mixed":
+                assert arguments["messageFormat"] == "MINIMAL"
+                point_reads += 1
+                if point_reads > 1:
+                    httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+            response = await provider.dispatch(path, payload)
+            if tool == "label_message" and arguments["labelIds"] == ["INBOX"]:
+                provider.labels["target"].discard("TRASH")
+                raise httpx.ReadTimeout("synthetic Restore response timeout", request=request)
+            return response
+
+        async with client() as browser:
+            action_url = f"{MAIL}/messages/{target}/actions"
+            trashed = await browser.post(action_url, json={"kind": "trash"})
+            assert trashed.status_code == 200
+            monkeypatch.setattr(connectors, "_post", dispatch)
+            restored = await browser.post(action_url, json={"kind": "restore"})
+            assert restored.status_code == 502
+            assert provider.labels["target"] == {"INBOX"}
+            assert await listed(browser, "TRASH") == {target}
+            assert len(await mail_job.connector_label_checks(provider.account.id)) == 1
+            write_count = len(provider.writes)
+
+            reading_during_sync = True
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert point_reads == 1
+            assert await listed(browser, "INBOX") == set(ids.values())
+            assert await listed(browser, "TRASH") == set()
+            assert await mail_job.connector_label_checks(provider.account.id) == []
+            assert len(provider.writes) == write_count
+            assert (await mail_action.latest_open(target)).id == trashed.json()["action_id"]
+
+    asyncio.run(run())

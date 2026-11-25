@@ -192,7 +192,7 @@ async def confirm_trash_conflicts(account, changes: SyncChanges, candidates: dic
 type LabelCheck = tuple[str, dict[str, str], list[str] | None]
 
 
-def _exclude_label_observations(changes: SyncChanges, uids: set[str]) -> None:
+def protect_pending_label_checks(changes: SyncChanges, uids: set[str]) -> None:
     if not uids:
         return
     # A stale page cannot replace an indexed delivery or trigger rules for it while
@@ -206,20 +206,16 @@ def _exclude_label_observations(changes: SyncChanges, uids: set[str]) -> None:
         changes.flag_updates.pop(uid, None)
 
 
-def protect_pending_label_checks(changes: SyncChanges, jobs: Sequence[MailJob], binding: str) -> set[str]:
-    """Preserve current rows when publishing a checkpoint before optional point reads."""
+def pending_label_uids(jobs: Sequence[MailJob], binding: str) -> set[str]:
     targets = (json.loads(job.payload_json) for job in jobs)
-    protected = {target["provider_uid"] for target in targets if target["binding"] == binding}
-    _exclude_label_observations(changes, protected)
-    return protected
+    return {target["provider_uid"] for target in targets if target["binding"] == binding}
 
 
 async def pending_label_checks(
-    account: MailAccount, binding: str, changes: SyncChanges, *, jobs: Sequence[MailJob] | None = None,
+    account: MailAccount, binding: str, changes: SyncChanges, *, jobs: Sequence[MailJob],
 ) -> list[LabelCheck]:
     """Read exact pending members on their verified binding."""
     checked = []
-    jobs = await mail_job.connector_label_checks(account.id) if jobs is None else jobs
     for job in jobs:
         target = json.loads(job.payload_json)
         if target["binding"] != binding:
@@ -237,7 +233,7 @@ async def pending_label_checks(
         except (ValueError, httpx.TransportError):
             labels = None
         checked.append((job.id, target, labels))
-    protect_pending_label_checks(changes, jobs, binding)
+    protect_pending_label_checks(changes, pending_label_uids(jobs, binding))
     return checked
 
 
