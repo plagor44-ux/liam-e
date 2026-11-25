@@ -1,8 +1,8 @@
 name: CI
 
 # The checks that otherwise only run locally: `bun run check`, the web tests, pytest, the live
-# Postgres contract suite and the production-build PWA matrix in Chromium (job `pwa-matrix`), plus
-# a secret scan of the whole history (job `secrets`). The Bun and uv versions follow package.json `packageManager`
+# Postgres contract suite, the production-build PWA matrix in Chromium (job `pwa-matrix`) and the
+# one-command Compose start (job `compose`), plus a secret scan of the whole history (job `secrets`). The Bun and uv versions follow package.json `packageManager`
 # (bun@1.4.0), deploy/docker/Dockerfile.web (oven/bun:1.4.0, node:24) and
 # deploy/docker/Dockerfile.api (uv 0.11.17). Python comes from .python-version (3.14), which uv
 # downloads on demand.
@@ -165,6 +165,35 @@ jobs:
           "${RUNNER_TEMP}/playwright/node_modules/.bin/playwright" install --with-deps chromium
       - name: Run the PWA matrix
         run: NODE_PATH="${RUNNER_TEMP}/playwright/node_modules" node tests/pwa_matrix.cjs
+
+  # The one-command local start (compose.yaml, docs/local-development.md) with the runner's Docker
+  # and BuildKit: build the dev images, wait for the health checks, then check that the seed filled
+  # the database through its loopback-only host check and that the UI answers. No step reaches
+  # Mistral or a mail provider.
+  compose:
+    name: Compose local start
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate compose.yaml
+        run: docker compose config --quiet
+      - name: Build and start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 900
+      - name: Check the sample data and the UI
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
+          curl --fail --silent --show-error http://127.0.0.1:3000/api/v1/mail/accounts | jq --exit-status 'length > 0'
+          curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3001/mail
+      - name: Show the service logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
 
   # gitleaks over the whole history, every branch and tag, with the rules in .gitleaks.toml.
   # The binary is downloaded from the release page and checked against its SHA-256 before it runs.
