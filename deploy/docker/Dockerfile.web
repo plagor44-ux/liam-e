@@ -75,9 +75,9 @@ HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
     CMD node -e "fetch('http://127.0.0.1:3001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", ".output/server/index.mjs"]
 
-# Hot-reload dev target (used by compose.dev.yaml with the repo bind-mounted over
-# /app and node_modules kept as anonymous volumes). Runs the Vite dev server with
-# HMR, bound to 0.0.0.0 so the gateway can reach it.
+# Hot-reload dev target, used by the root compose.yaml: the source is baked in and
+# `docker compose up --watch` copies edits into the container. Runs the Vite dev
+# server with HMR, bound to 0.0.0.0 so the published port reaches it.
 FROM deps AS dev
 ENV NODE_ENV=development \
     HOST=0.0.0.0 \

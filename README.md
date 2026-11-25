@@ -52,6 +52,9 @@ privately as described in [SECURITY.md](SECURITY.md).
 
 ## Start locally
 
+With Docker, `docker compose up --build` starts the database, sample data, API and UI in one step
+([Compose guide](docs/local-development.md#start-everything-with-compose)).
+
 You need Bun 1.4.0, Node.js 24, uv (Python 3.14) and a local Postgres 16 with pgvector. The
 synthetic sample data shows the app without mail accounts or Mistral access. The
 [local development guide](docs/local-development.md) covers each step, including a disposable

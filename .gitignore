@@ -15,6 +15,9 @@ build
 .env
 .env*.local
 
+# Personal overrides of compose.yaml, such as another host port (docs/local-development.md)
+compose.override.yaml
+
 # Mistral Studio IDs for tools/deploy.sh, only in a checkout that deploys; never commit them
 # (AGENTS.md, "Publication and private data"). The file holds, with the real values:
 #   {"organizationId": "<organization-id>", "workspaceId": "<workspace-id>", "appId": "<app-id>"}

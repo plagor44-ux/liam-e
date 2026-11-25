@@ -1123,6 +1123,7 @@ Spam, provider folder moves and provider label changes remain unavailable.
 - Main commands (root):
   - `bun run install-all` — installs everything including generated API client (`tools/gen-types.sh`)
   - `bunx nx run api:serve` — start API locally; `bun run dev:web` — web locally (port 3001)
+  - `docker compose up --build --watch` — database, migration, sample data, API and web in containers (`compose.yaml`, Docker with BuildKit); see [docs/local-development.md](docs/local-development.md)
   - `bun run build` / `bun run test` / `bun run check` — Nx across all projects
   - `bunx nx run api:gen-openapi` + `bash tools/gen-types.sh` — regenerate OpenAPI spec + TS client (after every API change; `gen-types.sh --check` is the drift gate)
   - `bunx nx run db:revision --message "..."` — autogenerate Alembic revision; `bunx nx run db:migrate` — apply (`heads`, not `head`)

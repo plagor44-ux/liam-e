@@ -2,6 +2,59 @@
 
 This guide starts the main application from [`apps/api`](../apps/api) and [`apps/web`](../apps/web) with a separate test database. The synthetic sample data lets you view the inbox and saved chat histories without a mail account or Mistral access. The [minimal chat demo](../apps/chat-app/README.md) has its own entry point and is not started for this.
 
+The quickest way is [one command with Compose](#start-everything-with-compose), which needs only a container runtime. The [manual start](#prerequisites-and-installation) runs the same processes with the toolchain on your machine.
+
+## What needs an account
+
+| Goal | What you need |
+| --- | --- |
+| Look around the UI with the sample data: inbox, reading pane, saved chats, calendar, tasks and settings | Compose, or the manual toolchain below. No Mistral account and no mail account. |
+| New chat answers | A Mistral API key in `MISTRAL_API_KEY` for the API process. The Compose stack passes none, so use the manual start for this. The chat reads only the accounts granted at `/settings/chat`. |
+| Your own mailboxes and calendars | Access at the provider, as described in [Providers and operations](providers-and-operations.md#connection-methods): a Studio connector, your own OAuth2 app, or an IMAP app password stored as a Mistral workspace secret. |
+| Studio connectors, voice and deployment | A Mistral Studio organization that can create apps ([Deployment in Mistral Studio](providers-and-operations.md#deployment-in-mistral-studio)). |
+
+Sample accounts never reach a provider, and their missing mail summaries are not generated, with or without a key (see [Sample data and startup](#sample-data-and-startup)).
+
+## Start everything with Compose
+
+[`compose.yaml`](../compose.yaml) starts PostgreSQL, migrates it and fills it with the sample data, then starts the API and the web dev server. You need Docker with Compose v2 and BuildKit, that is the `buildx` plugin that Docker Desktop and Docker's Linux packages include. Bun, Node.js, uv and Python are not needed on the host. At the repository root:
+
+```bash
+docker compose up --build --watch
+```
+
+The first start builds the images and takes several minutes. Once the `web` service reports healthy, open `http://localhost:3001/mail` for the inbox or `http://localhost:3001/` for chat. The API health check is at `http://127.0.0.1:3000/api/health`.
+
+| Service | What it runs |
+| --- | --- |
+| `db` | PostgreSQL 16 with pgvector, the image CI uses, pinned by digest. The data stays in the volume `db-data`. |
+| `seed` | `bash tools/db.sh migrate` (Alembic `upgrade heads`) and then `api.mail.dev_seed`. It runs on every `up` and exits; a repeated seed replaces only its own rows. |
+| `api` | The `api-dev` target of [`Dockerfile.api`](../deploy/docker/Dockerfile.api) with reload, with `MAIL_WORKER_ENABLED=false`, `MISTRAL_SECRETS_ENABLED=false` and `TELEMETRY_ENABLED=false`. |
+| `web` | The `dev` target of [`Dockerfile.web`](../deploy/docker/Dockerfile.web): the Vite dev server with `VITE_API_URL=http://127.0.0.1:3000`. |
+
+All four services share the network namespace of `db`, like the containers of a pod, and reach each other on loopback. The seed accepts only the database hosts `localhost`, `127.0.0.1` and `::1`; in this stack the database really is at `127.0.0.1`, so the check holds without any exception. PostgreSQL listens only on that loopback. The ports 3000 (API) and 3001 (UI) are published to `127.0.0.1` on your machine only. Open the UI as `localhost:3001`: the API's default `CORS_ORIGIN` allows exactly that origin, so with `127.0.0.1:3001` in the address bar the browser's API requests fail.
+
+The services receive no Mistral, OAuth or IMAP setting, and the root `.env` stays out of the images ([`.dockerignore`](../.dockerignore)).
+
+With `--watch`, Compose copies edits under `apps/api/src`, `packages/py`, `apps/web/src` and `apps/web/public` into the running containers, where the API and Vite reload. A change to `apps/web/vite.config.ts` or `apps/web/vite-plugins` restarts the web server, and a change to `uv.lock` or `bun.lock` rebuilds the image. Without `--watch` the containers run the code of the last build, and `docker compose up --build` picks up edits.
+
+A new migration is applied on the next `up`, or right away with `docker compose run --rm seed`, which also seeds again. `Ctrl+C` stops the stack. `docker compose down` removes the containers, and `docker compose down --volumes` also deletes the database.
+
+If a port is taken, publish another host port in a `compose.override.yaml`, which Compose reads automatically and Git ignores. The example moves the UI to port 3101 and allows that origin. For another API port, also set `VITE_API_URL` of `web` to match.
+
+```yaml
+services:
+  db:
+    ports: !override
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3101:3001"
+  api:
+    environment:
+      CORS_ORIGIN: http://localhost:3101
+```
+
+Podman builds the API image, but not yet the web image: buildah stops at the `COPY --parents` line for vendored capability sources in `Dockerfile.web`, whose wildcard matches nothing in this repository, while BuildKit skips such a line.
+
 ## Prerequisites and installation
 
 - Bash, Bun **1.4.0**, Node.js **24** and `uv` **0.11.17** match the tool versions in [CI](../.github/workflows/ci.yml). The installation script requires the Bun version specified in [`package.json`](../package.json). `uv` uses Python **3.14** from [`.python-version`](../.python-version) and can install the interpreter if needed.
