@@ -6,6 +6,7 @@ export type ActiveSkillSelection = {
   id: string
   revision_id: string
   slug: string
+  origin: SkillOut['origin']
   name: string
   version: number
   description: string
@@ -17,11 +18,35 @@ export function toActiveSkillSelection(skill: SkillOut): ActiveSkillSelection {
     id: skill.id,
     revision_id: skill.revision_id,
     slug: skill.slug,
+    origin: skill.origin,
     name: skill.name,
     version: skill.version,
     description: skill.description,
     workflow_steps: skill.workflow_steps,
   }
+}
+
+/** Slug of the built-in skill that drafts new skills; it starts only from its own slash action. */
+export const SKILL_CREATOR_SLUG = 'skill_creator'
+
+type SkillIdentity = Pick<SkillOut, 'slug' | 'origin'>
+
+export function isSkillCreator(skill: SkillIdentity): boolean {
+  return skill.origin === 'builtin' && skill.slug === SKILL_CREATOR_SLUG
+}
+
+function builtinText(skill: SkillIdentity, texts: Catalogue) {
+  const known = texts.skills.builtin
+  return skill.origin === 'builtin' && Object.hasOwn(known, skill.slug) ? known[skill.slug as keyof typeof known] : undefined
+}
+
+/** Built-in skills carry server-side German names; the web catalogue localizes them by slug. */
+export function skillName(skill: SkillIdentity & Pick<SkillOut, 'name'>, texts: Catalogue): string {
+  return builtinText(skill, texts)?.name ?? skill.name
+}
+
+export function skillDescription(skill: SkillIdentity & Pick<SkillOut, 'description'>, texts: Catalogue): string {
+  return builtinText(skill, texts)?.description ?? skill.description
 }
 
 export type SlashMatch = {
@@ -102,6 +127,16 @@ export type SlashOption =
       checked?: boolean
       disabled: boolean
     }
+  | {
+      key: string
+      group: 'actions'
+      kind: 'create-skill'
+      label: string
+      hint: string
+      checked?: undefined
+      disabled: boolean
+      skill: SkillOut
+    }
 
 function matches(query: string, ...fields: (string | undefined)[]): boolean {
   if (!query) return true
@@ -132,25 +167,25 @@ export function buildSlashOptions({
 }): SlashOption[] {
   const trimmed = query.trim()
   const favorites = new Set(favoriteIds)
-  const sortedSkills = [...skills].sort((a, b) => {
+  const sortedSkills = skills.filter(skill => !isSkillCreator(skill)).sort((a, b) => {
     const aActive = a.status === 'active' ? 0 : 1
     const bActive = b.status === 'active' ? 0 : 1
     if (aActive !== bActive) return aActive - bActive
     const aFav = favorites.has(a.id) ? 0 : 1
     const bFav = favorites.has(b.id) ? 0 : 1
     if (aFav !== bFav) return aFav - bFav
-    return a.name.localeCompare(b.name)
+    return skillName(a, texts).localeCompare(skillName(b, texts))
   })
 
   const skillOptions: SlashOption[] = sortedSkills
-    .filter(skill => (skill.status === 'active' || trimmed.length > 0) && matches(trimmed, skill.name, skill.slug, skill.description))
+    .filter(skill => (skill.status === 'active' || trimmed.length > 0) && matches(trimmed, skillName(skill, texts), skill.name, skill.slug, skillDescription(skill, texts)))
     .map(skill => ({
       key: `skill:${skill.id}`,
       group: 'skills',
       kind: 'skill',
-      label: skill.name,
+      label: skillName(skill, texts),
       command: `/${skill.slug}`,
-      hint: skill.status === 'active' ? skill.description : texts.skills.disabledHint,
+      hint: skill.status === 'active' ? skillDescription(skill, texts) : texts.skills.disabledHint,
       badge: favorites.has(skill.id) ? texts.skills.favoriteBadge : texts.skills.skillTag,
       checked: selectedSkillId === skill.id,
       disabled: skill.status !== 'active',
@@ -195,6 +230,19 @@ export function buildSlashOptions({
   )
 
   const actionOptions: SlashOption[] = []
+  // The creator never appears as an ordinary skill: its action always starts a fresh conversation.
+  const creator = skills.find(skill => isSkillCreator(skill) && skill.status === 'active')
+  if (creator && selectedSkillId !== creator.id && matches(trimmed, skillName(creator, texts), creator.slug, texts.skills.createSkillKeywords)) {
+    actionOptions.push({
+      key: 'action:create-skill',
+      group: 'actions',
+      kind: 'create-skill',
+      label: skillName(creator, texts),
+      hint: texts.skills.createSkillHint,
+      disabled: false,
+      skill: creator,
+    })
+  }
   if (selectedSkillId && matches(trimmed, texts.skills.clearSkillItem, texts.skills.removeSelection)) {
     actionOptions.push({
       key: 'action:clear-skill',

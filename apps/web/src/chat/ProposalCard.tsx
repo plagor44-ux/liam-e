@@ -2,18 +2,19 @@ import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-quer
 import { Link } from '@tanstack/react-router'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { chatProposalCancel, chatProposalConfirm, mailActionsUndo } from '../api/generated/sdk.gen'
-import type { ChatMessageOut, Proposal } from '../api/generated/types.gen'
+import type { ChatMessageOut, Proposal, SkillEdit } from '../api/generated/types.gen'
 import { errorCode, unwrap } from '../api/unwrap'
 import { Button, ConfirmCard, Notice } from '../ds'
 import { foldersQuery } from '../settings/mailQueries'
 import { sortNamed } from '../mail/filingOrder'
-import { accountsQuery } from '../api/queries'
+import { accountsQuery, skillsQuery } from '../api/queries'
 import type { Catalogue } from '../i18n/catalogue'
 import { useI18n } from '../i18n/I18n'
 import { useRestartConversation } from './session'
 import { TaskProposal } from './TaskProposal'
 import { PreferenceProposal } from './PreferenceProposal'
 import { CalendarProposal } from './CalendarProposal'
+import { SkillProposal, SkillSaved, skillEditFrom } from './SkillProposal'
 import type { TaskFormDraft } from '../tasks/TaskForm'
 
 type Clock = { now: () => number; setTimeout: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>; clearTimeout: (id: ReturnType<typeof setTimeout>) => void }
@@ -21,7 +22,7 @@ const systemClock: Clock = { now: () => Date.now(), setTimeout: (fn, ms) => setT
 // A live card can be replaced by its history row; preserve edits and the undo deadline.
 // After a confirmation or cancellation the clicked button is gone; `focus` moves the focus to the outcome.
 // `handoff` passes a held focus to the history row that replaces a settled card in the same commit.
-type CardState = { deadline?: number; deselected?: Set<string>; body?: string; task?: TaskFormDraft; focus?: boolean; handoff?: boolean }
+type CardState = { deadline?: number; deselected?: Set<string>; body?: string; task?: TaskFormDraft; skill?: SkillEdit; focus?: boolean; handoff?: boolean }
 const cards = new WeakMap<QueryClient, Map<string, CardState>>()
 function cardState(client: QueryClient, id: string): CardState {
   let entries = cards.get(client)
@@ -45,6 +46,9 @@ function useUndoWindow(client: QueryClient, id: string, clock: Clock) {
     expire: () => { cardState(client, id).deadline = 0; setVisible(false) },
   }
 }
+
+// A card kind from a newer server shows a notice instead of breaking the conversation.
+const KNOWN_KINDS: ReadonlySet<string> = new Set(['unsubscribe', 'archive', 'trash', 'mark_read', 'send', 'task', 'preference', 'calendar', 'filing', 'rule', 'skill'] satisfies Proposal['kind'][])
 
 function safeLink(value: string | null): string | null {
   if (!value || !/^https?:/u.test(value)) return null
@@ -108,6 +112,7 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
     }
   }
   if (proposal.kind === 'calendar') return <CalendarProposal message={message} />
+  if (proposal.kind === 'skill') return <SkillSaved conversationId={message.conversation_id} skillId={result?.skill_id} name={proposal.skill?.name ?? ''} />
   if (proposal.kind === 'task') return <Notice tone="success"><span>{texts.taskChat.done}</span>{result?.task_series_id && <> <Link className="le-link" to="/tasks/$taskId" params={{ taskId: result.task_series_id }}>{texts.tasks.detail}</Link></>}</Notice>
   if (proposal.kind === 'preference') return <Notice tone="success">{result?.preference_outcome === 'kept' ? texts.preferenceCandidates.kept : result?.preference_outcome === 'unchanged' ? texts.preferenceCandidates.unchanged : result?.preferences_enabled ? texts.preferences.saved : texts.preferences.savedOff}</Notice>
   if (proposal.kind === 'filing' || proposal.kind === 'rule') return <Notice tone="success">{proposal.kind === 'filing' ? texts.mailFiling.filingDone : texts.mailFiling.ruleDone}</Notice>
@@ -186,6 +191,7 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
       if (confirm) {
         if (result.proposal?.result?.failed?.some(item => item.code === 'provider_permission_missing')) void client.invalidateQueries({ queryKey: ['accounts'] })
         if (proposal?.kind === 'task') void client.invalidateQueries({ queryKey: ['tasks'] })
+        if (proposal?.kind === 'skill') void client.invalidateQueries({ queryKey: skillsQuery().queryKey })
         void client.invalidateQueries({ queryKey: ['messages'] })
         void client.invalidateQueries({ queryKey: ['message'] })
       }
@@ -219,6 +225,7 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     <Notice tone="info" action={{ label: texts.controls.cancel, onClick: () => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) } }}>{skillRevoked ? texts.skills.cancelOnly : proposal.kind === 'calendar' ? texts.calendarSettings.cancelOnly : texts.chatAccounts.cancelOnly}</Notice>
     {error && <Notice tone="danger">{failureText(error, proposal.kind, texts)}</Notice>}
   </>
+  if (!KNOWN_KINDS.has(proposal.kind)) return <Notice tone="info">{texts.proposal.unsupported}</Notice>
   if (proposal.kind === 'calendar') return <CalendarProposal key={current.id} message={current} />
   const settled = (content: ReactNode) => <div ref={outcome} tabIndex={-1} className="le-proposal-outcome">{content}</div>
   if (current.proposal_status === 'running') return settled(<p className="le-hint">{texts.proposal.running}</p>)
@@ -230,6 +237,14 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
   }
   if (current.proposal_status === 'done' || current.proposal_status === 'partial' || current.proposal_status === 'failed') return settled(<Result key={current.id} message={current} proposal={proposal} clock={clock} onUndone={() => outcome.current?.focus()} />)
   if (current.proposal_status !== 'pending') return null
+  if (proposal.kind === 'skill') {
+    if (!proposal.skill) return null
+    const saved = cardState(client, current.id)
+    return <SkillProposal key={current.id} draft={proposal.skill} value={saved.skill ?? skillEditFrom(proposal.skill)} busy={busy} error={error} onRestart={restart}
+      onChange={value => { saved.skill = value; setError(undefined); refresh(n => n + 1) }}
+      confirm={skill_edit => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids: [], skill_edit }, throwOnError: true })), true) }}
+      cancel={() => { void apply(() => unwrap(chatProposalCancel({ path: { proposal_id: current.id }, throwOnError: true }))) }} />
+  }
   if (proposal.kind === 'task') return <><TaskProposal key={current.id} grantVersion={grantVersion ?? undefined}
     contextId={!oldGrant && grantVersion != null && current.context?.mail_scope_version === grantVersion && !current.context.revoked ? current.context.id : undefined} proposal={proposal} busy={busy} draft={cardState(client, current.id).task ??= {}}
     confirm={task_edit => { void apply(() => unwrap(chatProposalConfirm({ path: { proposal_id: current.id }, body: { selected_ids: [], task_edit }, throwOnError: true })), true) }}

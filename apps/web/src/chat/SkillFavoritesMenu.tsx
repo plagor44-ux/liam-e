@@ -7,6 +7,7 @@ import { skillsQuery } from '../api/queries'
 import { Button, Icon, IconButton, Tooltip } from '../ds'
 import { useFloating } from '../ds/floating'
 import { useI18n } from '../i18n/I18n'
+import { isSkillCreator, skillDescription, skillName } from './skill-selection'
 import './composer-skills.css'
 
 export function SkillFavoritesMenu({
@@ -33,7 +34,8 @@ export function SkillFavoritesMenu({
   const menuId = useId()
   const list = useQuery(skillsQuery())
 
-  const skills = list.data ?? []
+  // The creator starts only from its slash action, never as a favorite.
+  const skills = useMemo(() => (list.data ?? []).filter(skill => !isSkillCreator(skill)), [list.data])
   const byId = useMemo(() => new Map(skills.map(skill => [skill.id, skill])), [skills])
 
   const favoriteSkills = useMemo(
@@ -45,9 +47,9 @@ export function SkillFavoritesMenu({
     () => [...skills].sort((a, b) => {
       const statusDiff = (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1)
       if (statusDiff !== 0) return statusDiff
-      return a.name.localeCompare(b.name)
+      return skillName(a, texts).localeCompare(skillName(b, texts))
     }),
-    [skills],
+    [skills, texts],
   )
 
   const close = (restoreFocus = true) => {
@@ -193,19 +195,19 @@ export function SkillFavoritesMenu({
                         }}
                       >
                         <span className="le-menu-row-top">
-                          <span className="le-menu-row-title">{skill.name}</span>
+                          <span className="le-menu-row-title">{skillName(skill, texts)}</span>
                           <span className="le-menu-command">{`/${skill.slug}`}</span>
                           {isSelected && <Icon name="check" size="sm" />}
                         </span>
                         <span className="le-menu-meta">
-                          {isDisabled ? texts.skills.disabledHint : skill.description}
+                          {isDisabled ? texts.skills.disabledHint : skillDescription(skill, texts)}
                         </span>
                       </button>
                       <IconButton
                         icon="star"
                         className="le-fav-toggle"
                         aria-pressed={true}
-                        label={texts.skills.favoriteRemove(skill.name)}
+                        label={texts.skills.favoriteRemove(skillName(skill, texts))}
                         onClick={() => onToggleFavorite(skill.id)}
                       />
                     </div>
@@ -231,12 +233,12 @@ export function SkillFavoritesMenu({
                         }}
                       >
                         <span className="le-menu-row-top">
-                          <span className="le-menu-row-title">{skill.name}</span>
+                          <span className="le-menu-row-title">{skillName(skill, texts)}</span>
                           <span className="le-menu-command">{`/${skill.slug}`}</span>
                           {isFav && <Icon name="star" size="sm" />}
                         </span>
                         <span className="le-menu-meta">
-                          {skill.status !== 'active' ? texts.skills.disabledHint : skill.description}
+                          {skill.status !== 'active' ? texts.skills.disabledHint : skillDescription(skill, texts)}
                         </span>
                       </button>
                       <IconButton
@@ -244,7 +246,7 @@ export function SkillFavoritesMenu({
                         className="le-fav-toggle"
                         aria-pressed={isFav}
                         disabled={isDisabled}
-                        label={isFav ? texts.skills.favoriteRemove(skill.name) : texts.skills.favoriteAdd(skill.name)}
+                        label={isFav ? texts.skills.favoriteRemove(skillName(skill, texts)) : texts.skills.favoriteAdd(skillName(skill, texts))}
                         onClick={() => {
                           if (!isDisabled) onToggleFavorite(skill.id)
                         }}

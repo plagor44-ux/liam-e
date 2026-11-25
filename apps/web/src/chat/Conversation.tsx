@@ -25,7 +25,7 @@ import { ActiveSkillBanner } from './ActiveSkillBanner'
 import { SkillFavoritesMenu } from './SkillFavoritesMenu'
 import { SlashPicker } from './SlashPicker'
 import { useFavoriteSkills } from './skill-favorites'
-import { buildSlashOptions, detectSlashQuery, stripSlashToken, toActiveSkillSelection, type SlashOption } from './skill-selection'
+import { buildSlashOptions, detectSlashQuery, isSkillCreator, skillName, stripSlashToken, toActiveSkillSelection, type SlashOption } from './skill-selection'
 import { SKILL_REFUSALS } from './transport'
 
 type Accounts = AccountSummaryOut[]
@@ -56,6 +56,7 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
   const { favoriteIds, toggleFavorite } = useFavoriteSkills()
   const skills = useQuery(skillsQuery())
   const templateSelection = useTemplateSelection({ conversationId, revision: promptRevisionId, onChange: onPromptRevisionChange })
+  const restartConversation = useRestartConversation(conversationId)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -121,8 +122,10 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
     if (option.disabled) return
     setManualSlashOpen(false)
     setDismissedToken(null)
+    let nextText = value
     if (slashMatch) {
       const stripped = stripSlashToken(value, slashMatch)
+      nextText = stripped.nextText
       setValue(stripped.nextText)
       setCursorPos(stripped.nextCursor)
       restoreFocusAt(stripped.nextCursor)
@@ -145,6 +148,15 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
       void templateSelection.choose(null)
     } else if (option.kind === 'manage-templates') {
       void navigate({ to: '/settings/prompts' })
+    } else if (option.kind === 'create-skill') {
+      stopLiveVoice.current?.()
+      // A skill is drafted in its own conversation, without mail or calendar context; the draft moves along.
+      if (draftKey !== 'new' || contextOccurrenceId) {
+        restartConversation()
+        setComposerText(draftKey, '')
+      }
+      setComposerText('new', nextText)
+      setSelectedSkill('new', toActiveSkillSelection(option.skill), 'until_stopped')
     }
   }
 
@@ -226,7 +238,7 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
       }}
       onStop={stop}
       busy={busy}
-      placeholder={activeSkillEntry ? texts.skills.placeholderWithSkill(activeSkillEntry.skill.name) : contextMessageId ? texts.inbox.mailQuestionPlaceholder : texts.chat.placeholder}
+      placeholder={activeSkillEntry ? isSkillCreator(activeSkillEntry.skill) ? texts.skills.creatorPlaceholder : texts.skills.placeholderWithSkill(skillName(activeSkillEntry.skill, texts)) : contextMessageId ? texts.inbox.mailQuestionPlaceholder : texts.chat.placeholder}
       autoFocus={autoFocus}
       topContext={topContext}
       containerRef={containerRef}
@@ -413,8 +425,8 @@ export function Conversation({ conversationId }: { conversationId: string }) {
   const modelLabel = (id?: string) => id ? models.find(model => model.id === id)?.label ?? id : undefined
   const skillLabel = (skill?: { id: string; slug: string; version: number } | null) => {
     if (!skill) return undefined
-    const name = skills.data?.find(item => item.id === skill.id)?.name ?? skill.slug
-    return texts.skills.usedTag(name, skill.version)
+    const found = skills.data?.find(item => item.id === skill.id)
+    return texts.skills.usedTag(found ? skillName(found, texts) : skill.slug, skill.version)
   }
   const liveSkillId = state.request?.skill_id
   const liveSkillRevisionId = state.request?.skill_revision_id
@@ -441,7 +453,7 @@ export function Conversation({ conversationId }: { conversationId: string }) {
     {history.isPending && <p className="le-hint">{texts.chat.loadingHistory}</p>}
     {history.isError && <Notice tone="danger" action={historyGone ? newConversation : { label: texts.chat.retry, onClick: () => { void history.refetch() } }}>{historyGone ? texts.errors.conversation_not_found : texts.chat.historyError}</Notice>}
     {ordered.map((message, index) => <div className="le-chat-entry" id={`message-${message.id}`} key={message.id}>{renderMessage(message)}{index === suggestionsAfter && !live && !oldGrant && <Suggestions items={lastAssistant?.extras.suggestions ?? []} onSend={sendFollowUp} />}</div>)}
-    {live && <div className="le-chat-entry">{!savedPartial && <>{!messages.some(message => message.id === state.userMessageId) && <ChatMessage role="user">{state.request?.text}</ChatMessage>}{status && <div className="le-working" role="status">{status}</div>}{liveSkillMeta && <div><Tag tone="on-surface" icon="sparkle">{texts.skills.usedTag(liveSkillMeta.name, liveSkillMeta.version)}</Tag></div>}<div aria-hidden={busy || undefined}><ChatMessage role="assistant" model={modelLabel(state.model)} streaming={busy} stopped={state.phase === 'stopped'} live={false}><SafeMarkdown text={state.text} /></ChatMessage></div></>}
+    {live && <div className="le-chat-entry">{!savedPartial && <>{!messages.some(message => message.id === state.userMessageId) && <ChatMessage role="user">{state.request?.text}</ChatMessage>}{status && <div className="le-working" role="status">{status}</div>}{liveSkillMeta && <div><Tag tone="on-surface" icon="sparkle">{texts.skills.usedTag(skillName(liveSkillMeta, texts), liveSkillMeta.version)}</Tag></div>}<div aria-hidden={busy || undefined}><ChatMessage role="assistant" model={modelLabel(state.model)} streaming={busy} stopped={state.phase === 'stopped'} live={false}><SafeMarkdown text={state.text} /></ChatMessage></div></>}
       {state.phase === 'stopped' && <div className="le-chat-retry"><Button variant="ghost" onClick={() => { void retry() }}>{texts.chat.askAgain}</Button></div>}
       {state.phase === 'error' && <Notice tone="danger" action={state.errorCode === 'preferences_unavailable' ? { label: texts.preferences.continueWithout, onClick: () => { void retryWithoutPreferences() } } : skillFailure ? undefined : state.errorCode && NEEDS_NEW_CONVERSATION.has(state.errorCode) ? newConversation : { label: texts.chat.retry, onClick: () => { void retry() } }}>{state.errorCode === 'conversation_scope_change_requires_new' ? texts.taskChat.scopeConflict : texts.errors[state.errorCode ?? 'internal']}</Notice>}
       {state.phase === 'done' && <>{!oldGrant && state.calendars?.map(ref => <CalendarReference key={ref.occurrence_id} occurrenceId={ref.occurrence_id} sourceId={ref.source_id} />)}{state.mails.map(mail => <Reference key={mail.id} mail={mail} accounts={accounts} draft={draft} />)}{state.proposal && renderProposal(state.proposal)}{!oldGrant && <Suggestions items={state.suggestions} onSend={sendFollowUp} />}</>}

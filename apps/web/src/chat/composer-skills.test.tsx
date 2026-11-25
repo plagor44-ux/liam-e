@@ -23,8 +23,9 @@ const dailySkill: SkillOut = {
   slug: 'daily_briefing',
   origin: 'builtin',
   status: 'active',
-  name: 'Tagesbriefing',
-  description: 'Fasst Termine, Fristen und wichtige Mails für heute zusammen.',
+  // Built-in names are localized by slug; German matches the server name.
+  name: 'Tagesüberblick',
+  description: 'Führt freigegebene Termine, fällige Aufgaben und bekannte Mailfristen für einen Tag strukturiert zusammen.',
   version: 2,
   revision_id: 'skrev-daily-2',
   instructions: 'Erstelle einen kompakten Tagesüberblick.',
@@ -65,6 +66,22 @@ const disabledSkill: SkillOut = {
   workflow_steps: [],
   allowed_tools: [],
   content_hash: 'h-old-1',
+  updated_at: '2026-11-21T08:00:00Z',
+}
+
+const creatorSkill: SkillOut = {
+  id: 'sk-creator',
+  slug: 'skill_creator',
+  origin: 'builtin',
+  status: 'active',
+  name: 'Skill erstellen',
+  description: 'Entwirft im Gespräch einen eigenen Skill und legt ihn erst nach deiner Bestätigung an.',
+  version: 1,
+  revision_id: 'skrev-creator-1',
+  instructions: 'Synthetic creator instructions.',
+  workflow_steps: [{ id: 'clarify_purpose', title: 'Zweck klären', description: 'Kurz nachfragen.', tool_names: [] }],
+  allowed_tools: ['list_authorable_tools', 'propose_skill', 'suggest_followups'],
+  content_hash: 'h-creator-1',
   updated_at: '2026-11-21T08:00:00Z',
 }
 
@@ -722,16 +739,16 @@ test('skill_disabled refusal clears stale selection and renders English labels c
   globalThis.fetch = (() => Promise.resolve(Response.json({ detail: { code: 'skill_disabled' } }, { status: 409 }))) as unknown as typeof fetch
   const field = await screen.findByPlaceholderText(en.chat.placeholder)
   fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
-  fireEvent.click(await screen.findByRole('option', { name: new RegExp(dailySkill.name) }))
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(en.skills.builtin.daily_briefing.name) }))
   expect(await screen.findByText(en.skills.activeDuration)).toBeTruthy()
 
-  const activeField = screen.getByPlaceholderText(en.skills.placeholderWithSkill(dailySkill.name))
+  const activeField = screen.getByPlaceholderText(en.skills.placeholderWithSkill(en.skills.builtin.daily_briefing.name))
   fireEvent.change(activeField, { target: { value: 'Run briefing', selectionStart: 12 } })
   fireEvent.click(screen.getByRole('button', { name: en.controls.send }))
 
   expect(await screen.findByText(en.errors.skill_disabled)).toBeTruthy()
   expect(screen.queryByRole('button', { name: en.chat.retry })).toBeNull()
-  expect(screen.queryByText(en.skills.activeSkill(dailySkill.name))).toBeNull()
+  expect(screen.queryByText(en.skills.activeSkill(en.skills.builtin.daily_briefing.name))).toBeNull()
 })
 
 test('actively selected skill warns and can be removed when disabled, and conversation restart clears it', async () => {
@@ -758,4 +775,64 @@ test('actively selected skill warns and can be removed when disabled, and conver
   fireEvent.click(screen.getByRole('button', { name: de.shell.newConversation }))
   expect(await screen.findByText(de.chat.greetingFirst)).toBeTruthy()
   expect(screen.queryByText(de.skills.activeSkill(digestSkill.name))).toBeNull()
+})
+
+test('the skill creator is only a slash action, hidden while active, and built-in names are localized by slug', () => {
+  const build = (overrides: Partial<Parameters<typeof buildSlashOptions>[0]> = {}) => buildSlashOptions({
+    query: '', skills: [creatorSkill, dailySkill, digestSkill], prompts: [], promptDetails: [], favoriteIds: [creatorSkill.id],
+    selectedSkillId: null, selectedPromptRevisionId: null, busy: false, texts: de, ...overrides,
+  })
+  const has = (options: ReturnType<typeof buildSlashOptions>) => options.some(option => option.kind === 'create-skill')
+  const options = build()
+  expect(options.some(option => option.kind === 'skill' && option.skill.id === creatorSkill.id)).toBe(false)
+  const action = options.find(option => option.kind === 'create-skill')
+  expect(action).toMatchObject({ group: 'actions', label: de.skills.builtin.skill_creator.name, hint: de.skills.createSkillHint, disabled: false })
+  for (const query of ['neu', 'erstellen', 'skill_creator']) expect(has(build({ query }))).toBe(true)
+  expect(has(build({ query: 'postfach' }))).toBe(false)
+  expect(has(build({ selectedSkillId: creatorSkill.id }))).toBe(false)
+  expect(has(build({ skills: [{ ...creatorSkill, status: 'disabled' }, dailySkill] }))).toBe(false)
+
+  const english = build({ texts: en })
+  expect(has(build({ texts: en, query: 'create' }))).toBe(true)
+  expect(english.find(option => option.kind === 'create-skill')?.label).toBe(en.skills.builtin.skill_creator.name)
+  expect(english.find(option => option.kind === 'skill' && option.skill.id === dailySkill.id)).toMatchObject({ label: en.skills.builtin.daily_briefing.name, hint: en.skills.builtin.daily_briefing.description })
+  expect(english.find(option => option.kind === 'skill' && option.skill.id === digestSkill.id)?.label).toBe(digestSkill.name)
+  // A custom skill never takes a built-in display name.
+  expect(build({ texts: en, skills: [{ ...digestSkill, slug: 'daily_briefing' }] }).find(option => option.kind === 'skill')?.label).toBe(digestSkill.name)
+})
+
+test('creating a skill starts a fresh conversation that keeps the creator until it is ended', async () => {
+  window.localStorage.setItem(SKILL_FAVORITES_STORAGE_KEY, JSON.stringify([creatorSkill.id, dailySkill.id]))
+  const { router } = setup({ path: '/chat/c1', skills: [creatorSkill, dailySkill, digestSkill] })
+  const field = await screen.findByPlaceholderText(de.chat.placeholder)
+  fireEvent.change(field, { target: { value: 'Wochenbericht /erstellen', selectionStart: 24 } })
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(de.skills.createSkillHint) }))
+
+  await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+  const creatorField = await screen.findByPlaceholderText(de.skills.creatorPlaceholder) as HTMLTextAreaElement
+  expect(creatorField.value).toBe('Wochenbericht ')
+  expect(screen.getByText(de.skills.builtin.skill_creator.name)).toBeTruthy()
+  expect(screen.getByText(de.skills.creatorNote)).toBeTruthy()
+  expect(screen.getByText(de.skills.durationUntilStopped)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: de.skills.keepForFollowUps })).toBeNull()
+  expect(sentBodies).toHaveLength(0)
+
+  // A stored favorite id for the creator is ignored.
+  fireEvent.click(screen.getByRole('button', { name: de.skills.favoritesChip }))
+  expect(await screen.findByRole('button', { name: new RegExp(`/${dailySkill.slug}`) })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: new RegExp(`/${creatorSkill.slug}`) })).toBeNull()
+  fireEvent.pointerDown(document.body)
+
+  fireEvent.click(screen.getByRole('button', { name: de.controls.send }))
+  expect(sentBodies[0]).toMatchObject({ text: 'Wochenbericht ', skill_id: creatorSkill.id, skill_revision_id: creatorSkill.revision_id })
+  expect(sentBodies[0]!.conversation_id).toBeUndefined()
+  await act(async () => {
+    emitFrame({ event: 'start', conversation_id: 'c2', user_message_id: 'u1', model: 'm1' })
+    emitFrame({ event: 'done', conversation_id: 'c2', message_id: 'a1' })
+  })
+  await waitFor(() => expect(router.state.location.pathname).toBe('/chat/c2'))
+  expect(await screen.findByPlaceholderText(de.skills.creatorPlaceholder)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: de.skills.endSkill }))
+  expect(await screen.findByPlaceholderText(de.chat.placeholder)).toBeTruthy()
+  expect(screen.queryByText(de.skills.creatorNote)).toBeNull()
 })
