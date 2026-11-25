@@ -23,10 +23,7 @@ liam-e is under active development. Issues and pull requests are welcome; see
 [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md) ·
 [Discussions](https://github.com/plagor44-ux/liam-e/discussions) · [Security](SECURITY.md)**
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-inbox-dark.png">
-  <img alt="The liam-e inbox with an opened mail, its summary and due date, showing synthetic sample data" src="docs/assets/screenshot-inbox-light.png">
-</picture>
+<img alt="The liam-e inbox with an opened mail, its summary and due date, showing synthetic sample data" src="docs/assets/screenshot-inbox-light.png">
 
 <details>
 <summary>More screenshots</summary>
@@ -34,21 +31,11 @@ liam-e is under active development. Issues and pull requests are welcome; see
 A proposal card in chat: the assistant suggests unsubscribing from five newsletters, and nothing
 happens until you confirm.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-chat-dark.png">
-  <img alt="A chat proposal card listing five newsletters to unsubscribe from, with confirm and cancel buttons" src="docs/assets/screenshot-chat-light.png">
-</picture>
+<img alt="A chat proposal card listing five newsletters to unsubscribe from, with confirm and cancel buttons" src="docs/assets/screenshot-chat-dark.png">
 
 On a phone:
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-mobile-inbox-dark.png">
-  <img alt="The inbox on a narrow phone screen" src="docs/assets/screenshot-mobile-inbox-light.png" width="260">
-</picture>
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-mobile-chat-dark.png">
-  <img alt="The newsletter proposal card on a narrow phone screen" src="docs/assets/screenshot-mobile-chat-light.png" width="260">
-</picture>
+<img alt="The inbox on a narrow phone screen" src="docs/assets/screenshot-mobile-inbox-light.png" width="260">
 
 A short tour from the inbox to an opened mail and a proposal card in chat:
 
