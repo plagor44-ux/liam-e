@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.skills.types import (
+    SkillToolNotAuthorableError,
     SkillToolUnavailableError,
     SkillToolUnknownError,
     StatusCode,
@@ -23,7 +24,11 @@ ToolHandler = Callable[[dict[str, Any], Any], Awaitable[ToolOutcome]]
 
 @dataclass(frozen=True)
 class RegisteredTool:
-    """Metadata, JSON schema, and optional direct handler for a server-trusted tool."""
+    """Metadata, JSON schema, and optional direct handler for a server-trusted tool.
+
+    ``authorable`` approves a tool for skills drafted in the chat. ``builtin_only``
+    reserves a tool for code-owned built-in skills: no custom skill may reference it.
+    """
 
     name: str
     kind: ToolKind
@@ -32,6 +37,8 @@ class RegisteredTool:
     skill_only: bool = False
     status_code: StatusCode | None = None
     handler: ToolHandler | None = None
+    authorable: bool = False
+    builtin_only: bool = False
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -56,6 +63,8 @@ class ToolRegistry:
             raise ValueError("Tool name must not be empty")
         if tool.skill_only and tool.handler is None:
             raise ValueError(f"Skill-only tool requires an async handler: {tool.name}")
+        if tool.authorable and tool.builtin_only:
+            raise ValueError(f"A built-in-only tool cannot be authorable: {tool.name}")
         existing = self._tools.get(tool.name)
         if existing is not None:
             if existing == tool:
@@ -81,14 +90,36 @@ class ToolRegistry:
         self._ensure_bootstrapped()
         return [tool.schema() for tool in self._tools.values() if not tool.skill_only]
 
-    def validate_for_definition(self, names: Iterable[str]) -> list[str]:
-        """Validate tool names when authoring/updating a skill definition."""
+    def validate_for_definition(
+        self,
+        names: Iterable[str],
+        *,
+        authoring: bool = False,
+        builtin: bool = False,
+    ) -> list[str]:
+        """Validate tool names when authoring/updating a skill definition.
+
+        Custom skills never reference built-in-only tools. A skill drafted in the
+        chat (``authoring``) may only reference tools approved as authorable.
+        """
         self._ensure_bootstrapped()
         unique = sorted(dict.fromkeys(names))
         missing = [name for name in unique if name not in self._tools]
         if missing:
             raise SkillToolUnknownError(missing)
+        if not builtin:
+            refused = [
+                name for name in unique
+                if self._tools[name].builtin_only or (authoring and not self._tools[name].authorable)
+            ]
+            if refused:
+                raise SkillToolNotAuthorableError(refused)
         return unique
+
+    def authorable_tools(self) -> list[RegisteredTool]:
+        """Tools a chat-drafted skill may reference, sorted by name."""
+        self._ensure_bootstrapped()
+        return sorted((tool for tool in self._tools.values() if tool.authorable), key=lambda tool: tool.name)
 
     def resolve_for_execution(self, names: Iterable[str]) -> list[RegisteredTool]:
         """Resolve tool definitions for an active skill turn; fail closed if any is absent."""
@@ -117,7 +148,10 @@ def register_default_tools(registry: ToolRegistry) -> None:
     """Populate the default registry with trusted base and skill-specific tools."""
     from api.skills.base_tools import BASE_TOOLS
     from api.skills.briefing import DAILY_BRIEFING_TOOL
+    from api.skills.creator import CREATOR_TOOLS
 
     for tool in BASE_TOOLS:
         registry.register(tool)
     registry.register(DAILY_BRIEFING_TOOL)
+    for tool in CREATOR_TOOLS:
+        registry.register(tool)

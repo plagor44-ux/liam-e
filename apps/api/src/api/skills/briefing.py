@@ -278,6 +278,7 @@ DAILY_BRIEFING_TOOL = RegisteredTool(
     name="collect_daily_briefing",
     kind="read",
     skill_only=True,
+    authorable=True,
     status_code="checking_deadlines",
     description=(
         "Aggregate authorized calendar occurrences, open due/overdue tasks, and cached inbox deadlines "

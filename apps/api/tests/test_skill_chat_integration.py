@@ -182,8 +182,12 @@ async def skill_runtime(monkeypatch):
         return next((s for s in skills.values() if s.slug == identifier), None)
 
     async def create_custom(**kw):
+        if sum(s.origin == "custom" for s in skills.values()) >= skill_definition.MAX_CUSTOM_SKILLS:
+            raise skill_definition.SkillQuotaExceeded
         if any(s.slug == kw["slug"] for s in skills.values()):
             raise skill_definition.DuplicateSkillSlug
+        if any(s.name.casefold() == kw["name"].casefold() for s in skills.values()):
+            raise skill_definition.DuplicateSkillName
         row = SkillDefinition(
             slug=kw["slug"],
             origin="custom",
@@ -247,6 +251,8 @@ async def skill_runtime(monkeypatch):
             return row
         prev = revisions[row.revision_id]
         next_name = row.name if changes.get("name") is None else changes["name"]
+        if next_name != row.name and any(s.id != row.id and s.name.casefold() == next_name.casefold() for s in skills.values()):
+            raise skill_definition.DuplicateSkillName
         next_desc = row.description if changes.get("description") is None else changes["description"]
         next_instr = prev.instructions if changes.get("instructions") is None else changes["instructions"]
         next_steps = prev.workflow_steps_json if changes.get("workflow_steps_json") is None else changes["workflow_steps_json"]
@@ -411,6 +417,29 @@ async def skill_runtime(monkeypatch):
     monkeypatch.setattr(skill_definition, "list_skills", list_skills)
     monkeypatch.setattr(skill_definition, "get_skill", get_skill)
     monkeypatch.setattr(skill_definition, "create_custom_skill", create_custom)
+
+    async def create_custom_in_session(session, **kw):
+        return await create_custom(**{"status": "active", **kw})
+
+    async def creation_conflicts(*, slug: str, name: str):
+        conflicts = []
+        if any(s.slug == slug for s in skills.values()):
+            conflicts.append("slug")
+        if any(s.name.casefold() == name.casefold() for s in skills.values()):
+            conflicts.append("name")
+        if sum(s.origin == "custom" for s in skills.values()) >= skill_definition.MAX_CUSTOM_SKILLS:
+            conflicts.append("quota")
+        return conflicts
+
+    async def context_skill_in_session(session, ctx):
+        rev = revisions.get(ctx.skill_revision_id) if ctx and ctx.skill_revision_id else None
+        skill = skills.get(rev.skill_id) if rev and not rev.removed else None
+        return skill if skill is not None and skill.status == "active" else None
+
+    monkeypatch.setattr(skill_definition, "create_custom_skill_in_session", create_custom_in_session)
+    monkeypatch.setattr(skill_definition, "creation_conflicts", creation_conflicts)
+    monkeypatch.setattr(skill_definition, "context_skill_in_session", context_skill_in_session)
+    monkeypatch.setattr(skill_definition, "lock_catalog", AsyncMock())
     monkeypatch.setattr(skill_definition, "change_skill", change_skill)
     monkeypatch.setattr(skill_revision, "get_revision", AsyncMock(side_effect=lambda id: revisions.get(id)))
     monkeypatch.setattr(
@@ -500,8 +529,8 @@ def test_skill_http_crud_validation_and_error_privacy(skill_runtime):
 
     list_res = client.get("/api/v1/skills")
     assert list_res.status_code == 200
-    assert [item["slug"] for item in list_res.json()] == ["daily_briefing"]
-    builtin = list_res.json()[0]
+    assert [item["slug"] for item in list_res.json()] == ["skill_creator", "daily_briefing"]
+    builtin = next(item for item in list_res.json() if item["slug"] == "daily_briefing")
     assert builtin["origin"] == "builtin" and builtin["status"] == "active"
 
     # Unknown tool in skill definition fails without echoing secret/synthetic instructions
@@ -688,7 +717,7 @@ async def test_skill_error_codes_for_unknown_disabled_and_missing_tool(skill_run
 
     # Trigger builtin sync then disable daily_briefing
     listed = client.get("/api/v1/skills").json()
-    builtin_id = listed[0]["id"]
+    builtin_id = next(item["id"] for item in listed if item["slug"] == "daily_briefing")
     client.patch(f"/api/v1/skills/{builtin_id}", json={"expected_version": 1, "status": "disabled"})
     disabled = client.post("/api/v1/chat", json={"message": "Test", "skill_id": "daily_briefing"})
     assert disabled.status_code == 409 and disabled.json()["detail"]["code"] == "skill_disabled"

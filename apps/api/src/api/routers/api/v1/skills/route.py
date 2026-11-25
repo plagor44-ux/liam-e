@@ -58,6 +58,7 @@ class RegisteredToolOut(BaseModel):
     kind: Literal["read", "propose", "ui"]
     description: str
     skill_only: bool
+    authorable: bool = Field(description="Approved for skills drafted in the chat")
 
 
 class SkillCreateIn(BaseModel):
@@ -156,7 +157,13 @@ def _skill_out(skill, revision) -> SkillOut:
 @router.get("/tools", operation_id="skill_tools_list", summary="List server-registered trusted tools")
 async def list_registered_tools() -> list[RegisteredToolOut]:
     return [
-        RegisteredToolOut(name=tool.name, kind=tool.kind, description=tool.description, skill_only=tool.skill_only)
+        RegisteredToolOut(
+            name=tool.name,
+            kind=tool.kind,
+            description=tool.description,
+            skill_only=tool.skill_only,
+            authorable=tool.authorable,
+        )
         for tool in TOOL_REGISTRY.list_tools()
     ]
 

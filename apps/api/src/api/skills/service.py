@@ -15,6 +15,7 @@ from db.models.skill_revision import SkillRevision
 from api.skills.catalog import ensure_builtin_skills
 from api.skills.registry import TOOL_REGISTRY
 from api.skills.types import (
+    SKILL_CREATOR_SLUG,
     ActiveSkill,
     SkillConflictError,
     SkillDisabledError,
@@ -27,7 +28,9 @@ from api.skills.types import (
 )
 
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-RESERVED_SKILL_SLUGS = frozenset({"tools"})
+RESERVED_SKILL_SLUGS = frozenset({"tools", SKILL_CREATOR_SLUG})
+NAME_CONFLICT_MESSAGE = "Ein Skill mit diesem Namen existiert bereits."
+QUOTA_MESSAGE = "Die Grenze für eigene Skills ist erreicht. Entferne zuerst einen gespeicherten Skill."
 
 
 def parse_workflow_steps(raw: str | None) -> list[SkillWorkflowStep]:
@@ -63,8 +66,12 @@ def validate_skill_payload(
     workflow_steps: list[SkillWorkflowStep] | None = None,
     allowed_tools: list[str] | None = None,
     status: SkillStatus | None = None,
+    authoring: bool = False,
 ) -> dict[str, Any]:
-    """Validate and normalize skill fields against the server tool registry."""
+    """Validate and normalize skill fields against the server tool registry.
+
+    ``authoring`` limits tools to those approved for skills drafted in the chat.
+    """
     normalized: dict[str, Any] = {}
     if slug is not None:
         cleaned_slug = slug.strip()
@@ -91,7 +98,7 @@ def validate_skill_payload(
             raise SkillValidationError()
         normalized["status"] = status
     if allowed_tools is not None:
-        normalized["allowed_tools"] = TOOL_REGISTRY.validate_for_definition(allowed_tools)
+        normalized["allowed_tools"] = TOOL_REGISTRY.validate_for_definition(allowed_tools, authoring=authoring)
     if workflow_steps is not None:
         if len(workflow_steps) > 20:
             raise SkillValidationError("Höchstens 20 Arbeitsschritte sind möglich.")
@@ -169,11 +176,10 @@ async def create_skill(
         )
     except skill_access.DuplicateSkillSlug as error:
         raise SkillConflictError() from error
+    except skill_access.DuplicateSkillName as error:
+        raise SkillConflictError("skill_name_conflict", NAME_CONFLICT_MESSAGE) from error
     except skill_access.SkillQuotaExceeded as error:
-        raise SkillConflictError(
-            "skill_quota",
-            "Die Grenze für eigene Skills ist erreicht. Entferne zuerst einen gespeicherten Skill.",
-        ) from error
+        raise SkillConflictError("skill_quota", QUOTA_MESSAGE) from error
     rev = await revision_access.get_revision(row.revision_id)
     assert rev is not None
     return row, rev
@@ -233,6 +239,8 @@ async def update_skill(
         )
     except skill_access.BuiltinSkillProtected as error:
         raise SkillProtectedError() from error
+    except skill_access.DuplicateSkillName as error:
+        raise SkillConflictError("skill_name_conflict", NAME_CONFLICT_MESSAGE) from error
     except StaleVersion as error:
         raise SkillConflictError("version_conflict", "Der Skill wurde inzwischen geändert. Lade ihn neu.") from error
     if row is None:

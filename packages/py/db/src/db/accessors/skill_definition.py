@@ -1,7 +1,9 @@
 """Serialized skill mutations, builtin catalog sync, and context revocation.
 
-Advisory lock ``380084`` serializes builtin catalog seeding/upgrades alongside
-explicit per-row ``FOR UPDATE`` locks matching template/conversation ordering.
+Advisory lock ``380084`` serializes builtin catalog seeding/upgrades, custom
+creations and skill changes (quota, slug and case-insensitive name checks). It is
+always taken before per-row ``FOR UPDATE`` locks. A proposal confirmation takes it
+after its claim, which already holds the preference lock ``380038``.
 """
 
 from collections.abc import Sequence
@@ -26,6 +28,10 @@ BUILTIN_SYNC_LOCK_KEY = 380084
 
 class DuplicateSkillSlug(Exception):
     """Another skill already uses this slug in the installation."""
+
+
+class DuplicateSkillName(Exception):
+    """Another skill already uses this name, compared case-insensitively."""
 
 
 class BuiltinSkillProtected(Exception):
@@ -137,6 +143,19 @@ async def _revoke_contexts_in_session(
     )
 
 
+async def context_skill_in_session(session: AsyncSession, context: ChatContext | None) -> SkillDefinition | None:
+    """Return the active, unremoved skill a turn context is bound to, or ``None``."""
+    if context is None or not context.skill_revision_id:
+        return None
+    revision = await session.get(SkillRevision, context.skill_revision_id)
+    if revision is None or revision.removed or revision.owner_scope != OWNER_SCOPE:
+        return None
+    skill = await session.get(SkillDefinition, revision.skill_id)
+    if skill is None or skill.owner_scope != OWNER_SCOPE or skill.status != "active":
+        return None
+    return skill
+
+
 async def list_skills() -> list[SkillDefinition]:
     """List all skill definitions in the installation scope ordered by origin and name."""
     async with get_session_maker()() as session:
@@ -161,6 +180,105 @@ async def get_skill(identifier: str) -> SkillDefinition | None:
         return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def lock_catalog(session: AsyncSession) -> None:
+    """Take the transaction-scoped catalog lock; re-entrant within one transaction."""
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": BUILTIN_SYNC_LOCK_KEY})
+
+
+async def _custom_count(session: AsyncSession) -> int:
+    return int((await session.execute(
+        select(func.count()).select_from(SkillDefinition).where(
+            SkillDefinition.owner_scope == OWNER_SCOPE,
+            SkillDefinition.origin == "custom",
+        )
+    )).scalar_one())
+
+
+async def _slug_taken(session: AsyncSession, slug: str) -> bool:
+    stmt = select(SkillDefinition.id).where(SkillDefinition.owner_scope == OWNER_SCOPE, SkillDefinition.slug == slug)
+    return (await session.execute(stmt.limit(1))).first() is not None
+
+
+async def _name_taken(session: AsyncSession, name: str, *, exclude_id: str | None = None) -> bool:
+    """Compare names case-insensitively in the database so every caller folds case the same way."""
+    stmt = select(SkillDefinition.id).where(
+        SkillDefinition.owner_scope == OWNER_SCOPE,
+        func.lower(SkillDefinition.name) == func.lower(name),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(SkillDefinition.id != exclude_id)
+    return (await session.execute(stmt.limit(1))).first() is not None
+
+
+async def creation_conflicts(*, slug: str, name: str) -> list[str]:
+    """Report ``slug``, ``name`` and ``quota`` conflicts for a draft without locking.
+
+    Advisory only: confirmation checks again under the catalog lock.
+    """
+    async with get_session_maker()() as session:
+        conflicts: list[str] = []
+        if await _slug_taken(session, slug):
+            conflicts.append("slug")
+        if await _name_taken(session, name):
+            conflicts.append("name")
+        if await _custom_count(session) >= MAX_CUSTOM_SKILLS:
+            conflicts.append("quota")
+        return conflicts
+
+
+async def create_custom_skill_in_session(
+    session: AsyncSession,
+    *,
+    slug: str,
+    name: str,
+    description: str,
+    instructions: str,
+    workflow_steps_json: str,
+    allowed_tools_json: str,
+    status: str = "active",
+) -> SkillDefinition:
+    """Create a custom skill and its first revision in the caller's transaction; never commit.
+
+    The catalog lock serializes quota, slug and name checks with other creations and
+    the built-in sync until the caller's transaction ends.
+    """
+    _validate_skill_json(workflow_steps_json, allowed_tools_json)
+    await lock_catalog(session)
+    if await _custom_count(session) >= MAX_CUSTOM_SKILLS:
+        raise SkillQuotaExceeded
+    if await _slug_taken(session, slug):
+        raise DuplicateSkillSlug
+    if await _name_taken(session, name):
+        raise DuplicateSkillName
+    row = SkillDefinition(
+        slug=slug,
+        origin="custom",
+        status=status,
+        name=name,
+        description=description,
+        version=1,
+        revision_id="",
+        updated_at=datetime.now(timezone.utc),
+    )
+    rev = build_revision(
+        skill_id=row.id,
+        number=1,
+        slug=slug,
+        name=name,
+        description=description,
+        instructions=instructions,
+        workflow_steps_json=workflow_steps_json,
+        allowed_tools_json=allowed_tools_json,
+    )
+    row.revision_id = rev.id
+    session.add_all([row, rev])
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        raise DuplicateSkillSlug from error
+    return row
+
+
 async def create_custom_skill(
     *,
     slug: str,
@@ -172,44 +290,18 @@ async def create_custom_skill(
     status: str = "active",
 ) -> SkillDefinition:
     """Create a new custom skill and its initial immutable revision."""
-    _validate_skill_json(workflow_steps_json, allowed_tools_json)
     async with get_session_maker()() as session:
-        await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": BUILTIN_SYNC_LOCK_KEY})
-        existing_count = int((await session.execute(
-            select(func.count()).select_from(SkillDefinition).where(
-                SkillDefinition.owner_scope == OWNER_SCOPE,
-                SkillDefinition.origin == "custom",
-            )
-        )).scalar_one())
-        if existing_count >= MAX_CUSTOM_SKILLS:
-            raise SkillQuotaExceeded
-        row = SkillDefinition(
-            slug=slug,
-            origin="custom",
-            status=status,
-            name=name,
-            description=description,
-            version=1,
-            revision_id="",
-            updated_at=datetime.now(timezone.utc),
-        )
-        rev = build_revision(
-            skill_id=row.id,
-            number=1,
+        row = await create_custom_skill_in_session(
+            session,
             slug=slug,
             name=name,
             description=description,
             instructions=instructions,
             workflow_steps_json=workflow_steps_json,
             allowed_tools_json=allowed_tools_json,
+            status=status,
         )
-        row.revision_id = rev.id
-        session.add_all([row, rev])
-        try:
-            await session.commit()
-        except IntegrityError as error:
-            await session.rollback()
-            raise DuplicateSkillSlug from error
+        await session.commit()
         return row
 
 
@@ -229,6 +321,9 @@ async def change_skill(
     if not delete:
         _validate_skill_json(workflow_steps_json, allowed_tools_json)
     async with get_session_maker()() as session:
+        # Catalog lock first, then the row, as in the built-in sync: it serializes the
+        # case-insensitive name check with creations.
+        await lock_catalog(session)
         row = (await session.execute(
             select(SkillDefinition).where(
                 SkillDefinition.owner_scope == OWNER_SCOPE,
@@ -283,6 +378,8 @@ async def change_skill(
         next_steps = previous.workflow_steps_json if workflow_steps_json is None else workflow_steps_json
         next_tools = previous.allowed_tools_json if allowed_tools_json is None else allowed_tools_json
         next_status = row.status if status is None else status
+        if next_name != row.name and await _name_taken(session, next_name, exclude_id=row.id):
+            raise DuplicateSkillName
 
         content_changed = (
             next_name != row.name
@@ -332,7 +429,7 @@ async def sync_builtin_skills(specs: Sequence[dict[str, str]]) -> list[SkillDefi
         return []
     synced: list[SkillDefinition] = []
     async with get_session_maker()() as session:
-        await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": BUILTIN_SYNC_LOCK_KEY})
+        await lock_catalog(session)
         now = datetime.now(timezone.utc)
         for spec in specs:
             slug = spec["slug"]

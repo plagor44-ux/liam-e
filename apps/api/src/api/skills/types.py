@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 if TYPE_CHECKING:
     from db.models.chat_message import ChatMessage
 
+SKILL_CREATOR_SLUG = "skill_creator"
+
 ToolKind = Literal["read", "propose", "ui"]
 SkillOrigin = Literal["builtin", "custom"]
 SkillStatus = Literal["active", "disabled"]
@@ -42,6 +44,31 @@ class SkillWorkflowStep(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=500)
     tool_names: list[str] = Field(default_factory=list, max_length=20)
+
+
+class SkillDraft(BaseModel):
+    """A custom skill drafted in the chat; nothing is stored until the owner confirms its card."""
+
+    model_config = ConfigDict(extra="forbid")
+    slug: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=400)
+    instructions: str = Field(min_length=1, max_length=8000)
+    workflow_steps: list[SkillWorkflowStep] = Field(default_factory=list, max_length=20)
+    allowed_tools: list[str] = Field(default_factory=list, max_length=32)
+
+
+class SkillEdit(BaseModel):
+    """Text fields the owner may change on a skill card before saving.
+
+    Tools and steps change only through a new card drafted in the chat.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    slug: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=400)
+    instructions: str = Field(min_length=1, max_length=8000)
 
 
 class SkillExecutionRef(BaseModel):
@@ -134,6 +161,16 @@ class SkillToolUnavailableError(SkillError):
         super().__init__(
             "skill_tool_unavailable",
             "Ein für diesen Skill benötigtes Werkzeug steht in dieser Version nicht zur Verfügung.",
+            status=422,
+        )
+
+
+class SkillToolNotAuthorableError(SkillError):
+    def __init__(self, refused: list[str] | None = None) -> None:
+        self.refused = sorted(refused or [])
+        super().__init__(
+            "skill_tool_not_authorable",
+            "Mindestens ein ausgewähltes Werkzeug ist für eigene Skills nicht freigegeben.",
             status=422,
         )
 

@@ -32,6 +32,7 @@ from api.skills import (
     load_active_skill,
     skill_prompt_message,
 )
+from api.skills.types import SKILL_CREATOR_SLUG
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,12 @@ async def run_turn_events(*, conversation_id: str | None, text: str, account_id:
                     or set(json.loads(previous.calendar_scope_json)) != set(ctx.calendar_source_ids)
                     or bindings is None or calendar_source.stored_feed_bindings(previous) != bindings
                     or json.loads(previous.task_scope_json) != ctx.task_scope):
+                yield ErrorEvent(code='context_revoked')
+                return
+        # The creator drafts from the owner's own words: it runs only in a conversation that
+        # never left creator mode, so no earlier mail, calendar or task text is in its history.
+        if active_skill is not None and active_skill.origin == 'builtin' and active_skill.slug == SKILL_CREATOR_SLUG:
+            if any(row.id != user.id and getattr(contexts.get(row.context_id), 'skill_id', None) != active_skill.id for row in history):
                 yield ErrorEvent(code='context_revoked')
                 return
         history = [row for row in history if not row.context_id or

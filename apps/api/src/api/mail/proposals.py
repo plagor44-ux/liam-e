@@ -27,9 +27,10 @@ from api.tasks import state as task_state
 from api.preferences import candidates as preference_candidates
 from api.calendar.proposals import CalendarCommand
 from api.calendar import writes as calendar_writes
+from api.skills.types import SkillDraft
 
 logger = logging.getLogger(__name__)
-ProposalKind = Literal["send", "archive", "trash", "mark_read", "unsubscribe", "task", "preference", "calendar", "filing", "rule"]
+ProposalKind = Literal["send", "archive", "trash", "mark_read", "unsubscribe", "task", "preference", "calendar", "filing", "rule", "skill"]
 
 
 class ProposalItem(BaseModel):
@@ -85,6 +86,7 @@ class ProposalResult(BaseModel):
     calendar_write_id: str | None = None
     calendar_status: str | None = None
     rule_id: str | None = None
+    skill_id: str | None = None
 
 
 class Proposal(BaseModel):
@@ -97,6 +99,7 @@ class Proposal(BaseModel):
     calendar: CalendarCommand | None = None
     filing: FilingCommand | None = None
     rule: RuleIn | None = None
+    skill: SkillDraft | None = None
     irreversible: bool = False
     result: ProposalResult | None = None
 
@@ -110,6 +113,10 @@ class Proposal(BaseModel):
             raise ValueError("filing and rule commands cannot contain other actions")
         if self.kind == "rule" and self.items:
             raise ValueError("rule commands do not select mail items")
+        if (self.kind == "skill") != (self.skill is not None):
+            raise ValueError("skill requires one typed draft")
+        if self.kind == "skill" and (self.items or self.draft or self.task or self.preference or self.calendar or self.filing or self.rule):
+            raise ValueError("skill drafts cannot contain other actions")
         self.irreversible = self.kind in {"send", "unsubscribe"} or (self.calendar is not None and self.calendar.action == "delete")
         if (self.kind == "calendar") != (self.calendar is not None):
             raise ValueError("calendar requires one typed command")
