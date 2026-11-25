@@ -71,8 +71,8 @@ Mistral access.
   the same search, so one question in chat covers all of them.
 - **Built on Mistral.** Chat, summaries and voice use Mistral's models, and the app runs in
   Mistral Studio.
-- **One person, one installation.** The mail index, the encrypted credentials and the chat
-  history live in the database of your own Studio app.
+- **One person, one installation.** The mail index, the chat history and the encrypted
+  credentials or references to them live in the database of your own Studio app.
 
 ## Security model
 
@@ -96,7 +96,7 @@ privately as described in [SECURITY.md](SECURITY.md).
 
 | Goal | What you need |
 | --- | --- |
-| Look around with sample data | Bun, Node.js, uv and Postgres on your machine. No mail account and no Mistral access. |
+| Look around with sample data | Bun, Node.js, uv and Postgres with pgvector on your machine. No mail account and no Mistral access. |
 | New chat answers locally | A Mistral API key as well ([steps](docs/local-development.md#chat-with-a-mistral-api-key)). |
 | Your own mailboxes | Access at your mail provider: a Studio connector, your own OAuth2 client or an IMAP app password ([provider guide](docs/providers-and-operations.md)). |
 | Deploy | A Mistral Studio organization whose plan includes Apps ([Mistral's Apps overview](https://docs.mistral.ai/studio/apps/overview)). |
