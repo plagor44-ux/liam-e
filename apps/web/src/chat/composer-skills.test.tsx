@@ -2,7 +2,7 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
 import type { ChatMessageOut, ChatModelOut, ConversationOut, PromptDetailOut, PromptOut, SkillOut } from '../api/generated/types.gen'
 import { Route as StartRoute } from '../routes/_app/index'
@@ -124,6 +124,7 @@ function setup({
   details = [promptDetail],
   conversations,
   history = [],
+  compact = false,
 }: {
   path?: string
   locale?: 'de' | 'en'
@@ -132,6 +133,7 @@ function setup({
   details?: PromptDetailOut[]
   conversations?: ConversationOut[]
   history?: ChatMessageOut[]
+  compact?: boolean
 } = {}) {
   sentBodies = []
   streamController = null
@@ -147,7 +149,7 @@ function setup({
     updated_at: '2026-11-21T08:00:00Z',
   }]
 
-  window.matchMedia = ((query: string) => ({ matches: query !== '(max-width: 639px)', addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  window.matchMedia = ((query: string) => ({ matches: query === '(max-width: 639px)' ? compact : true, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
   globalThis.fetch = ((_url: unknown, init?: RequestInit) => {
     sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
     return Promise.resolve(new Response(new ReadableStream({ start(c) { streamController = c } })))
@@ -218,6 +220,12 @@ function setup({
   })
   const rendered = render(<RouterProvider router={router} />)
   return { client, router, unmount: rendered.unmount }
+}
+
+/** Keeps the attached skill for follow-ups through its duration menu. */
+function keepSkill() {
+  fireEvent.click(screen.getByRole('button', { name: de.skills.activeDuration }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: new RegExp(de.skills.durationUntilStopped) }))
 }
 
 afterEach(() => {
@@ -508,10 +516,9 @@ test('sticky persistence keeps active skill across follow-up clarifying turns un
   fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
   fireEvent.click(await screen.findByRole('option', { name: new RegExp(dailySkill.name) }))
 
-  const stickyToggle = await screen.findByRole('button', { name: de.skills.keepForFollowUps })
-  fireEvent.click(stickyToggle)
-  expect(stickyToggle.getAttribute('aria-pressed')).toBe('true')
-  expect(screen.getByText(de.skills.durationUntilStopped)).toBeTruthy()
+  await screen.findByRole('button', { name: de.skills.activeDuration })
+  keepSkill()
+  expect(screen.getByRole('button', { name: de.skills.durationUntilStopped })).toBeTruthy()
 
   const activeField = screen.getByPlaceholderText(de.skills.placeholderWithSkill(dailySkill.name))
   fireEvent.change(activeField, { target: { value: 'Gib mir das Briefing', selectionStart: 20 } })
@@ -558,7 +565,7 @@ test.each(['suggestion', 'mail reference'])('a %s sends the conversation’s exa
   const field = await screen.findByPlaceholderText(de.chat.placeholder)
   fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
   fireEvent.click(await screen.findByRole('option', { name: new RegExp(dailySkill.name) }))
-  fireEvent.click(screen.getByRole('button', { name: de.skills.keepForFollowUps }))
+  keepSkill()
   fireEvent.change(field, { target: { value: 'Briefing' } })
   fireEvent.click(screen.getByRole('button', { name: de.controls.send }))
 
@@ -607,7 +614,7 @@ test.each(['home', 'conversation'])('context_revoked clears only the sticky skil
   await choose(de.chat.placeholder, '/daily', dailySkill)
   await act(() => router.navigate(fromHome ? home : conversation))
   await choose(de.chat.placeholder, '/daily', dailySkill)
-  fireEvent.click(screen.getByRole('button', { name: de.skills.keepForFollowUps }))
+  keepSkill()
   fireEvent.change(screen.getByPlaceholderText(de.skills.placeholderWithSkill(dailySkill.name)), { target: { value: 'Briefing' } })
   fireEvent.click(screen.getByRole('button', { name: de.controls.send }))
   expect(sentBodies[0]).toMatchObject({ skill_id: dailySkill.id, skill_revision_id: dailySkill.revision_id })
@@ -819,9 +826,12 @@ test('creating a skill starts a fresh conversation that keeps the creator until 
   const creatorField = await screen.findByPlaceholderText(de.skills.creatorPlaceholder) as HTMLTextAreaElement
   expect(creatorField.value).toBe('Wochenbericht ')
   expect(screen.getByText(de.skills.builtin.skill_creator.name)).toBeTruthy()
+  // The creator row holds only its name, the short note and the end button: no duration or steps controls.
   expect(screen.getByText(de.skills.creatorNote)).toBeTruthy()
-  expect(screen.getByText(de.skills.durationUntilStopped)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: de.skills.keepForFollowUps })).toBeNull()
+  expect(screen.getByRole('button', { name: de.skills.endSkill })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: de.skills.activeDuration })).toBeNull()
+  expect(screen.queryByRole('button', { name: de.skills.durationUntilStopped })).toBeNull()
+  expect(screen.queryByRole('button', { name: de.skills.showSteps(1) })).toBeNull()
   expect(sentBodies).toHaveLength(0)
 
   // A stored favorite id for the creator is ignored.
@@ -868,4 +878,69 @@ test('built-in steps are localized by slug and step ID, while other steps show a
   expect(skillStep({ ...digestSkill, slug: 'daily_briefing' }, stored, en)).toEqual({ title: stored.title, description: stored.description })
   expect(skillStep(daily, stored, de)).toEqual(de.skills.builtin.daily_briefing.steps.collect_agenda)
   expect(skillStep(creatorSkill, { ...stored, id: 'clarify_purpose' }, en)).toEqual({ title: stored.title, description: stored.description })
+})
+
+test('an attached skill and template each take one row, the duration note is a lasting description and steps keep their label', async () => {
+  setup()
+  const field = await screen.findByPlaceholderText(de.chat.placeholder)
+  fireEvent.change(field, { target: { value: '/Fristen', selectionStart: 8 } })
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(promptTemplate.name) }))
+  const template = (await screen.findByText(de.prompts.chip(promptTemplate.name))).closest('.le-composer-active-row') as HTMLElement
+  expect(within(template).getByText(de.prompts.durationNew)).toBeTruthy()
+  expect(within(template).getByRole('button', { name: de.prompts.clearSelection }).closest('.le-composer-active-close')).toBeTruthy()
+
+  fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(dailySkill.name) }))
+  const row = (await screen.findByText(de.skills.activeSkill(dailySkill.name))).closest('.le-composer-active-row') as HTMLElement
+  const duration = within(row).getByRole('button', { name: de.skills.activeDuration })
+  const steps = within(row).getByRole('button', { name: de.skills.showSteps(1) })
+  expect(within(row).getByRole('button', { name: de.skills.removeSelection }).closest('.le-composer-active-close')).toBeTruthy()
+  // The note no longer takes its own row; it describes the duration control instead.
+  const banner = row.closest('.le-composer-active') as HTMLElement
+  expect(within(banner).queryByText(de.skills.activeScopeNote, { selector: ':not(.le-sr)' })).toBeNull()
+  const description = () => document.getElementById(duration.getAttribute('aria-describedby') ?? '')?.textContent
+  expect(description()).toBe(de.skills.activeScopeNote)
+
+  // Hovering shows the same note as a tooltip without announcing it a second time.
+  fireEvent.mouseEnter(duration)
+  expect((await screen.findByRole('tooltip')).textContent).toBe(de.skills.activeScopeNote)
+  expect(duration.getAttribute('aria-describedby')?.split(' ')).toHaveLength(1)
+  fireEvent.mouseLeave(duration)
+
+  fireEvent.click(duration)
+  const choices = screen.getAllByRole('menuitemradio')
+  expect(choices.map(item => item.getAttribute('aria-checked'))).toEqual(['true', 'false'])
+  expect(choices[0]!.textContent).toContain(de.skills.durationTurnHint)
+  expect(choices[1]!.textContent).toContain(de.skills.durationStickyHint)
+  fireEvent.click(choices[1]!)
+  const sticky = within(row).getByRole('button', { name: de.skills.durationUntilStopped })
+  expect(document.getElementById(sticky.getAttribute('aria-describedby') ?? '')?.textContent).toBe(de.skills.activeStickyNote)
+  expect(within(row).getByRole('button', { name: de.skills.endSkill })).toBeTruthy()
+
+  // The steps chip keeps its label; its state and target are announced instead.
+  expect(steps.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(steps)
+  expect(steps.textContent).toBe(de.skills.showSteps(1))
+  expect(steps.getAttribute('aria-expanded')).toBe('true')
+  expect(document.getElementById(steps.getAttribute('aria-controls') ?? '')?.textContent).toContain(dailySkill.workflow_steps[0]!.title)
+  fireEvent.click(steps)
+  expect(steps.getAttribute('aria-controls')).toBeNull()
+  expect(screen.queryByText(dailySkill.workflow_steps[0]!.title)).toBeNull()
+})
+
+test('the compact phone composer shows a short skill or creator placeholder and keeps the full one as the field name', async () => {
+  setup({ compact: true, skills: [creatorSkill, dailySkill, digestSkill] })
+  const field = await screen.findByPlaceholderText(de.controls.composerPlaceholder)
+  expect(field.getAttribute('aria-label')).toBe(de.chat.placeholder)
+  fireEvent.change(field, { target: { value: '/daily', selectionStart: 6 } })
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(dailySkill.name) }))
+  expect(await screen.findByPlaceholderText(de.skills.compactPlaceholder)).toBe(field)
+  expect(field.getAttribute('aria-label')).toBe(de.skills.placeholderWithSkill(dailySkill.name))
+
+  fireEvent.click(screen.getByRole('button', { name: de.skills.removeSelection }))
+  expect(await screen.findByPlaceholderText(de.controls.composerPlaceholder)).toBe(field)
+  fireEvent.change(field, { target: { value: '/erstellen', selectionStart: 10 } })
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(de.skills.createSkillHint) }))
+  const creatorField = await screen.findByPlaceholderText(de.skills.creatorCompactPlaceholder)
+  expect(creatorField.getAttribute('aria-label')).toBe(de.skills.creatorPlaceholder)
 })

@@ -62,7 +62,8 @@ const PLACEMENT: Record<Pos, [Side, Align]> = { top: ['top', 'center'], 'top-end
 
 // The bubble hangs in <body> with fixed coordinates from floating.ts; `pos` is only the preferred side.
 // `clearOf`: a box around the trigger the bubble keeps clear of above or below (floating.ts).
-export function Tooltip({ content, children, pos = 'top', clearOf }: { content: string; children: ReactElement<TriggerProps>; pos?: Pos; clearOf?: RefObject<HTMLElement | null> }) {
+// `describes={false}`: the trigger already carries the same text as a lasting description, so the bubble is not announced again.
+export function Tooltip({ content, children, pos = 'top', clearOf, describes = true }: { content: string; children: ReactElement<TriggerProps>; pos?: Pos; clearOf?: RefObject<HTMLElement | null>; describes?: boolean }) {
   ensureModalityListeners()
   const [visible, setVisible] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -93,7 +94,7 @@ export function Tooltip({ content, children, pos = 'top', clearOf }: { content: 
   // A long text (a mail subject) that fits on neither side covers the trigger rather than leave the screen.
   const coords = useFloating(visible, anchor, bubble, side, align, () => setVisible(false), content, true, clearOf)
   return <span ref={anchor} className="le-tooltip-anchor">{cloneElement(children, {
-    'aria-describedby': [children.props['aria-describedby'], visible && id].filter(Boolean).join(' ') || undefined,
+    'aria-describedby': [children.props['aria-describedby'], describes && visible && id].filter(Boolean).join(' ') || undefined,
     onPointerDown: (event) => {
       children.props.onPointerDown?.(event)
       if ((event.nativeEvent as PointerEvent).pointerType === 'touch') markTouch()

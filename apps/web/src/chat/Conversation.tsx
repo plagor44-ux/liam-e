@@ -239,6 +239,7 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
       onStop={stop}
       busy={busy}
       placeholder={activeSkillEntry ? isSkillCreator(activeSkillEntry.skill) ? texts.skills.creatorPlaceholder : texts.skills.placeholderWithSkill(skillName(activeSkillEntry.skill, texts)) : contextMessageId ? texts.inbox.mailQuestionPlaceholder : texts.chat.placeholder}
+      compactPlaceholder={activeSkillEntry ? isSkillCreator(activeSkillEntry.skill) ? texts.skills.creatorCompactPlaceholder : texts.skills.compactPlaceholder : undefined}
       autoFocus={autoFocus}
       topContext={topContext}
       containerRef={containerRef}

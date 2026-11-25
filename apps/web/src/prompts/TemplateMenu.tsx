@@ -8,6 +8,7 @@ import { errorCode, unwrap } from '../api/unwrap'
 import { useChatSession, useConversationScope, useRestartConversation } from '../chat/session'
 import { IconButton, Notice, Tag } from '../ds'
 import { useI18n } from '../i18n/I18n'
+import '../chat/composer-skills.css'
 import './prompts.css'
 
 export type TemplateSelectionState = {
@@ -108,20 +109,24 @@ export function ActiveTemplateBanner({
 
   return <div className="le-template-control">
     {selected !== null && (current || !resolved) && (
-      <div className="le-composer-selection-row">
+      <div className="le-composer-active-row">
         <Tag tone="on-surface" icon="file-code">{label}</Tag>
-        <span className="le-hint">{conversationId ? texts.prompts.durationNext : texts.prompts.durationNew}</span>
+        <div className="le-composer-active-actions">
+          <span className="le-composer-active-meta">{conversationId ? texts.prompts.durationNext : texts.prompts.durationNew}</span>
+        </div>
         {current && (
-          <IconButton
-            icon="x"
-            label={texts.prompts.clearSelection}
-            tip={texts.prompts.clearSelectionTip}
-            disabled={busy}
-            onClick={() => {
-              if (onClear) onClear()
-              else void choose(null)
-            }}
-          />
+          <span className="le-composer-active-close">
+            <IconButton
+              icon="x"
+              label={texts.prompts.clearSelection}
+              tip={texts.prompts.clearSelectionTip}
+              disabled={busy}
+              onClick={() => {
+                if (onClear) onClear()
+                else void choose(null)
+              }}
+            />
+          </span>
         )}
       </div>
     )}

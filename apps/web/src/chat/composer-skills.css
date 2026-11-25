@@ -15,40 +15,58 @@
   border-bottom: 1px solid var(--line);
 }
 
-.le-composer-active-row,
-.le-composer-selection-row {
+/* One row for an attached skill or template: tag, its controls, then x at the end.
+   On phones the x stays beside the tag and the controls take the second row, so it never wraps alone. */
+.le-composer-active-row {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, auto) minmax(0, 1fr) auto;
+  grid-template-areas: 'tag actions . close';
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.le-composer-active-row > .le-tag {
+  grid-area: tag;
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.le-composer-active-actions {
+  grid-area: actions;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   min-width: 0;
+}
+
+.le-composer-active-close {
+  grid-area: close;
+  display: inline-flex;
+}
+
+@media (max-width: 639px) {
+  .le-composer-active-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'tag close' 'actions actions';
+    row-gap: var(--space-1);
+  }
 }
 
 .le-composer-active-meta {
   font-size: var(--font-size-caption);
   color: var(--ink-muted);
-  margin-right: auto;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.le-composer-active-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  flex-shrink: 0;
-}
-
-.le-composer-active .le-chip[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-
-.le-composer-active .le-chip[aria-pressed='true']:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--on-accent);
+.le-composer-active .le-chip[aria-expanded='true'] > .le-ico:last-child,
+.le-composer-active-row .le-chip[aria-expanded='true'] > .le-ico:last-child {
+  transform: rotate(180deg);
 }
 
 .le-composer-steps {
@@ -68,12 +86,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-}
-
-.le-composer-steps-note {
-  margin: 0;
-  font-size: var(--font-size-caption);
-  color: var(--ink-muted);
 }
 
 .le-menu-wide {

@@ -8,7 +8,7 @@ import { Tooltip } from './Tooltip'
 type TextareaAccessibility = Pick<AriaAttributes, 'aria-autocomplete' | 'aria-controls' | 'aria-activedescendant' | 'aria-expanded'> & { role?: string }
 
 export function Composer({
-  value, onChange, onSubmit, onStop, busy, placeholder, autoFocus, controls, audioControls, locked = false,
+  value, onChange, onSubmit, onStop, busy, placeholder, compactPlaceholder, autoFocus, controls, audioControls, locked = false,
   topContext, containerRef, textareaRef, onTextareaKeyDown, onCursorChange, textareaProps,
 }: {
   value: string
@@ -17,6 +17,8 @@ export function Composer({
   onStop: () => void
   busy: boolean
   placeholder: string
+  /** Shorter text for the narrow phone row; the full placeholder stays the field's name. */
+  compactPlaceholder?: string
   autoFocus?: boolean
   controls?: ReactNode
   audioControls?: ReactNode
@@ -76,7 +78,7 @@ export function Composer({
   }
   useLayoutEffect(() => { const el = localTextarea.current; if (el) { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 200)}px` } }, [value, compact])
   const send = () => { if (!busy && !locked && value.trim()) onSubmit() }
-  return <div ref={containerRef} className="le-composer">{topContext}<textarea ref={assignTextarea} {...textareaProps} autoFocus={autoFocus} rows={1} aria-label={placeholder} placeholder={compact ? texts.controls.composerPlaceholder : placeholder} value={value} onChange={event => { onChange(event.target.value); onCursorChange?.(event.target.selectionStart ?? event.target.value.length) }} onClick={event => onCursorChange?.(event.currentTarget.selectionStart ?? value.length)} onKeyUp={event => onCursorChange?.(event.currentTarget.selectionStart ?? value.length)} onSelect={event => onCursorChange?.(event.currentTarget.selectionStart ?? value.length)} onKeyDown={event => { onTextareaKeyDown?.(event); if (event.defaultPrevented) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send() } }} /><div className="le-composer-bar"><div className="le-composer-options"><button ref={optionsButton} type="button" className="le-composer-options-toggle" aria-label={texts.controls.composerOptions} aria-expanded={showControls} aria-controls={compact && showControls ? optionsId : undefined} onClick={() => setShowControls(!showControls)}><Icon name="plus" /></button>{!compact && <div className="le-composer-options-items">{controls}</div>}{compact && showControls && createPortal(<div id={optionsId} ref={optionsPopup} role="group" aria-label={texts.controls.composerOptions} className="le-menu le-composer-options-popup" style={popupStyle} onKeyDown={event => {
+  return <div ref={containerRef} className="le-composer">{topContext}<textarea ref={assignTextarea} {...textareaProps} autoFocus={autoFocus} rows={1} aria-label={placeholder} placeholder={compact ? compactPlaceholder ?? texts.controls.composerPlaceholder : placeholder} value={value} onChange={event => { onChange(event.target.value); onCursorChange?.(event.target.selectionStart ?? event.target.value.length) }} onClick={event => onCursorChange?.(event.currentTarget.selectionStart ?? value.length)} onKeyUp={event => onCursorChange?.(event.currentTarget.selectionStart ?? value.length)} onSelect={event => onCursorChange?.(event.currentTarget.selectionStart ?? value.length)} onKeyDown={event => { onTextareaKeyDown?.(event); if (event.defaultPrevented) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send() } }} /><div className="le-composer-bar"><div className="le-composer-options"><button ref={optionsButton} type="button" className="le-composer-options-toggle" aria-label={texts.controls.composerOptions} aria-expanded={showControls} aria-controls={compact && showControls ? optionsId : undefined} onClick={() => setShowControls(!showControls)}><Icon name="plus" /></button>{!compact && <div className="le-composer-options-items">{controls}</div>}{compact && showControls && createPortal(<div id={optionsId} ref={optionsPopup} role="group" aria-label={texts.controls.composerOptions} className="le-menu le-composer-options-popup" style={popupStyle} onKeyDown={event => {
     if (event.key !== 'Tab') return
     const buttons = Array.from(optionsPopup.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? [])
     if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); closeOptions(true) }
