@@ -106,6 +106,7 @@ The first two columns contain German UI terms and alternatives.
 | Posteingang | Inbox | the combined list of all mail from all accounts |
 | Verlauf | Thread, Konversation | related mails about one subject |
 | Unterhaltung | Chat-Verlauf, Session, Thread | a conversation with the assistant |
+| Nachricht | Beitrag, Turn | your own message in a conversation („Nur für diese Nachricht“); never a mail |
 | Entwurf | Draft | mail proposed by the assistant, not yet sent |
 | Abrufen · Stand | Sync, Synchronisieren, Refresh | fetch new mail · time of last fetch („Stand 08:57“) |
 | Archivieren | Ablegen, Verschieben | remove from inbox; mail stays in the account |
@@ -591,6 +592,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   the reason, „Bisher“ and „Vorschlag“ side by side (one column on `mobile`) and the time zone.
   The card states that a concurrent change in Google can be overwritten. There is no „Rückgängig“;
   an open result offers „Prüfen“, and a changed appointment asks for a new proposal.
+  An open card for a new appointment names a missing or unusable default calendar with the link
+  „Standardkalender“ to its setting; it says nothing when the default is usable or is the card's
+  own calendar. Settings → Kalender explains the default; the home page does not repeat it.
 - **Skill card:** „Neuen Skill speichern?“ with editable name, command (`/command`, shown as
   „Aufruf im Chat mit /…“), description and instructions (collapsed until opened or invalid), each
   with a character count. Below are the approved tools by localized name with a kind tag
@@ -634,7 +638,15 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
 
 ### 9.5 States
 
-- **Empty:** greeting, status and quick actions (home page).
+- **Empty:** greeting, status and quick actions (home page). Danger notices stay visible with their
+  action: unreachable accounts, disconnected calendars and load errors. Info-level source states
+  (mail still being fetched, incomplete calendars, paused or unreadable calendars, a failed refresh,
+  excluded tasks) collapse into one closed line „Stand der Quellen anzeigen (3)“ that opens to the
+  list. „Einige Kalender sind derzeit nicht lesbar.“ appears only when no named line explains it.
+  With a coarse pointer the line is 44 px tall. „Heute fällig“ keeps the caveats in its tooltip.
+- **Revoked context:** one notice per conversation at its first revoked answer, with
+  „Neue Unterhaltung“; different causes share the general text. When a restart notice replaces the
+  composer (changed grant or calendars), the revoked notice only names its cause.
 - **Loading:** `le-working` with sentence.
 - **Error** with its own cause and next step, e.g. model unreachable („Das Modell antwortet gerade
   nicht. Versuch es gleich noch mal.“), interruption mid-answer („Die Antwort ist abgebrochen.“ with
@@ -666,14 +678,27 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   template button: a clearly labeled `+ Favoriten` chip opens device-local favorite skills, and
   typing `/` searches active skills alongside personal templates and their stored revisions in a
   floating menu (`body` portal). Picking an entry attaches it visibly in the composer without sending;
-  sending stays explicit. Skills default to a single turn (`Nur für diese Nachricht`) and can
-  optionally be kept across clarifying follow-up turns until explicitly ended.
-  Built-in skill names come from the catalogue by command, so they follow the app language.
-  **„Skill erstellen“** is the first action in the `/` menu, never a skill or favorite. It always
-  starts a new conversation (from a conversation, mail or calendar context it leaves that context)
-  and carries the typed text over. The creator stays attached until „Skill beenden“; its banner
-  shows only the name and a note that nothing is saved before confirmation, and the field reads
-  „Beschreib, was der Skill erledigen soll …“.
+  sending stays explicit. Skills default to a single message („Nur für diese Nachricht“) and can
+  optionally be kept across clarifying follow-ups until explicitly ended.
+  An attached skill takes **one row**: the tag „Skill: Name“, a duration chip („Nur für diese
+  Nachricht“ or „Aktiv, bis du ihn beendest“) that opens the two choices with one explanatory line
+  each, a steps chip („3 Schritte“; the label stays, `aria-expanded` says whether the list is open)
+  and `x` („Skill entfernen“, or „Skill beenden“ when kept). The note on later messages and unchanged
+  scopes is the duration chip's tooltip and lasting accessible description, never a row of its own.
+  An attached template uses the same row: „Vorlage: Name“, when it applies, and `x`. On `mobile`
+  the `x` stays beside the tag and the controls take the second row, so it never wraps alone.
+  With a skill the field reads „Frag etwas mit „Name“ …“; the compact phone row shows „Deine Frage
+  an den Skill“ and keeps the full text as the field's name. Each answer that used a skill shows
+  „Skill: Name · Version 2“ above it.
+  Built-in skill names and steps come from the catalogue by command and step, so they follow the
+  app language.
+  **„Skill erstellen“** is the first action in the `/` menu, never a skill or favorite. Its name and
+  keywords match in both languages, and its hint („Startet eine neue Unterhaltung“) wraps instead of
+  being cut off. It always starts a new conversation (from a conversation, mail or calendar context
+  it leaves that context) and carries the typed text over. The creator stays attached until
+  „Skill beenden“; its row shows only the name, the note „Gespeichert wird erst, wenn du den Entwurf
+  bestätigst.“ and `x`. The field reads „Beschreib, was der Skill erledigen soll …“, on the compact
+  phone row „Skill beschreiben …“.
   Settings → Chat controls which mail accounts the assistant can use. Each active account has a
   checkbox. The initial selection is empty and Save applies it across devices. The composer’s
   task chip determines which tasks the assistant may read

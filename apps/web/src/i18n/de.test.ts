@@ -5,7 +5,7 @@ import { de } from './de'
 const forbidden = /(?:\b(?:OK|Absenden|Account|Postfach|Inbox|Thread|Konversation|Session|Draft|Sync|Synchronisieren|Refresh|Ablegen|Verschieben|Abmelden|Unsubscribe|Hinzufügen|Einloggen|Login|Undo|Zurücknehmen|KI|LLM|Geheimnis|Token|Bot|Agent|Nachricht)\b|Chat-Verlauf|E-Mail\(s\)|Mail\(s\)|\.\.\.|!)/i // i18n-exempt
 
 // „Nachricht“ names the owner's own chat message (a turn), never a mail (DESIGN §2.4, owner decision D9 in #83).
-const turnCopy = new Set<unknown>([de.prompts.next, de.prompts.durationNext, de.skills.activeDuration, de.skills.removeSelectionTip])
+const turnCopy = new Set<unknown>([de.prompts.next, de.prompts.durationNext, de.skills.activeDuration, de.skills.removeSelectionTip, de.errors.chat_invalid])
 
 test('catalogue text follows the language guide', () => {
   function visit(value: unknown): void {

@@ -559,7 +559,7 @@ export const de = {
     calendar_feed_invalid: 'Prüfe die Kalenderadresse, den Namen und die Zeitzone.',
     calendar_feed_unavailable: 'Der Kalender konnte nicht abgerufen werden. Prüfe die Adresse und versuch es noch mal.',
     calendar_validation_expired_or_changed: 'Die Prüfung ist abgelaufen oder die Konfiguration wurde geändert. Prüfe den Kalender erneut.',
-    chat_invalid: 'Schreib 1–8.000 Zeichen für deinen Beitrag.',
+    chat_invalid: 'Schreib 1–8.000 Zeichen für deine Nachricht.',
     cursor_invalid: 'Diese Seite konnte nicht geladen werden. Öffne den Posteingang noch einmal.',
     insight_unavailable: 'Das Modell antwortet gerade nicht, deshalb fehlt die Zusammenfassung. Öffne die Mail gleich noch mal.',
     message_not_found: 'Die Mail ist nicht mehr da.',
