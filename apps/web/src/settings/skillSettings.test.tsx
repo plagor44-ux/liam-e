@@ -87,6 +87,31 @@ test('the switch disables a skill with its listed version and refreshes the shar
   await waitFor(() => expect(requests.filter(request => request.method === 'PATCH').at(-1)).toMatchObject({ path: '/api/v1/skills/daily', body: { expected_version: 1, status: 'disabled' } }))
 })
 
+test('a quick second toggle sends the version the first one returned, before the list reloads', async () => {
+  let version = custom.version, initial = true
+  setup({ respond: request => {
+    // The list reload after the first toggle never arrives: only the returned row can carry the new version.
+    if (request.method === 'GET') { if (initial) { initial = false; return undefined } return new Promise<Response>(() => {}) }
+    if (request.method !== 'PATCH') return undefined
+    const body = request.body as { expected_version: number; status: SkillOut['status'] }
+    // Like the API: a stale version is refused.
+    if (body.expected_version !== version) return refused(409, 'version_conflict')
+    version += 1
+    return Response.json({ ...custom, status: body.status, version })
+  } })
+  const toggle = () => screen.getByRole('switch', { name: de.skillSettings.useName('Offene Rechnungen') })
+  fireEvent.click(await screen.findByRole('switch', { name: de.skillSettings.useName('Offene Rechnungen') }))
+  await waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('false'))
+  await waitFor(() => expect((toggle() as HTMLButtonElement).disabled).toBe(false))
+  expect(screen.getByText(new RegExp(de.skillSettings.version(3)))).toBeTruthy()
+  fireEvent.click(toggle())
+  await waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('true'))
+  expect(requests.filter(request => request.method === 'PATCH').map(request => request.body)).toEqual([{ expected_version: 2, status: 'disabled' }, { expected_version: 3, status: 'active' }])
+  expect(screen.getByText(de.skillSettings.enabled('Offene Rechnungen'))).toBeTruthy()
+  // Negative case: no spurious conflict.
+  expect(screen.queryByText(de.skillSettings.conflict('Offene Rechnungen'))).toBeNull()
+})
+
 test('a stale version shows the current state and does not overwrite it', async () => {
   const { replace } = setup({ respond: request => request.method === 'PATCH' ? refused(409, 'version_conflict') : undefined })
   const toggle = await screen.findByRole('switch', { name: de.skillSettings.useName('Offene Rechnungen') })

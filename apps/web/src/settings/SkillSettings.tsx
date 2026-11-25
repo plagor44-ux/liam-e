@@ -44,7 +44,9 @@ export function SkillSettings() {
   }
   const toggle = (skill: SkillOut) => run(skill, async () => {
     const status = skill.status === 'active' ? 'disabled' : 'active'
-    await unwrap(skillUpdate({ path: { skill_id: skill.id }, body: { expected_version: skill.version, status }, throwOnError: true }))
+    const updated = await unwrap(skillUpdate({ path: { skill_id: skill.id }, body: { expected_version: skill.version, status }, throwOnError: true }))
+    // The list refetches in the background; until it arrives, a second toggle must already send the new version.
+    client.setQueryData(skillsQuery().queryKey, rows => rows?.map(row => row.id === updated.id ? updated : row))
     setOutcome({ tone: 'success', text: status === 'active' ? t.enabled(skillName(skill, texts)) : t.disabled(skillName(skill, texts)) })
     refresh()
   })
