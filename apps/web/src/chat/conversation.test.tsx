@@ -734,6 +734,38 @@ test.each([
   expect(screen.queryByText(de.chat.referenceUnavailable)).toBeNull()
 })
 
+test('negative case: a citation waiting for the chat summary says it is loading, then loads', async () => {
+  let release = () => {}
+  summaryGate = new Promise<void>(resolve => { release = resolve })
+  const get = spyOn(sdk, 'chatMailReferenceGet').mockImplementation((async () => ({ data: { id: 'cited-mail', account_id: 'a', color_index: 0, sender_name: 'Absender', subject: 'Zitierte Mail', internal_date: null, deadline: null, is_flagged: false } })) as never)
+  const { client } = setup('/chat/c')
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [citedAnswer(currentContext)]) })
+  // History can arrive before the grant revision: that is not a permanent state.
+  expect(await screen.findByText(de.chat.loadingReference)).toBeTruthy()
+  expect(screen.queryByText(de.chat.referenceUnavailable)).toBeNull()
+  expect(get).not.toHaveBeenCalled()
+  await act(async () => { release() })
+  expect(await screen.findByText('Zitierte Mail')).toBeTruthy()
+  expect(get).toHaveBeenCalled()
+  expect(screen.queryByText(de.chat.loadingReference)).toBeNull()
+  expect(screen.queryByText(de.chat.referenceUnavailable)).toBeNull()
+})
+
+test('negative case: a citation whose chat summary failed keeps the transient error text', async () => {
+  const failed = Promise.reject(new TypeError('Failed to fetch'))
+  failed.catch(() => {})
+  summaryGate = failed
+  const get = spyOn(sdk, 'chatMailReferenceGet')
+  const { client } = setup('/chat/c')
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [citedAnswer(currentContext)]) })
+  expect(await screen.findByText(de.chat.referenceError)).toBeTruthy()
+  expect(screen.queryByText(de.chat.referenceUnavailable)).toBeNull()
+  expect(screen.queryByText(de.chat.loadingReference)).toBeNull()
+  expect(get).not.toHaveBeenCalled()
+})
+
 test('history renders safe text, model, mail account and only the latest suggestions', async () => {
   const { client, router } = setup('/chat/c')
   spyOn(sdk, 'chatMailReferenceGet').mockImplementation((async () => ({ data: { id: 'mail', account_id: 'a', color_index: 0, sender_name: 'Absender', subject: '<b>Betreff</b>', internal_date: null, deadline: null, is_flagged: true } })) as never)

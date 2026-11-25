@@ -655,7 +655,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   button „Noch mal versuchen“), account unreachable (notice names the account; other accounts continue).
 - **Cited mail:** a citation that the conversation may no longer read (404, revoked context or an
   older grant) says calmly „Diese Mail ist in dieser Unterhaltung nicht verfügbar.“ without retry
-  wording or action. Only a transient failure (network, server error) invites another try.
+  wording or action. Only a transient failure (network, server error) invites another try. While the
+  chat summary that carries the grant revision is still loading, a citation says „Mail wird geladen …“;
+  if that summary failed, it shows the transient error text, never the permanent one.
 
 ### 9.6 Header, composer and mail context
 

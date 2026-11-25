@@ -457,7 +457,13 @@ export function Conversation({ conversationId }: { conversationId: string }) {
     return <>{message.context && <PreferenceContext context={message.context} />}{usedSkillLabel && <div><Tag tone="on-surface" icon="sparkle">{usedSkillLabel}</Tag></div>}{message.id === firstRevokedId && <Notice tone="info" action={oldGrant ? undefined : restartAction}>{revokedText}</Notice>}<ChatMessage role="assistant" model={modelLabel(message.extras.model)} stopped={message.stopped}><SafeMarkdown text={message.content} /></ChatMessage>
       {speechEnabled && !message.stopped && !message.context?.revoked && message.content.trim() &&
         <SpeechControls messageId={message.id} player={speech} disabled={audioDraftLocked} />}
-      {message.extras.mails?.map(id => !oldGrant && grantVersion != null && message.context && !message.context.revoked ? <HistoryReference key={id} id={id} accounts={accounts} draft={draft} version={grantVersion} contextId={message.context.id} /> : <p className="le-hint" key={id}>{texts.chat.referenceUnavailable}</p>)}{!oldGrant && message.extras.calendars?.map(ref => <CalendarReference key={ref.occurrence_id} occurrenceId={ref.occurrence_id} sourceId={ref.source_id} />)}</>
+      {message.extras.mails?.map(id => {
+        // Only a missing or revoked context or an old grant is permanent for this conversation.
+        if (oldGrant || !message.context || message.context.revoked) return <p className="le-hint" key={id}>{texts.chat.referenceUnavailable}</p>
+        // Without the grant revision the chat summary is still loading or failed; neither says the mail is gone.
+        if (grantVersion == null) return <p className="le-hint" key={id}>{mailSummary.isError ? texts.chat.referenceError : texts.chat.loadingReference}</p>
+        return <HistoryReference key={id} id={id} accounts={accounts} draft={draft} version={grantVersion} contextId={message.context.id} />
+      })}{!oldGrant && message.extras.calendars?.map(ref => <CalendarReference key={ref.occurrence_id} occurrenceId={ref.occurrence_id} sourceId={ref.source_id} />)}</>
   }
   const status = state.status?.code === 'searching' ? texts.status.searching(state.status.count ?? 0) : state.status ? texts.status[state.status.code] : null
   const historyGone = errorCode(history.error instanceof Error ? history.error.cause : history.error) === 'conversation_not_found'
