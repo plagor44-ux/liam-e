@@ -196,7 +196,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
     else if ((await applyPreview.refetch()).isSuccess) setApplyStale(false)
   }
   const discard = () => { setDraft({ name: '', is_active: true }); setEditing(undefined); setMatched(undefined); setEditorConflict(false); setConflictLoadError(false); setEditorMissing(false); setSourceActive(false); setSourceMissing(false); onSourceUsed?.() }
-  const dirty = Boolean(editing || draft.name || draft.account_id || draft.sender_address || draft.sender_domain || draft.subject_contains || draft.recipient || draft.folder_id || draft.label_ids?.length || draft.mark_read || draft.mark_unread || draft.archive || draft.position)
+  const dirty = Boolean(editing || draft.name || draft.account_id || draft.sender_address || draft.sender_domain || draft.subject_contains || draft.recipient || draft.folder_id || draft.label_ids?.length || draft.mark_read || draft.mark_unread || draft.archive || draft.position || draft.is_active === false)
   const enabledDraft = prepared()
   const sourceAccountAvailable = Boolean(source.data && accounts.data?.some(account => account.id === source.data?.account_id))
   useSettingsSlice('mail-rule-form', { dirty, hideBar: true, canSave: Boolean(!editorBlocked && draft.name.trim() && (enabledDraft.account_id || enabledDraft.sender_address || enabledDraft.sender_domain || enabledDraft.subject_contains || enabledDraft.recipient) && (draft.folder_id || draft.label_ids?.length) && (!sourceActive || editing || source.data && !source.data.local_reference_only && !sourceMissing && sourceAccountAvailable)), busy, save: () => execute('save'), discard })

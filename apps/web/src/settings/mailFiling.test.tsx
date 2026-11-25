@@ -1004,6 +1004,41 @@ test('negative case: an empty create form offers no Abbrechen until it holds a d
   expect(screen.queryByRole('button', { name: 'Abbrechen' })).toBeNull()
 })
 
+test('switching off only "Regel aktiv" in an empty create form is a draft that Abbrechen discards', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const { create } = deletedRuleSetup({ detail: { code: 'rule_not_found' } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  await screen.findByRole('button', { name: 'Regel bearbeiten' })
+  const active = () => screen.getByRole('switch', { name: /Regel aktiv/u })
+  expect(active().getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(active())
+  expect(active().getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  expect(active().getAttribute('aria-checked')).toBe('true')
+  expect(screen.queryByRole('button', { name: 'Abbrechen' })).toBeNull()
+  expect(create).not.toHaveBeenCalled()
+})
+
+test('negative case: switching "Regel aktiv" off and on again leaves the create form clean', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  deletedRuleSetup({ detail: { code: 'rule_not_found' } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  await screen.findByRole('button', { name: 'Regel bearbeiten' })
+  const active = () => screen.getByRole('switch', { name: /Regel aktiv/u })
+  fireEvent.click(active())
+  fireEvent.click(active())
+  expect(active().getAttribute('aria-checked')).toBe('true')
+  expect(screen.queryByRole('button', { name: 'Abbrechen' })).toBeNull()
+})
+
+test('the focusable editor notice keeps room for its focus ring when scrolled into view', async () => {
+  const css = await Bun.file(new URL('../prompts/prompts.css', import.meta.url)).text()
+  // The global ring is a 2 px outline with a 2 px offset; the scroll margin must cover those 4 px.
+  expect(css).toMatch(/\.le-filing-notice\s*\{[^}]*scroll-margin-block:\s*var\(--space-2\)/u)
+})
+
 test('label group describes its hint and keeps the label prefix with a long name', async () => {
   const { RuleSettings } = await import('./MailFiling')
   const longName = 'SyntheticLongLabel'.repeat(4)

@@ -381,9 +381,10 @@ Quoted German labels and the German icon names in this section are UI text.
     visible. A rule deleted elsewhere says so on the first save or preview, not as a generic
     error: the owner discards the draft or keeps it as a new rule, which is saved only with
     „Regel anlegen“. Both editor notices come into view and take the focus when „Speichern“ or
-    „Vorschau“ raises them, scrolling smoothly only without reduced motion. A notice that takes
+    „Vorschau“ raises them, scrolling smoothly only without reduced motion, with a `space-2`
+    scroll margin so the whole focus ring and the corners stay in view. A notice that takes
     the focus has no live role, so it is announced once. „Abbrechen“ discards any unsaved rule
-    draft, in create mode too.
+    draft, in create mode too; switching „Regel aktiv“ away from its default is such a draft.
   - Tag `default`, `warm` (deadline, with `clock`) and `on-surface` (account in lists, with account dot).
   - Avatar `md` and `lg` (account card).
   - Badge shows „999+“ from 1,000.
