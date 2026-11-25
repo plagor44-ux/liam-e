@@ -2367,7 +2367,9 @@ def test_sync_rechecks_old_gmail_inbox_message_after_ambiguous_archive(pg_db, mo
     asyncio.run(run())
 
 
-def test_retry_verification_403_does_not_pause_gmail_writes(pg_db, monkeypatch):
+@pytest.mark.parametrize("failure", ["read_403", "read_timeout"])
+def test_retry_verification_failure_does_not_pause_or_queue_gmail_write(pg_db, monkeypatch, failure):
+    from db.accessors import mail_job
     from api.mail import connector_throttle
 
     async def run():
@@ -2385,7 +2387,10 @@ def test_retry_verification_403_does_not_pause_gmail_writes(pg_db, monkeypatch):
                 limited = True
                 httpx.Response(429, request=httpx.Request("POST", "https://example.test")).raise_for_status()
             if limited and tool == "get_thread":
-                httpx.Response(403, request=httpx.Request("POST", "https://example.test")).raise_for_status()
+                request = httpx.Request("POST", "https://example.test")
+                if failure == "read_timeout":
+                    raise httpx.ReadTimeout("synthetic verification timeout", request=request)
+                httpx.Response(403, request=request).raise_for_status()
             return await provider.dispatch(path, payload)
 
         async def no_delay(_seconds):
@@ -2400,6 +2405,7 @@ def test_retry_verification_403_does_not_pause_gmail_writes(pg_db, monkeypatch):
             assert await listed(browser, "INBOX") == {target, ids["sibling"]}
             assert await mail_action.latest_open(target) is None
             assert mutation_attempts == 1 and not provider.writes
+            assert await mail_job.connector_label_checks(provider.account.id) == []
             state = await mail_sync_state.get_state(provider.account.id)
             assert state.write_evidence()[2] == "ready"
             monkeypatch.setattr(connectors, "_post", provider.dispatch)
@@ -2532,7 +2538,7 @@ def test_gmail_undo_reconciles_second_write_503_and_keeps_token_open(pg_db, monk
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("failure", ["timeout", "missing_labels", "invalid_json"])
+@pytest.mark.parametrize("failure", ["read_timeout", "write_timeout", "missing_labels", "invalid_json"])
 def test_sync_repairs_old_archive_when_successful_replay_loses_confirmation(pg_db, monkeypatch, failure):
     from api.mail import connector_throttle
 
@@ -2559,10 +2565,13 @@ def test_sync_repairs_old_archive_when_successful_replay_loses_confirmation(pg_d
                 mutation_attempts += 1
                 if mutation_attempts == 1:
                     httpx.Response(429, request=request).raise_for_status()
+                if failure == "write_timeout":
+                    await provider.dispatch(path, payload)
+                    raise httpx.ReadTimeout("synthetic write response timeout", request=request)
             if tool == "get_thread" and arguments.get("threadId") == "mixed" and provider.writes:
                 if reading_during_sync:
                     sync_reads.append(arguments["messageFormat"])
-                elif failure == "timeout":
+                elif failure == "read_timeout":
                     raise httpx.ReadTimeout("synthetic timeout", request=request)
                 elif failure == "missing_labels":
                     return {"content": [{"type": "text", "text": '{"id":"mixed","messages":[{"id":"target"}]}'}]}

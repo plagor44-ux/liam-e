@@ -110,6 +110,7 @@ class LabelChangeUnconfirmed(ValueError):
 async def _call_tool(
     connector: str, tool: str, arguments: dict[str, Any], timeout: float = _TOOL_TIMEOUT_SECONDS, *,
     before_retry: Callable[[], Awaitable[None]] | None = None,
+    on_ambiguous_write: Callable[[], None] | None = None,
 ) -> str:
     """Call one connector tool; returns the joined text content of the MCP-style result."""
     ref = quote(connector, safe="")
@@ -126,6 +127,15 @@ async def _call_tool(
         except httpx.HTTPStatusError as error:
             if writing and error.response.status_code == 403:
                 raise write_result.PermissionMissing() from None
+            if on_ambiguous_write is not None and error.response.status_code >= 500:
+                on_ambiguous_write()
+            raise
+        except (httpx.ReadError, httpx.ReadTimeout, httpx.WriteError, httpx.WriteTimeout,
+                httpx.RemoteProtocolError, TimeoutError, json.JSONDecodeError):
+            # The provider may have received the mutation even though its result was lost.
+            # This callback covers only the POST, never a pre-retry verification read.
+            if on_ambiguous_write is not None:
+                on_ambiguous_write()
             raise
 
     try:
@@ -325,11 +335,17 @@ async def change_gmail_labels(
             labels_before = set(labels)
             has_receipt = True
             pending_confirmation = False
+
+            def require_confirmation() -> None:
+                nonlocal pending_confirmation
+                pending_confirmation = True
+
             try:
                 async with binding:
                     try:
                         await _call_tool(provider, tool, {"messageId": uid, "labelIds": changes},
-                                         before_retry=lambda: verify_retry_binding(labels_before, changes))
+                                         before_retry=lambda: verify_retry_binding(labels_before, changes),
+                                         on_ambiguous_write=require_confirmation)
                     except write_result.WriteUnconfirmed:
                         has_receipt = False
                     pending_confirmation = True
@@ -365,7 +381,6 @@ async def change_gmail_labels(
                 raise
             except (httpx.HTTPError, TimeoutError, json.JSONDecodeError) as error:
                 if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 503:
-                    pending_confirmation = True
                     raise connector_throttle.RateLimited(
                         retryable=False, labels=labels if provider_changed else None) from None
                 if not has_confirmed_step:

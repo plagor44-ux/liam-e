@@ -900,6 +900,7 @@ reports `provider_rate_limited` with a retry only when no write took effect or t
 step of a verified partial move was refused before dispatch. A partial move is reflected in the
 index without returning success or an Undo token. An unavailable confirmation leaves the last
 known state and queues an exact delivery check when no usable point read has settled the write.
+The mutation request also queues that check if its own response may have been lost.
 Sync checks a bounded batch on the verified binding, independent of the Inbox search date.
 Incomplete point reads stay queued. A verified thread 404 settles absence from the Inbox.
 Neither case replays a provider write. If initial history is throttled, sync publishes the new-mail
