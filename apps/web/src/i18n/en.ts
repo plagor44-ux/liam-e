@@ -275,7 +275,7 @@ export const en = {
     clearSkillItem: 'Continue without a skill',
     placeholderWithSkill: name => 'Ask with “' + name + '” …',
     compactPlaceholder: 'Your question for the skill',
-    usedTag: (name, version) => 'Skill: ' + name + ' · v' + numberFormat.format(version),
+    usedTag: (name, version) => 'Skill: ' + name + ' · Version ' + numberFormat.format(version),
     removedOrChanged: 'This skill was disabled or removed. You can still read this conversation.',
     revoked: 'The skill used here is no longer active or has changed. Start a new conversation. You can still read this one.',
     cancelOnly: 'This proposal uses a revoked skill or chat context. You can discard it.',

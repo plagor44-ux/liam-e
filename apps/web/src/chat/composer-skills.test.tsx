@@ -734,7 +734,8 @@ test('historical skill provenance badge never breaks model label and revoked ski
   }
 
   setup({ path: '/chat/c1', history: [msgAssistant, msgProposal] })
-  expect(await screen.findByText(de.skills.usedTag(dailySkill.name, dailySkill.version))).toBeTruthy()
+  expect(await screen.findByText(`Skill: ${dailySkill.name} · Version 2`)).toBeTruthy()
+  expect(screen.queryByText(/· v2/)).toBeNull()
   expect(document.querySelector('.le-msg-ai small')?.textContent).toBe('Small')
   expect(screen.getByText(de.skills.revoked)).toBeTruthy()
   expect(screen.getByText(de.skills.cancelOnly)).toBeTruthy()

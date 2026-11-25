@@ -435,20 +435,28 @@ export function Conversation({ conversationId }: { conversationId: string }) {
     ? (skills.data?.find(item => item.id === liveSkillId && (!liveSkillRevisionId || item.revision_id === liveSkillRevisionId))
       ?? skills.data?.find(item => item.id === liveSkillId))
     : undefined
+  // One revoked notice per conversation, at its first revoked answer. When the grant or calendars changed,
+  // the notice in place of the composer already offers the new conversation, so this one only names the cause.
+  const revokedAnswers = ordered.filter(message => message.role === 'assistant' && message.context?.revoked)
+  const revokedKinds = new Set(revokedAnswers.map(message => message.context?.preferences_enabled ? 'preferences' : isSkillRevokedOnly(message.context) ? 'skill' : 'template'))
+  const revokedText = revokedKinds.size === 1 && revokedKinds.has('skill') ? texts.skills.revoked
+    : revokedKinds.size === 1 && revokedKinds.has('template') ? texts.prompts.removed
+    : texts.errors.context_revoked
+  const firstRevokedId = revokedAnswers[0]?.id
+  const restartAction = { label: texts.shell.newConversation, onClick: restart }
   const renderMessage = (message: ChatMessageOut) => {
     if (message.role === 'user') return <ChatMessage role="user">{message.content}</ChatMessage>
     if (message.role === 'proposal' || message.role === 'draft') return renderProposal(message)
     if (message.role !== 'assistant') return null
     const usedSkillLabel = skillLabel(message.extras.skill)
-    const skillRevokedNotice = isSkillRevokedOnly(message.context)
-    return <>{message.context && <PreferenceContext context={message.context} />}{usedSkillLabel && <div><Tag tone="on-surface" icon="sparkle">{usedSkillLabel}</Tag></div>}{message.context?.revoked && <Notice tone="info" action={{ label: texts.prompts.restart, onClick: restart }}>{message.context.preferences_enabled ? texts.errors.context_revoked : skillRevokedNotice ? texts.skills.revoked : texts.prompts.removed}</Notice>}<ChatMessage role="assistant" model={modelLabel(message.extras.model)} stopped={message.stopped}><SafeMarkdown text={message.content} /></ChatMessage>
+    return <>{message.context && <PreferenceContext context={message.context} />}{usedSkillLabel && <div><Tag tone="on-surface" icon="sparkle">{usedSkillLabel}</Tag></div>}{message.id === firstRevokedId && <Notice tone="info" action={oldGrant ? undefined : restartAction}>{revokedText}</Notice>}<ChatMessage role="assistant" model={modelLabel(message.extras.model)} stopped={message.stopped}><SafeMarkdown text={message.content} /></ChatMessage>
       {speechEnabled && !message.stopped && !message.context?.revoked && message.content.trim() &&
         <SpeechControls messageId={message.id} player={speech} disabled={audioDraftLocked} />}
       {message.extras.mails?.map(id => !oldGrant && grantVersion != null && message.context && !message.context.revoked ? <HistoryReference key={id} id={id} accounts={accounts} draft={draft} version={grantVersion} contextId={message.context.id} /> : <p className="le-hint" key={id}>{texts.chat.referenceError}</p>)}{!oldGrant && message.extras.calendars?.map(ref => <CalendarReference key={ref.occurrence_id} occurrenceId={ref.occurrence_id} sourceId={ref.source_id} />)}</>
   }
   const status = state.status?.code === 'searching' ? texts.status.searching(state.status.count ?? 0) : state.status ? texts.status[state.status.code] : null
   const historyGone = errorCode(history.error instanceof Error ? history.error.cause : history.error) === 'conversation_not_found'
-  const newConversation = { label: texts.shell.newConversation, onClick: restart }
+  const newConversation = restartAction
   const skillFailure = Boolean(state.errorCode && SKILL_REFUSALS.has(state.errorCode))
   return <div className="le-chat-view"><ChatHeader conversationId={conversationId} modelMenu={<ModelMenu disabled={audioDraftLocked} key={`${conversationId}:model`} conversationId={conversationId} />} /><div className="le-chat-messages le-chat-thread" ref={scrollRef}>
     {history.isPending && <p className="le-hint">{texts.chat.loadingHistory}</p>}

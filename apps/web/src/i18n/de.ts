@@ -265,7 +265,7 @@ export const de = {
     clearSkillItem: 'Ohne Skill fortfahren',
     placeholderWithSkill: (name: string) => `Frag etwas mit „${name}“ …`,
     compactPlaceholder: 'Deine Frage an den Skill',
-    usedTag: (name: string, version: number) => `Skill: ${name} · v${version}`,
+    usedTag: (name: string, version: number) => `Skill: ${name} · Version ${version}`,
     removedOrChanged: 'Dieser Skill wurde deaktiviert oder entfernt. Du kannst die Unterhaltung hier weiterlesen.',
     revoked: 'Der verwendete Skill ist nicht mehr aktiv oder wurde geändert. Starte eine neue Unterhaltung; der bisherige Verlauf bleibt erhalten.',
     cancelOnly: 'Dieser Vorschlag stammt aus einem widerrufenen Skill- oder Chat-Kontext. Du kannst ihn verwerfen.',

@@ -524,10 +524,36 @@ test('restart from a revoked answer keeps the unsent text', async () => {
   await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
   act(() => { client.setQueryData(['history', 'c'], [{ ...historyRow('revoked', 'assistant'), context: { id: 'ctx', mail_scope_version: 4, account_scope_json: '{}', app_prompt_version: '1', preference_revision_id: null, prompt_hash: null, prompt_revision_id: null, revoked: true } }]) })
   fireEvent.change(screen.getByPlaceholderText('Frag etwas zu deinen Mails …'), { target: { value: 'Noch offen' } })
-  fireEvent.click(await screen.findByRole('button', { name: 'Neue Unterhaltung ohne bisherigen Kontext' }))
+  const notice = (await screen.findByText(de.prompts.removed)).closest('.le-notice') as HTMLElement
+  fireEvent.click(within(notice).getByRole('button', { name: de.shell.newConversation }))
   await waitFor(() => expect(router.state.location.pathname).toBe('/'))
   expect(screen.queryByRole('button', { name: 'Privat' })).toBeNull()
   expect((screen.getByPlaceholderText('Frag etwas zu deinen Mails …') as HTMLTextAreaElement).value).toBe('Noch offen')
+})
+
+test('a conversation shows one revoked notice at its first revoked answer, worded for every cause', async () => {
+  const { client } = setup('/chat/c', false, 'a')
+  await screen.findByRole('button', { name: 'Senden' })
+  const revoked = (id: string, extra: Partial<typeof currentContext> & { preferences_enabled?: boolean } = {}) => ({ ...historyRow(id, 'assistant'), context: { ...currentContext, id: `ctx-${id}`, revoked: true, ...extra } })
+  const notices = () => screen.queryAllByText(de.prompts.removed).concat(screen.queryAllByText(de.errors.context_revoked))
+  act(() => { client.setQueryData(['history', 'c'], [historyRow('kept', 'assistant'), revoked('one'), revoked('two'), revoked('three')]) })
+  expect(await screen.findByText('Antwort three')).toBeTruthy()
+  expect(notices()).toHaveLength(1)
+  // The notice belongs to the first revoked answer, not to the earlier valid one.
+  expect(notices()[0]!.closest('.le-chat-entry')?.id).toBe('message-one')
+  expect(within(notices()[0]!.closest('.le-notice') as HTMLElement).getByRole('button', { name: de.shell.newConversation })).toBeTruthy()
+
+  // Different causes share one general notice.
+  act(() => { client.setQueryData(['history', 'c'], [revoked('one'), revoked('two', { preferences_enabled: true })]) })
+  expect(await screen.findByText(de.errors.context_revoked)).toBeTruthy()
+  expect(notices()).toHaveLength(1)
+
+  // A changed grant already replaces the composer with its own restart notice; the revoked notice only names its cause.
+  act(() => { client.setQueryData(['history', 'c'], [revoked('one', { mail_scope_version: 3 }), revoked('two', { mail_scope_version: 3 })]) })
+  expect(await screen.findByText(de.chatAccounts.restart)).toBeTruthy()
+  expect(notices()).toHaveLength(1)
+  expect(within(notices()[0]!.closest('.le-notice') as HTMLElement).queryByRole('button')).toBeNull()
+  expect(screen.getAllByRole('button', { name: de.prompts.restart })).toHaveLength(1)
 })
 
 test('unknown model refusal renders its explanation', async () => {
