@@ -44,7 +44,7 @@ class FakeStore:
         monkeypatch.setattr(mail_message, "stale_body_texts", self.stale_body_texts)
         monkeypatch.setattr(mail_message, "stale_bodies", self.stale_bodies)
         monkeypatch.setattr(mail_message, "set_body", self.set_body)
-        for name in ("enqueue", "claim_next", "finish", "fail", "latest_for_account", "delete_for_account"):
+        for name in ("enqueue", "claim_next", "finish", "fail", "latest_for_account", "delete_for_account", "connector_label_checks"):
             monkeypatch.setattr(mail_job, name, getattr(self, "job_" + name))
         async def no_rules(session, account_id, message_ids):
             return None
@@ -237,6 +237,10 @@ class FakeStore:
     async def job_latest_for_account(self, account_id, *, kind=None, open_only=False):
         rows = [j for j in self.jobs.values() if json.loads(j.payload_json).get("account_id") == account_id and (kind is None or j.kind == kind) and (not open_only or j.status in ("queued", "running"))]
         return max(rows, key=lambda j: (j.created_at, j.id), default=None)
+
+    async def job_connector_label_checks(self, account_id):
+        return [job for job in self.jobs.values()
+                if job.status == mail_job.PENDING_LABEL_CHECK and json.loads(job.payload_json)["account_id"] == account_id]
 
     async def job_delete_for_account(self, account_id):
         for job in list(self.jobs.values()):

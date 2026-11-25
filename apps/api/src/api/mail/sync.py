@@ -11,7 +11,7 @@ from db.accessors import mail_job
 from db.accessors import mail_message as message_access
 from db.accessors import mail_rule_run
 from db.accessors import mail_sync_state as sync_state_access
-from db.models.mail_account import MailAccount
+from db.models.mail_account import MailAccount, gmail_studio
 from db.models.mail_message import IMAP_RETIRED
 from env.mail import env as mail_env
 from utils.mistral import MistralNotConfiguredError
@@ -83,6 +83,8 @@ async def _sync_account(account: MailAccount) -> SyncResult:
         options = dict(folders=[f.strip().upper() for f in mail_env.mail_sync_folders.split(",") if f.strip()],
                        limit=mail_env.mail_sync_page_size, max_body_chars=mail_env.mail_sync_max_body_chars)
         native_moves = {}
+        checks = []
+        proof = previous.write_evidence() if gmail_studio(account) else None
         verified = is_connector and not connector_mailbox.inbox_only(account)
         if verified:
             verified_cursor = previous.connector_cursor if previous and previous.connector_verified else ""
@@ -92,6 +94,8 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                 changes, deferred = await _connector_changes(account, progress,
                     previous.connector_deferred_threads if previous.connector_verified else [], options,
                     initial_deferred=set() if first_import else initial_deferred, first_import=first_import)
+                if proof:
+                    checks = await sync_connector.pending_label_checks(account, proof[0], changes)
             stored_progress = connector_mailbox.encode(binding, changes.cursor)
         elif is_connector:
             progress = previous.connector_cursor or cursor
@@ -115,6 +119,8 @@ async def _sync_account(account: MailAccount) -> SyncResult:
             suppress_import_page = bool(import_id) and (not is_connector or scan_active)
             new_ids, invalidated = await _apply_changes(account, changes, session, verified, native_moves,
                 initial_import_id=import_id, suppress_import_page=suppress_import_page)
+            if checks and proof:
+                await sync_connector.apply_label_checks(session, account, proof[0], checks)
             pending_import = (scan_active and (sync_connector.import_scan_pending(changes.cursor) or not changes.cursor)) if is_connector else changes.initial_pending
             tracked_threads = changes.initial_deferred_threads if is_connector else set()
             state.rules_initial_import = json.dumps({'id': import_id, 'threads': sorted(tracked_threads), 'scan_pending': pending_import}) if import_id and (pending_import or tracked_threads or not changes.cursor) else ''

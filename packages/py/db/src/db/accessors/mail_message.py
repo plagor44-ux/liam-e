@@ -14,6 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from db.accessors import mail_reference_snapshot, mail_rule_run, mail_sync_state
 from db.models.mail_insight import MailInsight
 from db.models.mail_action import MailAction
+from db.models.mail_account import MailAccount
 from db.models.mail_filing import MailFiling
 from db.models.mail_label_assignment import MailLabelAssignment
 
@@ -646,10 +647,18 @@ async def _imap_restore_state(session: AsyncSession, source: MailMessage, keep: 
     return updates
 
 
-async def commit_trash_move(message: MailMessage, updates: dict, *, action: MailAction | None = None, undo_id: str | None = None) -> None:
-    """Publish the provider-confirmed move, its undo record and the sync fence together."""
-    async with get_session_maker().begin() as session:
-        account = await mail_sync_state.fence_folder_change(session, message.account_id)
+async def commit_trash_move(
+    message: MailMessage, updates: dict, *, action: MailAction | None = None,
+    undo_id: str | None = None, sync_session: AsyncSession | None = None,
+) -> None:
+    """Publish the confirmed move under the action fence or an already fenced sync."""
+    async with _writer(sync_session) as session:
+        if sync_session is None:
+            account = await mail_sync_state.fence_folder_change(session, message.account_id)
+        else:
+            account = await session.get(MailAccount, message.account_id)
+            if account is None:
+                raise mail_sync_state.StaleMailSync
         stable_uid = account.auth_type == "mistral_connector" or account.provider == "google"
         updates = updates.copy()
         validity = updates.pop("imap_source_uidvalidity", None)

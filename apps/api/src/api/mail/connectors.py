@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from db.accessors import mail_sync_state
+from db.accessors import mail_job, mail_sync_state
 from utils.mistral import mistral_api_url, mistral_app_token
 
 from api.mail import action_capabilities, connector_throttle, connector_write_results as write_result
@@ -335,6 +335,8 @@ async def change_gmail_labels(
                     expected.update(changes)
                     labels = await _confirm_label_change(provider, thread, uid, present, absent, point_only=True)
             except connector_throttle.RateLimited as error:
+                if dispatched:
+                    await mail_job.queue_connector_label_check(account.id, proof[0], message.id, thread, uid)
                 if dispatched or provider_changed:
                     # A step may already have taken effect. Keep confirmed intermediate
                     # evidence and leave uncertain changes to the next sync.
@@ -362,6 +364,7 @@ async def change_gmail_labels(
                 raise
             except (httpx.HTTPError, TimeoutError) as error:
                 if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 503:
+                    await mail_job.queue_connector_label_check(account.id, proof[0], message.id, thread, uid)
                     raise connector_throttle.RateLimited(
                         retryable=False, labels=labels if provider_changed else None) from None
                 if not has_confirmed_step:

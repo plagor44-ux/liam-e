@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from db.accessors import mail_job
 from db.accessors import mail_message as message_access
 from db.models.mail_account import MailAccount
 from db.models.mail_message import MailMessage
@@ -176,6 +177,57 @@ async def confirm_trash_conflicts(account, changes: SyncChanges, candidates: dic
         changes.upserts = [row for row in changes.upserts if row["provider_uid"] not in uncertain]
         changes.moved_out = [uid for uid in changes.moved_out if uid not in uncertain]
         changes.trashed.difference_update(uncertain)
+
+
+async def pending_label_checks(account: MailAccount, binding: str, changes: SyncChanges):
+    """Read only the exact pending members on the verified connector binding."""
+    checked = []
+    for job in await mail_job.connector_label_checks(account.id):
+        target = json.loads(job.payload_json)
+        if target["binding"] != binding:
+            checked.append((job.id, target, None))
+            continue
+        uid = target["provider_uid"]
+        try:
+            labels = (await connectors.thread_labels(
+                account.provider, target["thread_id"], {uid}, minimal_only=True,
+            )).get(uid)
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code in (401, 403):
+                raise
+            labels = None
+        except (ValueError, httpx.TransportError):
+            labels = None
+        checked.append((job.id, target, labels))
+        # This delivery is already indexed. Keep the point read separate from
+        # search results so a stale page cannot replace the row or trigger rules.
+        changes.upserts = [row for row in changes.upserts if row["provider_uid"] != uid]
+        changes.moved_out = [moved for moved in changes.moved_out if moved != uid]
+        changes.confirmed_inbox.discard(uid)
+        changes.trashed.discard(uid)
+        changes.read_updates.pop(uid, None)
+        changes.flag_updates.pop(uid, None)
+    return checked
+
+
+async def apply_label_checks(session, account: MailAccount, binding: str, checked) -> None:
+    completed, pending = [], []
+    for job_id, target, labels in checked:
+        if target["binding"] != binding:
+            completed.append(job_id)
+            continue
+        row = await message_access.get_message(target["message_id"], session)
+        if (row is not None and row.account_id == account.id and not row.unverified_connector
+                and row.provider_uid == target["provider_uid"] and row.thread_id == target["thread_id"]):
+            if labels is None:
+                pending.append(job_id)
+                continue
+            await message_access.commit_trash_move(row, {
+                "folder": connectors.observed_folder(labels), "labels_json": json.dumps(sorted(labels)),
+                "is_read": "UNREAD" not in labels, "is_flagged": "STARRED" in labels,
+            }, sync_session=session)
+        completed.append(job_id)
+    await mail_job.finish_connector_label_checks(session, completed, pending)
 
 
 async def _history_page(account, cursor, limit, max_body_chars):

@@ -2,10 +2,12 @@
 
 import json
 from datetime import datetime, timedelta
+from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import and_, case, cast, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 
+from db.accessors import mail_sync_state
 from db.engine import get_session_maker
 from db.models._common import new_id, utcnow
 from db.models.mail_job import MailJob
@@ -14,6 +16,7 @@ from db.models.mail_job import MailJob
 # Base-version workers claim only "queued" or stale "running" jobs. Keep both phases of
 # a targeted refresh outside their protocol until a worker that knows its payload finishes.
 VERIFIED_INSIGHTS = "verified_insights"
+PENDING_LABEL_CHECK = "pending_label_check"
 READY_REFRESH = "ready_insights"
 RUNNING_REFRESH = "processing_insights"
 RUNNING = ("running", RUNNING_REFRESH)
@@ -112,6 +115,35 @@ async def latest_for_account(account_id: str, *, kind: str | None = None, open_o
         stmt = stmt.where(MailJob.status.in_(("queued", READY_REFRESH, *RUNNING)))
     async with get_session_maker()() as session:
         return (await session.execute(stmt.order_by(MailJob.created_at.desc(), MailJob.id.desc()).limit(1))).scalar_one_or_none()
+
+
+async def queue_connector_label_check(
+    account_id: str, binding: str, message_id: str, thread_id: str, provider_uid: str,
+) -> None:
+    """Persist one read-only check per delivery and binding outside the worker claim states."""
+    payload = json.dumps({"account_id": account_id, "binding": binding, "message_id": message_id,
+                          "thread_id": thread_id, "provider_uid": provider_uid})
+    key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + payload))
+    job = MailJob(id=key, kind=PENDING_LABEL_CHECK, status=PENDING_LABEL_CHECK,
+                  payload_json=payload, dedupe_key=key)
+    async with get_session_maker().begin() as session:
+        # A poll may have read the mailbox before the uncertain write.
+        await mail_sync_state.fence_folder_change(session, account_id)
+        await session.execute(insert(MailJob).values(**job.model_dump()).on_conflict_do_nothing())
+
+
+async def connector_label_checks(account_id: str) -> list[MailJob]:
+    async with get_session_maker()() as session:
+        return list(await session.scalars(select(MailJob).where(
+            MailJob.status == PENDING_LABEL_CHECK, _account(account_id),
+        ).order_by(MailJob.updated_at, MailJob.id).limit(5)))
+
+
+async def finish_connector_label_checks(session, completed: list[str], pending: list[str]) -> None:
+    if completed:
+        await session.execute(delete(MailJob).where(MailJob.id.in_(completed)))
+    if pending:
+        await session.execute(update(MailJob).where(MailJob.id.in_(pending)).values(updated_at=utcnow()))
 
 
 async def delete_for_account(account_id: str) -> None:

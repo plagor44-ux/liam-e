@@ -2303,3 +2303,62 @@ def test_gmail_uses_live_labels_to_skip_a_redundant_write_and_point_read(pg_db, 
         assert provider.labels["target"] == {"TRASH"}
 
     asyncio.run(run())
+
+
+def test_sync_rechecks_old_gmail_inbox_message_after_ambiguous_archive(pg_db, monkeypatch):
+    from api.mail import connector_throttle
+
+    async def run():
+        provider = StudioMailbox()
+        provider.date = (datetime.now(UTC) - timedelta(days=21)).isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        monotonic = connector_throttle.monotonic
+        omit_target = True
+        point_reads = []
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            args = payload["arguments"]
+            if tool == "search_threads":
+                return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+            response = await provider.dispatch(path, payload)
+            if tool == "unlabel_message":
+                provider.labels["target"].add("STARRED")
+                httpx.Response(503, request=httpx.Request("POST", "https://example.test")).raise_for_status()
+            if tool == "get_thread" and args.get("threadId") == "mixed" and provider.writes:
+                point_reads.append(args.get("messageFormat"))
+                if omit_target:
+                    content = json.loads(response["content"][0]["text"])
+                    content["messages"] = [row for row in content["messages"] if row["id"] != "target"]
+                    response["content"][0]["text"] = json.dumps(content)
+            return response
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            result = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "archive"})
+            assert result.status_code == 429
+            assert result.json()["detail"]["retryable"] is False
+            assert await listed(browser, "INBOX") == {target, ids["sibling"]}
+            assert await mail_action.latest_open(target) is None
+
+            monkeypatch.setattr(connector_throttle, "monotonic", lambda: monotonic() + 2)
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert point_reads == ["MINIMAL"]
+            assert await listed(browser, "INBOX") == {target, ids["sibling"]}
+
+            omit_target = False
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert point_reads == ["MINIMAL", "MINIMAL"]
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await listed(browser, "ARCHIVE") == {target}
+            row = await mail_message.get_message(target)
+            assert row is not None and row.is_flagged
+            assert json.loads(row.labels_json) == ["STARRED"]
+            assert await mail_action.latest_open(target) is None
+
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert point_reads == ["MINIMAL", "MINIMAL"]
+            assert provider.writes == [("unlabel_message", "target", ("INBOX",))]
+
+    asyncio.run(run())
