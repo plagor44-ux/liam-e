@@ -9,6 +9,8 @@ for an unfinished window. Window boundaries overlap by one second.
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -70,11 +72,18 @@ def import_scan_pending(progress: str) -> bool:
     return progress.startswith('initial:') or (len(parts) == 3 and all(part.isdigit() for part in parts))
 
 
-async def fetch_changes(account: MailAccount, *, cursor: str, folders: list[str], limit: int, max_body_chars: int) -> SyncChanges:
+async def fetch_changes(
+    account: MailAccount, *, cursor: str, folders: list[str], limit: int, max_body_chars: int,
+    before_history: Callable[[SyncChanges], Awaitable[None]] | None = None,
+) -> SyncChanges:
     if not cursor.startswith("initial:"):
         return await _fetch_page(account, cursor=cursor, limit=limit, max_body_chars=max_body_chars)
     delta, previous_token = json.loads(cursor.removeprefix("initial:"))
     current = await _fetch_page(account, cursor=str(delta), limit=limit, max_body_chars=max_body_chars)
+    if before_history is not None and (current.upserts or current.cursor != str(delta)):
+        checkpoint = deepcopy(current)
+        checkpoint.cursor = "initial:" + json.dumps([current.cursor, previous_token])
+        await before_history(checkpoint)
     try:
         history = await _history_page(account, cursor, limit, max_body_chars)
     except (ValueError, KeyError, TypeError, httpx.HTTPError) as error:
@@ -195,7 +204,7 @@ async def pending_label_checks(account: MailAccount, binding: str, changes: Sync
         except httpx.HTTPStatusError as error:
             if error.response.status_code in (401, 403):
                 raise
-            labels = None
+            labels = [] if error.response.status_code == 404 else None
         except (ValueError, httpx.TransportError):
             labels = None
         checked.append((job.id, target, labels))

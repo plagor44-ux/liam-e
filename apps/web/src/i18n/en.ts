@@ -745,7 +745,14 @@ export const en = {
     bulkProviderPartial: (n: number) => plural(n, { one: 'The provider partly changed # email. The list shows its reported folder.', other: 'The provider partly changed # emails. The list shows their reported folders.' }),
     providerReconciled: 'The email stayed in its folder. The list shows its current folder.',
     providerRateUnconfirmed: 'The mail provider is limiting requests. Check the affected emails after the next sync.',
-    bulkProviderRetry: (n: number) => plural(n, { one: 'You can retry # email shortly.', other: 'You can retry # emails shortly.' }),
+    retryActions: { archive: 'Archive', trash: 'Move to trash', spam: 'Mark as spam', mark_read: 'Mark as read', mark_unread: 'Mark as unread' },
+    retryMail: (action, subject = "") => action + ' – “' + noticeSubject(subject) + '”',
+    retrySelection: (action, count = 0, subjects = []) => {
+      const names = subjects.map(subject => '“' + noticeSubject(subject) + '”').join(', ')
+      const more = count > subjects.length && names ? ' (+' + numberFormat.format(count - subjects.length) + ')' : ''
+      return action + ' – ' + emails(count) + (names ? ' · ' + names + more : '')
+    },
+    retryAction: action => 'Retry: ' + action,
     bulkProviderReconciled: (n: number) => plural(n, { one: '# email stayed in its folder. The list shows its current folder.', other: '# emails stayed in their folders. The list shows their current folders.' }),
     providerPartial: {
       INBOX: 'The provider only applied part of the change. The email is in the inbox.',

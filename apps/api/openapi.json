@@ -8953,11 +8953,25 @@
             "title": "Restored",
             "type": "array"
           },
+          "retryable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Retryable",
+            "type": "array"
+          },
           "skipped": {
             "items": {
               "type": "string"
             },
             "title": "Skipped",
+            "type": "array"
+          },
+          "unconfirmed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unconfirmed",
             "type": "array"
           },
           "unsupported": {

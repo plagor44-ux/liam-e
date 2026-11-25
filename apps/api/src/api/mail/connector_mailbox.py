@@ -96,6 +96,12 @@ async def _check_identity(account_id: str, generation: int | None, observed):
         raise
 
 
+async def verify_bound_mailbox(account, binding: tuple[str, str, str], *, generation: int | None, observed) -> None:
+    """Verify the current bound credential and invalidate an identity mismatch."""
+    async with _check_identity(account.id, generation, observed):
+        await _verify(account, binding[1], binding[2])
+
+
 @asynccontextmanager
 async def bound_mailbox(account, *, cursor: str | None = None, bootstrap: bool = False, check_after: bool = False, generation: int | None = None, observed=None):
     """Check the provider identity on the pinned credential. Transient failures stop this call."""
@@ -120,12 +126,11 @@ async def bound_mailbox(account, *, cursor: str | None = None, bootstrap: bool =
     try:
         if not thread_id:
             thread_id, message_id = await _anchor(account)
-        async with _check_identity(account.id, generation, observed):
-            await _verify(account, thread_id, message_id)
-        yield (credential, thread_id, message_id), progress
+        binding = (credential, thread_id, message_id)
+        await verify_bound_mailbox(account, binding, generation=generation, observed=observed)
+        yield binding, progress
         if check_after:
-            async with _check_identity(account.id, generation, observed):
-                await _verify(account, thread_id, message_id)
+            await verify_bound_mailbox(account, binding, generation=generation, observed=observed)
     finally:
         connectors.mailbox_credential.reset(token)
 

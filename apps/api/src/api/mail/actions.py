@@ -58,6 +58,8 @@ class UndoResult:
     failed: list[str] = field(default_factory=list)
     error_code: str | None = None
     unsupported: list[str] = field(default_factory=list)
+    retryable: list[str] = field(default_factory=list)
+    unconfirmed: list[str] = field(default_factory=list)
 
 
 async def write_connector_labels(account, message: MailMessage, *, added: list[str], removed: list[str]) -> None:
@@ -270,6 +272,7 @@ async def _undo_action(action: MailAction, account: MailAccount | None, result: 
             result.error_code = error.code
         elif isinstance(error, connector_throttle.RateLimited):
             result.error_code = result.error_code or connector_throttle.CODE
+            (result.retryable if error.retryable else result.unconfirmed).append(action.id)
             assert account is not None
             _log_action_failure(account, action.kind, connector_throttle.CODE)
         try:

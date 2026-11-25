@@ -4894,9 +4894,17 @@ export type UndoOut = {
      */
     restored: Array<string>;
     /**
+     * Retryable
+     */
+    retryable?: Array<string>;
+    /**
      * Skipped
      */
     skipped: Array<string>;
+    /**
+     * Unconfirmed
+     */
+    unconfirmed?: Array<string>;
     /**
      * Unsupported
      */

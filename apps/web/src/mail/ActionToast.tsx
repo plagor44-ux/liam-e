@@ -47,7 +47,7 @@ export function ActionToast({ inline }: { inline?: boolean }) {
       <span className={`le-inbox-toast-text${notice.wrap ? ' le-inbox-toast-text--wrap' : ''}`}>{notice.text}</span>
     </Notice>}
     {retryNotices.map(notice => <Notice
-      key={notice.id} tone="danger" action={{ label: texts.chat.retry, onClick: notice.retry }}
+      key={notice.id} tone="danger" action={{ label: notice.label, onClick: notice.retry }}
       trailing={<IconButton icon="x" label={texts.inbox.dismissNotice} tipPosition="top-end" tipClear={root} onClick={() => dismissRetryNotice(notice.id)} />}
     >
       <span className="le-inbox-toast-text le-inbox-toast-text--wrap">{notice.text}</span>

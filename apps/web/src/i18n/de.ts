@@ -731,7 +731,14 @@ export const de = {
     bulkProviderPartial: (n: number) => plural(n, { one: 'Der Anbieter hat # Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.', other: 'Der Anbieter hat # Mails teilweise geändert. Die Liste zeigt die gemeldeten Ordner.' }),
     providerReconciled: 'Die Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.',
     providerRateUnconfirmed: 'Der Mailanbieter begrenzt gerade die Anfragen. Prüfe die betroffenen Mails nach dem nächsten Abruf.',
-    bulkProviderRetry: (n: number) => plural(n, { one: 'Du kannst # Mail in Kürze erneut versuchen.', other: 'Du kannst # Mails in Kürze erneut versuchen.' }),
+    retryActions: { archive: 'Archivieren', trash: 'In den Papierkorb', spam: 'Als Spam markieren', mark_read: 'Als gelesen markieren', mark_unread: 'Als ungelesen markieren' },
+    retryMail: (action: string, subject = "") => `${action} – „${noticeSubject(subject)}“`,
+    retrySelection: (action: string, count = 0, subjects: string[] = []) => {
+      const names = subjects.map(subject => `„${noticeSubject(subject)}“`).join(', ')
+      const more = count > subjects.length && names ? ` (+${count - subjects.length})` : ''
+      return `${action} – ${plural(count, { one: '# Mail', other: '# Mails' })}${names ? ` · ${names}${more}` : ''}`
+    },
+    retryAction: (action: string) => `Erneut versuchen: ${action}`,
     bulkProviderReconciled: (n: number) => plural(n, { one: '# Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.', other: '# Mails wurden nicht verschoben. Die Liste zeigt ihre aktuellen Ordner.' }),
     providerPartial: {
       INBOX: 'Der Anbieter hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Posteingang.',
