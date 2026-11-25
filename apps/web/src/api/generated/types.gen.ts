@@ -2823,7 +2823,7 @@ export type Proposal = {
     /**
      * Kind
      */
-    kind: 'send' | 'archive' | 'trash' | 'mark_read' | 'unsubscribe' | 'task' | 'preference' | 'calendar' | 'filing' | 'rule';
+    kind: 'send' | 'archive' | 'trash' | 'mark_read' | 'unsubscribe' | 'task' | 'preference' | 'calendar' | 'filing' | 'rule' | 'skill';
     preference?: PreferenceReference | null;
     /**
      * Reason
@@ -2831,6 +2831,7 @@ export type Proposal = {
     reason: string;
     result?: ProposalResult | null;
     rule?: RuleIn | null;
+    skill?: SkillDraft | null;
     /**
      * Task
      */
@@ -2858,6 +2859,7 @@ export type ProposalConfirmIn = {
      * Selected Ids
      */
     selected_ids: Array<string>;
+    skill_edit?: SkillEdit | null;
     task_edit?: TaskCreateCommand | null;
 };
 
@@ -2954,6 +2956,10 @@ export type ProposalResult = {
      * Rule Id
      */
     rule_id?: string | null;
+    /**
+     * Skill Id
+     */
+    skill_id?: string | null;
     /**
      * Task Series Id
      */
@@ -3087,6 +3093,12 @@ export type ReconcileOut = {
  * RegisteredToolOut
  */
 export type RegisteredToolOut = {
+    /**
+     * Authorable
+     *
+     * Approved for skills drafted in the chat
+     */
+    authorable: boolean;
     /**
      * Description
      */
@@ -3706,6 +3718,64 @@ export type SkillDetailOut = {
      * Workflow Steps
      */
     workflow_steps: Array<SkillWorkflowStep>;
+};
+
+/**
+ * SkillDraft
+ *
+ * A custom skill drafted in the chat; nothing is stored until the owner confirms its card.
+ */
+export type SkillDraft = {
+    /**
+     * Allowed Tools
+     */
+    allowed_tools?: Array<string>;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Instructions
+     */
+    instructions: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Workflow Steps
+     */
+    workflow_steps?: Array<SkillWorkflowStep>;
+};
+
+/**
+ * SkillEdit
+ *
+ * Text fields the owner may change on a skill card before saving.
+ *
+ * Tools and steps change only through a new card drafted in the chat.
+ */
+export type SkillEdit = {
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Instructions
+     */
+    instructions: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
 };
 
 /**

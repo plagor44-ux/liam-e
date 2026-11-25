@@ -5025,7 +5025,8 @@
               "preference",
               "calendar",
               "filing",
-              "rule"
+              "rule",
+              "skill"
             ],
             "title": "Kind",
             "type": "string"
@@ -5058,6 +5059,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/RuleIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skill": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillDraft"
               },
               {
                 "type": "null"
@@ -5138,6 +5149,16 @@
             },
             "title": "Selected Ids",
             "type": "array"
+          },
+          "skill_edit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillEdit"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "task_edit": {
             "anyOf": [
@@ -5349,6 +5370,17 @@
             ],
             "title": "Rule Id"
           },
+          "skill_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Id"
+          },
           "task_series_id": {
             "anyOf": [
               {
@@ -5554,6 +5586,11 @@
       },
       "RegisteredToolOut": {
         "properties": {
+          "authorable": {
+            "description": "Approved for skills drafted in the chat",
+            "title": "Authorable",
+            "type": "boolean"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -5580,7 +5617,8 @@
           "name",
           "kind",
           "description",
-          "skill_only"
+          "skill_only",
+          "authorable"
         ],
         "title": "RegisteredToolOut",
         "type": "object"
@@ -6649,6 +6687,98 @@
           "revisions"
         ],
         "title": "SkillDetailOut",
+        "type": "object"
+      },
+      "SkillDraft": {
+        "additionalProperties": false,
+        "description": "A custom skill drafted in the chat; nothing is stored until the owner confirms its card.",
+        "properties": {
+          "allowed_tools": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Allowed Tools",
+            "type": "array"
+          },
+          "description": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "instructions": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          },
+          "workflow_steps": {
+            "items": {
+              "$ref": "#/components/schemas/SkillWorkflowStep"
+            },
+            "maxItems": 20,
+            "title": "Workflow Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "instructions"
+        ],
+        "title": "SkillDraft",
+        "type": "object"
+      },
+      "SkillEdit": {
+        "additionalProperties": false,
+        "description": "Text fields the owner may change on a skill card before saving.\n\nTools and steps change only through a new card drafted in the chat.",
+        "properties": {
+          "description": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "instructions": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "instructions"
+        ],
+        "title": "SkillEdit",
         "type": "object"
       },
       "SkillExecutionRef": {
