@@ -81,7 +81,13 @@ async def fetch_changes(
         return await _fetch_page(account, cursor=cursor, limit=limit, max_body_chars=max_body_chars)
     delta, previous_token = json.loads(cursor.removeprefix("initial:"))
     current = await _fetch_page(account, cursor=str(delta), limit=limit, max_body_chars=max_body_chars)
-    if before_history is not None and (current.upserts or current.cursor != str(delta)):
+    if before_history is not None and (
+        current.cursor != str(delta)
+        or current.upserts
+        or current.read_updates
+        or current.flag_updates
+        or current.moved_out
+    ):
         checkpoint = deepcopy(current)
         checkpoint.cursor = "initial:" + json.dumps([current.cursor, previous_token])
         await before_history(checkpoint)

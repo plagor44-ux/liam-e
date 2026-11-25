@@ -2698,6 +2698,57 @@ def test_gmail_history_preserves_new_mail_and_reuses_unaffected_checks(pg_db, mo
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    "before,after,expected",
+    [
+        ({"INBOX", "UNREAD"}, {"INBOX"}, ("INBOX", True, False)),
+        ({"INBOX"}, {"INBOX", "STARRED"}, ("INBOX", True, True)),
+        ({"INBOX"}, set(), ("ARCHIVE", True, False)),
+    ],
+    ids=["read", "star", "archive"],
+)
+def test_gmail_history_throttle_preserves_existing_mail_updates(pg_db, monkeypatch, before, after, expected):
+    async def run():
+        provider = StudioMailbox()
+        date = datetime.now(UTC) - timedelta(days=2)
+        provider.date = date.isoformat()
+        provider.labels = {"target": before}
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        account_id = provider.account.id
+        state = await mail_sync_state.get_state(account_id)
+        binding, watermark = connector_mailbox.decode(state.connector_cursor)
+        assert watermark == str(int(date.timestamp()))
+        progress = "initial:" + json.dumps([watermark, "older"])
+        await mail_sync_state.save_state(account_id=account_id, cursor=watermark,
+            connector_cursor=connector_mailbox.encode(binding, progress))
+        target = await mail_message.get_message(ids["target"])
+        assert (target.folder, target.is_read, target.is_flagged) == ("INBOX", "UNREAD" not in before, "STARRED" in before)
+        provider.labels["target"] = after
+        history_requests = 0
+
+        async def dispatch(path, payload):
+            nonlocal history_requests
+            if payload["arguments"].get("pageToken") == "older":
+                history_requests += 1
+                request = httpx.Request("POST", "https://example.test")
+                httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+            return await provider.dispatch(path, payload)
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        result = await sync.sync_account(account_id)
+        assert history_requests == 1
+        assert result.status == "ok"
+        assert result.new_message_ids == []
+        target = await mail_message.get_message(ids["target"])
+        assert (target.folder, target.is_read, target.is_flagged) == expected
+        state = await mail_sync_state.get_state(account_id)
+        assert state.cursor == watermark
+        assert connector_mailbox.decode(state.connector_cursor) == (binding, progress)
+        assert provider.writes == []
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("probe", ["label_check", "deferred_thread"])
 def test_steady_state_probe_throttle_preserves_verified_new_mail(pg_db, monkeypatch, probe):
     from db.accessors import mail_job
