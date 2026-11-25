@@ -1,5 +1,7 @@
 """Persist the local development seed without touching unrelated rows."""
 
+import json
+
 from sqlalchemy import delete
 
 from db.engine import get_session_maker
@@ -28,8 +30,23 @@ async def replace_conversations(conversations: list[ChatConversation]) -> None:
 
 
 async def add_context(context: ChatContext) -> ChatContext:
-    """Store one seeded turn context; replace_conversations removes it again."""
+    """Store one seeded turn context bound like a real turn; replace_conversations removes it again.
+
+    The binding mirrors `chat_context.resolve`: the current grant revision with its active accounts,
+    the readable calendars and their feed fingerprints. A seeded conversation therefore accepts a
+    follow-up turn, and the web shows its composer rather than a restart notice.
+    """
+    from db.accessors import calendar_source, chat_settings
+
     async with get_session_maker()() as session:
+        grants = await chat_settings.in_session(session)
+        accounts = await chat_settings.active_ids(session, grants.account_ids)
+        calendar_ids = await calendar_source.readable_ids(session)
+        bindings = await calendar_source.feed_bindings(session, calendar_ids)
+        context.mail_scope_version = grants.version
+        context.account_scope_json = json.dumps({'account_ids': accounts, 'selection': None})
+        context.calendar_scope_json = json.dumps(calendar_ids)
+        context.calendar_feed_bindings_json = json.dumps(bindings, sort_keys=True)
         session.add(context)
         await session.commit()
         await session.refresh(context)

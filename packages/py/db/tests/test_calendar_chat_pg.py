@@ -793,6 +793,58 @@ def test_calendar_seed_roundtrip_and_repeatability(pg_db, monkeypatch):
     asyncio.run(run())
 
 
+def test_seeded_conversations_bind_readable_calendars_and_accept_a_follow_up_turn(pg_db):
+    async def run():
+        from datetime import UTC, datetime
+        from api.mail import dev_seed
+        from api.mail.agent_prompt import APP_PROMPT_VERSION
+        from db.accessors import calendar_source, chat_context, chat_message, chat_settings
+        from db.engine import get_session_maker
+        from db.models.chat_context import ChatContext
+
+        from api.mail.seed_ids import SEED_ACCOUNT_IDS
+
+        now = datetime(2026, 11, 13, 12, tzinfo=UTC)
+        await dev_seed.seed(now)
+        # The owner grants the eligible seed accounts and reseeds, as for a visual check; contexts follow the grant.
+        settings = await chat_settings.get()
+        async with get_session_maker()() as session:
+            eligible = await chat_settings.active_ids(session, sorted(SEED_ACCOUNT_IDS))
+        assert eligible
+        await chat_settings.update(settings.version, eligible)
+        await dev_seed.seed(now)
+        grants = await chat_settings.get()
+        assert grants.account_ids == eligible
+        keys = ('was-ist-heute-wichtig', 'newsletter-aufraeumen', 'angebot-meyer-gmbh', 'belege-fuer-die-steuer', 'skill-offene-rechnungen')
+        async with get_session_maker()() as session:
+            readable = await calendar_source.readable_ids(session)
+            assert readable
+            for key in keys:
+                conversation_id = dev_seed.seed_id('conversation', key)
+                rows = await chat_message.list_messages(conversation_id)
+                assert rows and all(row.context_id for row in rows)
+                for context_id in {row.context_id for row in rows}:
+                    context = await session.get(ChatContext, context_id)
+                    assert context.conversation_id == conversation_id and context.mail_scope_version == grants.version
+                    assert json.loads(context.calendar_scope_json) == readable
+                    assert await calendar_source.permits_context(session, context)
+        for key in keys[:4]:
+            await chat_context.resolve(conversation_id=dev_seed.seed_id('conversation', key), title='Test', model='',
+                                       revision_id=None, account_id=None, app_prompt_version=APP_PROMPT_VERSION)
+        # The former seed left the calendar scope empty; such history still needs a new conversation.
+        unbound = dev_seed.seed_id('conversation', 'angebot-meyer-gmbh')
+        async with get_session_maker()() as session:
+            stale = ChatContext(conversation_id=unbound, app_prompt_version=APP_PROMPT_VERSION, mail_scope_version=grants.version,
+                                account_scope_json=json.dumps({'account_ids': await chat_settings.active_ids(session, grants.account_ids), 'selection': None}))
+            session.add(stale)
+            await session.commit()
+        await chat_message.add_message(conversation_id=unbound, role='user', content='Synthetic', context_id=stale.id)
+        with pytest.raises(chat_context.ScopeChange):
+            await chat_context.resolve(conversation_id=unbound, title='Test', model='', revision_id=None,
+                                       account_id=None, app_prompt_version=APP_PROMPT_VERSION)
+    asyncio.run(run())
+
+
 def test_automatic_calendar_scope_and_coverage_beyond_fifty_sources(pg_db):
     async def run():
         from datetime import UTC, date, datetime, timedelta

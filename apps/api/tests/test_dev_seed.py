@@ -128,7 +128,19 @@ async def test_seed_is_repeatable_and_preserves_other_rows(fake_store, monkeypat
             if row.conversation_id == conversation_id and row.proposal_status == "pending":
                 row.proposal_status = "cancelled"
 
+    order = []
+    contexts = {}
+
+    async def add_context(row):
+        order.append("context")
+        contexts[row.id] = row
+        return row
+
+    async def replace_calendars(*_rows):
+        order.append("calendars")
+
     monkeypatch.setattr(dev_seed.seed_access, "replace_conversations", replace_conversations)
+    monkeypatch.setattr(dev_seed.seed_access, "add_context", add_context)
     monkeypatch.setattr(dev_seed.chat_access, "add_message", add_message)
     monkeypatch.setattr(dev_seed.chat_access, "cancel_open_proposals", cancel_open_proposals)
 
@@ -153,10 +165,17 @@ async def test_seed_is_repeatable_and_preserves_other_rows(fake_store, monkeypat
     monkeypatch.setattr(dev_seed, "seed_filing", AsyncMock())
     skill_card = AsyncMock(return_value=True)
     monkeypatch.setattr(dev_seed, "seed_skill_card", skill_card)
-    monkeypatch.setattr(calendar_seed, "replace", AsyncMock())
+    monkeypatch.setattr(calendar_seed, "replace", replace_calendars)
     now = datetime(2026, 11, 13, 12, 30, tzinfo=UTC)
     for _ in range(2):
+        order.clear()
         result = await dev_seed.seed(now)
+        # Every seeded turn binds a context of its own conversation, taken after the calendars exist,
+        # so the seeded history matches a new turn's scope and the web offers the composer.
+        assert order[0] == "calendars" and order.count("context") == 4
+        seeded = [row for row in chats.values() if row.conversation_id != outsider_conversation.id]
+        assert seeded and all(row.context_id in contexts for row in seeded)
+        assert all(contexts[row.context_id].conversation_id == row.conversation_id for row in seeded)
         assert (result.accounts, result.mails, result.unread, result.insights, result.conversations, result.proposals) == (4, 67, 47, 1, 5, 2)
         assert skill_card.await_args.args[0].id == dev_seed.seed_id("conversation", "skill-offene-rechnungen")
         assert len(conversations) == 6

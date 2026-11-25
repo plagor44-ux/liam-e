@@ -232,6 +232,8 @@ async def seed(now: datetime | None = None) -> SeedResult:
     await seed_access.replace_mail_data(accounts, states, messages, [insight], jobs)
     await seed_tasks(local_now.astimezone(UTC))
     await seed_filing()
+    # Calendars come before conversations: each seeded turn context binds the readable calendars.
+    await seed_calendars(local_now)
 
     conversation_specs = [
         ("was-ist-heute-wichtig", "Was ist heute wichtig?", at(0, "08:57")),
@@ -245,16 +247,17 @@ async def seed(now: datetime | None = None) -> SeedResult:
                      for key, title, updated in conversation_specs]
     await seed_access.replace_conversations(conversations)
     first, second, third, fourth, fifth = conversations
-    await chat_access.add_message(conversation_id=first.id, role="user", content="Was ist heute wichtig?")
+    contexts = {conversation.id: (await seed_context(conversation.id)).id for conversation in (first, second, third, fourth)}
+    await chat_access.add_message(conversation_id=first.id, role="user", context_id=contexts[first.id], content="Was ist heute wichtig?")
     extras = ChatExtrasOut(
         mails=[seed_id("mail", key) for key in ("hausverwaltung-nebenkosten", "meyer-angebot-4471", "kita-elternabend")],
         suggestions=["Antworten entwerfen", "Nur die Hausverwaltung", "Was steht in der Abrechnung?"],
         model="mistral-medium-latest",
     )
-    await chat_access.add_message(conversation_id=first.id, role="assistant", extras_json=extras.model_dump_json(),
+    await chat_access.add_message(conversation_id=first.id, role="assistant", context_id=contexts[first.id], extras_json=extras.model_dump_json(),
         content="Auf drei Mails solltest du heute antworten.\n\nAm dringendsten ist die Nebenkostenabrechnung der Hausverwaltung Kurz, denn Einwände nimmt sie nur bis nächsten Freitag an. Die Meyer GmbH möchte bis Montag wissen, ob du ihr Angebot annimmst, und die Kita fragt, ob du zum Elternabend kommst.")
-    await chat_access.add_message(conversation_id=second.id, role="user", content="Räum meine Newsletter auf.")
-    await chat_access.add_message(conversation_id=second.id, role="assistant",
+    await chat_access.add_message(conversation_id=second.id, role="user", context_id=contexts[second.id], content="Räum meine Newsletter auf.")
+    await chat_access.add_message(conversation_id=second.id, role="assistant", context_id=contexts[second.id],
         content="Ich habe 14 Absender gefunden, die dir regelmäßig Newsletter schicken. Fünf davon hast du seit über drei Monaten nicht geöffnet; die schlage ich zum Abbestellen vor. Die anderen neun liest du, sie bleiben, wie sie sind.",
         extras_json=ChatExtrasOut(model="mistral-medium-latest").model_dump_json())
     items = []
@@ -271,35 +274,41 @@ async def seed(now: datetime | None = None) -> SeedResult:
             method=method, target=uri,
         ))
     await proposals.create_proposal(second.id, proposals.Proposal(
-        kind="unsubscribe", reason="Du hast sie seit über drei Monaten nicht geöffnet.", items=items))
+        kind="unsubscribe", reason="Du hast sie seit über drei Monaten nicht geöffnet.", items=items), context_id=contexts[second.id])
     for conversation in (third, fourth):
-        await chat_access.add_message(conversation_id=conversation.id, role="user", content=conversation.title)
+        await chat_access.add_message(conversation_id=conversation.id, role="user", context_id=contexts[conversation.id],
+                                      content=conversation.title)
     skill_card = await seed_skill_card(fifth)
-    await seed_calendars(local_now)
     return SeedResult(len(accounts), len(messages), sum(not m.is_read for m in messages), 1, len(conversations), 1 + skill_card)
 
 
+async def seed_context(conversation_id: str, **fields):
+    """Store a seeded turn context bound to the current grant and the readable calendars.
+
+    Seeded history therefore matches the scope of a new turn, so a seeded conversation offers its
+    composer instead of asking for a new conversation.
+    """
+    from api.mail.agent_prompt import APP_PROMPT_VERSION
+    from db.models.chat_context import ChatContext
+
+    return await seed_access.add_context(ChatContext(conversation_id=conversation_id, app_prompt_version=APP_PROMPT_VERSION, **fields))
+
+
 async def seed_skill_card(conversation: ChatConversation) -> bool:
-    """Add a pending skill-creator card bound to the current chat grant.
+    """Add a pending skill-creator card bound to the current chat grant and readable calendars.
 
     The card renders in full and can be confirmed locally while that grant stays unchanged;
     confirming creates an ordinary custom skill. Returns False when the creator is unavailable.
     """
-    from api.mail.agent_prompt import APP_PROMPT_VERSION
     from api.skills.catalog import ensure_builtin_skills
     from api.skills.types import SKILL_CREATOR_SLUG, SkillDraft, SkillExecutionRef, SkillWorkflowStep
-    from db.accessors import chat_settings, skill_definition
-    from db.models.chat_context import ChatContext
+    from db.accessors import skill_definition
 
     await ensure_builtin_skills()
     creator = await skill_definition.get_skill(SKILL_CREATOR_SLUG)
     if creator is None or creator.origin != "builtin" or creator.status != "active" or not creator.revision_id:
         return False
-    settings = await chat_settings.get()
-    context = await seed_access.add_context(ChatContext(
-        conversation_id=conversation.id, app_prompt_version=APP_PROMPT_VERSION, mail_scope_version=settings.version,
-        account_scope_json=json.dumps({"selection": None, "account_ids": settings.account_ids}),
-        skill_id=creator.id, skill_revision_id=creator.revision_id))
+    context = await seed_context(conversation.id, skill_id=creator.id, skill_revision_id=creator.revision_id)
     await chat_access.add_message(conversation_id=conversation.id, role="user", context_id=context.id,
         content="Ich möchte morgens sehen, welche Rechnungen noch offen sind.")
     extras = ChatExtrasOut(model="mistral-medium-latest", skill=SkillExecutionRef(
