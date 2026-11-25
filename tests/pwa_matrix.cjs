@@ -385,9 +385,31 @@ function createSyntheticApiHandler() {
 async function run() {
   assert.ok(fs.existsSync(path.join(OUTPUT_DIR, "server/index.mjs")), "apps/web/.output missing; run bunx nx run web:build first");
 
-  const publicAssets = fs.readdirSync(path.join(OUTPUT_DIR, "public/assets"));
-  const v1TasksChunk = publicAssets.find(f => /^tasks-[A-Za-z0-9_-]+\.js$/.test(f));
-  const v2TasksChunk = v1TasksChunk ? v1TasksChunk.replace(/\.js$/, "V2.js") : null;
+  const assetsDir = path.join(OUTPUT_DIR, "public/assets");
+  const scripts = fs.readdirSync(assetsDir).filter(f => f.endsWith(".js"));
+  const scriptText = new Map(scripts.map(f => [f, fs.readFileSync(path.join(assetsDir, f), "utf8")]));
+  // The /tasks route chunk is the `tasks-<hash>.js` file loaded through a dynamic import. A shared
+  // task module carries the same prefix but is imported statically.
+  const lazyTasks = /import\(\s*[`'"]\.\/(tasks-[A-Za-z0-9_-]+\.js)[`'"]\s*\)/;
+  const v1TasksChunk = scripts.map(f => scriptText.get(f).match(lazyTasks)?.[1]).find(Boolean);
+  assert.ok(v1TasksChunk && scripts.includes(v1TasksChunk), "the build has no lazily imported tasks route chunk");
+  // A real rebuild that changes a chunk also changes the hash of every chunk importing it, so v2
+  // renames the route chunk and its transitive importers. Renaming only the route chunk would let
+  // the browser reuse an immutable cached v1 importer that still names the removed file.
+  const renamed = new Set([v1TasksChunk]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const f of scripts) {
+      if (!renamed.has(f) && [...renamed].some(name => scriptText.get(f).includes(name))) {
+        renamed.add(f);
+        grew = true;
+      }
+    }
+  }
+  const v2Names = new Map([...renamed].map(f => [f, f.replace(/\.js$/, "V2.js")]));
+  const v1Names = new Map([...v2Names].map(([v1, v2]) => [v2, v1]));
+  const byLength = [...v2Names.keys()].sort((a, b) => b.length - a.length);
+  const toV2 = text => byLength.reduce((out, name) => out.replaceAll(name, v2Names.get(name)), text);
   const v1SwText = fs.readFileSync(path.join(OUTPUT_DIR, "public/service-worker.js"), "utf8");
 
   const webPort = await freePort();
@@ -410,15 +432,16 @@ async function run() {
       res.end(body);
       return;
     }
-    if (version === "v2" && v1TasksChunk && req.url === `/assets/${v1TasksChunk}`) {
+    const assetName = req.url.startsWith("/assets/") ? req.url.slice("/assets/".length) : null;
+    if (version === "v2" && assetName && v2Names.has(assetName)) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("stale v1 chunk gone in v2");
       return;
     }
 
     let upstreamPath = req.url;
-    if (version === "v2" && v2TasksChunk && req.url === `/assets/${v2TasksChunk}`) {
-      upstreamPath = `/assets/${v1TasksChunk}`;
+    if (version === "v2" && assetName && v1Names.has(assetName)) {
+      upstreamPath = `/assets/${v1Names.get(assetName)}`;
     }
 
     const fwdHeaders = { ...req.headers };
@@ -428,11 +451,11 @@ async function run() {
       { host: "127.0.0.1", port: webPort, method: req.method, path: upstreamPath, headers: fwdHeaders },
       incoming => {
         const ct = incoming.headers["content-type"] || "";
-        if (version === "v2" && v1TasksChunk && v2TasksChunk && (ct.includes("text/html") || ct.includes("javascript"))) {
+        if (version === "v2" && (ct.includes("text/html") || ct.includes("javascript"))) {
           const chunks = [];
           incoming.on("data", c => chunks.push(c));
           incoming.on("end", () => {
-            const text = Buffer.concat(chunks).toString("utf8").replaceAll(v1TasksChunk, v2TasksChunk);
+            const text = toV2(Buffer.concat(chunks).toString("utf8"));
             const headers = { ...incoming.headers, "content-length": String(Buffer.byteLength(text)) };
             delete headers["content-encoding"];
             res.writeHead(incoming.statusCode, headers);

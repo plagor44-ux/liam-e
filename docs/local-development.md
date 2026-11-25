@@ -93,6 +93,30 @@ Set `AUDIO_E2E_CHROMIUM` to run against an installed Chromium executable. The ru
 container and stops both processes on exit. The test-only identity and attestation live in the
 test server. The Studio audio probe tracks the remaining release evidence.
 
+## Local PWA check
+
+`tests/pwa_matrix.cjs` checks the production build in headless Chromium. It starts the built
+server on loopback behind a proxy that answers `/api` with synthetic data, so it needs no
+database, API process or provider. It covers the manifest, response headers and HTML head,
+installability, worker registration and immediate claim, the standalone start URL, deep links,
+portrait, compact, keyboard-open and landscape viewports, and offline navigation in English and
+German with an empty CacheStorage. It also simulates an update from v1 to v2 by renaming the lazily
+loaded tasks route chunk and every chunk that imports it. Then it checks that open tabs keep running
+without a forced reload and that a stale chunk recovers. CI runs the same check in the job
+`pwa-matrix`.
+
+```bash
+bunx nx run web:build
+playwright_dir=$(mktemp -d)
+npm install --prefix "$playwright_dir" --no-save --no-package-lock --ignore-scripts playwright@1.61.0
+"$playwright_dir/node_modules/.bin/playwright" install chromium
+NODE_PATH="$playwright_dir/node_modules" node tests/pwa_matrix.cjs
+```
+
+Set `PWA_MATRIX_CHROMIUM` to run against an installed Chromium executable. The matrix does not
+cover Safari or iOS. Installing on an iPhone and updating from v1 to v2 remain manual acceptance
+steps on the Studio test app (#98).
+
 ## Checks
 
 Commands and requirements for changes are under [Contributing](../CONTRIBUTING.md). PostgreSQL contract tests run only with `RUN_PG_CONTRACT=1` and a test database connection whose role may create and delete additional temporary databases. [CI](../.github/workflows/ci.yml) uses a separate PostgreSQL service for this. [Providers and operations](providers-and-operations.md) covers provider and Studio setup.

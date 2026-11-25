@@ -1,7 +1,8 @@
 name: CI
 
-# The checks that otherwise only run locally: `bun run check`, the web tests, pytest and the live
-# Postgres contract suite, plus a secret scan of the whole history (job `secrets`). The Bun and uv versions follow package.json `packageManager`
+# The checks that otherwise only run locally: `bun run check`, the web tests, pytest, the live
+# Postgres contract suite and the production-build PWA matrix in Chromium (job `pwa-matrix`), plus
+# a secret scan of the whole history (job `secrets`). The Bun and uv versions follow package.json `packageManager`
 # (bun@1.4.0), deploy/docker/Dockerfile.web (oven/bun:1.4.0, node:24) and
 # deploy/docker/Dockerfile.api (uv 0.11.17). Python comes from .python-version (3.14), which uv
 # downloads on demand.
@@ -130,6 +131,40 @@ jobs:
       # needs CREATEDB; the image's superuser has it.
       - name: Run Postgres contract suites
         run: bash tools/db.sh test-pg-contract
+
+  # tests/pwa_matrix.cjs against the production build in headless Chromium, with a synthetic API:
+  # installability, worker registration and claim, standalone start, deep links, viewports, the
+  # v1 -> v2 update with stale-chunk recovery, and offline navigation. Playwright is pinned and
+  # installed outside the workspace (no install scripts), so the lockfiles stay unchanged. Safari
+  # and iOS are not covered here; the iPhone check stays a manual acceptance step (#98).
+  pwa-matrix:
+    name: PWA matrix (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_VERSION: "1.61.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+      - name: Build the web app
+        run: bunx nx run web:build
+      - name: Install pinned Playwright and Chromium
+        run: |
+          set -euo pipefail
+          npm install --prefix "${RUNNER_TEMP}/playwright" --no-save --no-package-lock --ignore-scripts \
+            "playwright@${PLAYWRIGHT_VERSION}"
+          "${RUNNER_TEMP}/playwright/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Run the PWA matrix
+        run: NODE_PATH="${RUNNER_TEMP}/playwright/node_modules" node tests/pwa_matrix.cjs
 
   # gitleaks over the whole history, every branch and tag, with the rules in .gitleaks.toml.
   # The binary is downloaded from the release page and checked against its SHA-256 before it runs.
