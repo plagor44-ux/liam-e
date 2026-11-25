@@ -7,6 +7,7 @@ from api.preferences.candidates import PreferenceDecision
 from api.errors import refuse
 from api.mail import proposals
 from api.tasks.proposals import TaskCreateCommand
+from api.skills.types import SkillEdit
 from api.errors import quiet_validation_route
 from api.mail.chat_schemas import ChatMessageOut, to_message_out
 
@@ -19,6 +20,7 @@ class ProposalConfirmIn(BaseModel):
     selected_ids: list[str]
     body: str | None = None
     task_edit: TaskCreateCommand | None = None
+    skill_edit: SkillEdit | None = None
 
 
 def _refuse(error: Exception):
@@ -38,7 +40,7 @@ def _refuse(error: Exception):
 async def confirm(proposal_id: str, body: ProposalConfirmIn) -> ChatMessageOut:
     try:
         return to_message_out(await proposals.confirm(proposal_id, selected_ids=body.selected_ids, body=body.body, task_edit=body.task_edit,
-                                                      preference_decision=body.preference_decision))
+                                                      preference_decision=body.preference_decision, skill_edit=body.skill_edit))
     except (proposals.ProposalNotFoundError, proposals.ProposalStateError, proposals.ProposalSelectionError, proposals.ProposalContextRevokedError) as error:
         _refuse(error)
 

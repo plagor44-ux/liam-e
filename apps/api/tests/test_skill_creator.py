@@ -236,6 +236,119 @@ async def test_creator_tools_need_the_live_builtin_creator(creator_store):
     assert not any(m.role == "proposal" for m in creator_store.messages)
 
 
+async def test_confirm_applies_card_edits_creates_once_and_the_skill_is_usable(creator_store, monkeypatch):
+    _, ctx = await creator_context(creator_store)
+    card = await pending_card(creator_store, ctx)
+    client = TestClient(build_app())
+    edit = {"slug": "inbox-digest", "name": "Posteingang kurz", "description": "Kurzer Überblick.", "instructions": "Fasse ungelesene Mails zusammen."}
+    res = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": [], "skill_edit": edit})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["proposal_status"] == "done"
+    created = custom_skills(creator_store)
+    assert len(created) == 1 and body["proposal"]["result"]["skill_id"] == created[0].id
+    assert (created[0].slug, created[0].name) == ("inbox-digest", "Posteingang kurz")
+    revision = creator_store.revisions[created[0].revision_id]
+    assert json.loads(revision.allowed_tools_json) == ["search_messages", "show_mails"]
+    assert body["proposal"]["skill"]["name"] == "Posteingang kurz"
+
+    again = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": [], "skill_edit": edit})
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "proposal_not_pending"
+    assert len(custom_skills(creator_store)) == 1
+
+    # "Use now": the next turn runs the saved skill with exactly its tools.
+    fake = FakeMistral(streams=[["Drei ungelesene Mails."]])
+    monkeypatch.setattr(agent, "mistral_client", lambda: fake)
+    used = client.post("/api/v1/chat", json={"message": "Los", "skill_id": "inbox-digest"})
+    assert used.status_code == 200
+    assert {tool["function"]["name"] for tool in fake.requests[0]["tools"]} == {"search_messages", "show_mails"}
+
+
+@pytest.mark.parametrize(("existing", "code"), [
+    ({"slug": "mail-check", "name": "Anderer Name"}, "skill_conflict"),
+    ({"slug": "anderer-befehl", "name": "mail-check"}, "skill_name_conflict"),
+])
+async def test_confirm_conflict_keeps_the_card_pending_until_corrected(creator_store, existing, code):
+    _, ctx = await creator_context(creator_store)
+    card = await pending_card(creator_store, ctx)
+    await skill_definition.create_custom_skill(**existing, description="d", instructions="i", workflow_steps_json="[]",
+                                               allowed_tools_json="[]", status="active")
+    client = TestClient(build_app())
+    res = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": []})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == code
+    assert card.proposal_status == "pending" and len(custom_skills(creator_store)) == 1
+    edit = {"slug": "mail-check-2", "name": "Mail-Check 2", "description": "d", "instructions": "i"}
+    fixed = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": [], "skill_edit": edit})
+    assert fixed.status_code == 200 and fixed.json()["proposal_status"] == "done"
+
+
+async def test_confirm_rechecks_quota_and_tools_withdrawn_since_the_draft(creator_store, monkeypatch):
+    _, ctx = await creator_context(creator_store)
+    card = await pending_card(creator_store, ctx)
+    client = TestClient(build_app())
+    approved = TOOL_REGISTRY.get("show_mails")
+    monkeypatch.setitem(TOOL_REGISTRY._tools, "show_mails", replace(approved, authorable=False))
+    res = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": []})
+    assert res.status_code == 422 and res.json()["detail"]["code"] == "skill_tool_not_authorable"
+    assert card.proposal_status == "pending" and custom_skills(creator_store) == []
+    monkeypatch.setitem(TOOL_REGISTRY._tools, "show_mails", approved)
+
+    for index in range(skill_definition.MAX_CUSTOM_SKILLS):
+        await skill_definition.create_custom_skill(slug=f"s{index}", name=f"S{index}", description="d", instructions="i",
+                                                   workflow_steps_json="[]", allowed_tools_json="[]", status="active")
+    quota = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": []})
+    assert quota.status_code == 409 and quota.json()["detail"]["code"] == "skill_quota"
+    assert card.proposal_status == "pending"
+    assert len(custom_skills(creator_store)) == skill_definition.MAX_CUSTOM_SKILLS
+
+
+async def test_disabled_creator_blocks_confirm_but_cancel_still_works(creator_store):
+    skill, ctx = await creator_context(creator_store)
+    card = await pending_card(creator_store, ctx)
+    client = TestClient(build_app())
+    assert client.patch(f"/api/v1/skills/{skill.id}", json={"expected_version": 1, "status": "disabled"}).status_code == 200
+    res = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": []})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "proposal_context_revoked"
+    assert custom_skills(creator_store) == []
+    cancelled = client.post(f"/api/v1/chat/proposals/{card.id}/cancel")
+    assert cancelled.status_code == 200 and cancelled.json()["proposal_status"] == "cancelled"
+
+
+async def test_skill_card_outside_the_creator_context_is_never_saved(creator_store):
+    _, briefing_ctx = await creator_context(creator_store, slug="daily_briefing")
+    card = await pending_card(creator_store, briefing_ctx)
+    res = TestClient(build_app()).post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": []})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "proposal_context_revoked"
+    assert card.proposal_status == "pending" and custom_skills(creator_store) == []
+
+
+async def test_skill_confirm_selection_rules_and_quiet_validation(creator_store):
+    _, ctx = await creator_context(creator_store)
+    card = await pending_card(creator_store, ctx)
+    client = TestClient(build_app())
+    picked = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": ["x"]})
+    assert picked.status_code == 422 and picked.json()["detail"]["code"] == "selection_invalid"
+    secret = "synthetic-overlong-instructions"
+    too_long = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": [], "skill_edit": {
+        "slug": "ok", "name": "N" * 81, "description": "d", "instructions": secret}})
+    assert too_long.status_code == 422 and too_long.json()["detail"]["code"] == "proposal_invalid"
+    assert secret not in too_long.text
+    # Only text fields are editable on the card: tools and steps need a new draft.
+    widened = client.post(f"/api/v1/chat/proposals/{card.id}/confirm", json={"selected_ids": [], "skill_edit": {
+        "slug": "ok", "name": "Ok", "description": "d", "instructions": "i", "allowed_tools": ["propose_rule"]}})
+    assert widened.status_code == 422 and widened.json()["detail"]["code"] == "proposal_invalid"
+    assert card.proposal_status == "pending" and custom_skills(creator_store) == []
+
+    send = await chat_message.add_message(conversation_id=ctx.conversation_id, role="proposal", content="", proposal_status="pending",
+                                          context_id=ctx.id, proposal_json=proposals.Proposal(kind="send", reason="", items=[], draft=proposals.SendDraft(
+                                              account_id="acc", mode="new", to=["x@example.org"], cc=[], subject="s", body="b", quote="",
+                                              reply_to_message_id=None)).model_dump_json())
+    foreign = client.post(f"/api/v1/chat/proposals/{send.id}/confirm", json={"selected_ids": [], "skill_edit": {
+        "slug": "ok", "name": "Ok", "description": "d", "instructions": "i"}})
+    assert foreign.status_code == 422 and foreign.json()["detail"]["code"] == "selection_invalid"
+    assert send.proposal_status == "pending"
+
+
 async def test_creator_only_runs_in_a_conversation_that_never_left_creator_mode(creator_store, monkeypatch):
     fake = FakeMistral(streams=[["Drei ungelesene Mails."], ["Worum soll es gehen?"]])
     monkeypatch.setattr(agent, "mistral_client", lambda: fake)

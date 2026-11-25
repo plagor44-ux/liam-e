@@ -27,7 +27,7 @@ from api.tasks import state as task_state
 from api.preferences import candidates as preference_candidates
 from api.calendar.proposals import CalendarCommand
 from api.calendar import writes as calendar_writes
-from api.skills.types import SkillDraft
+from api.skills.types import SKILL_CREATOR_SLUG, SkillDraft, SkillEdit
 
 logger = logging.getLogger(__name__)
 ProposalKind = Literal["send", "archive", "trash", "mark_read", "unsubscribe", "task", "preference", "calendar", "filing", "rule", "skill"]
@@ -410,6 +410,77 @@ async def _confirm_rule(message: ChatMessage) -> ChatMessage:
         return updated
 
 
+async def _confirm_skill(message: ChatMessage, edit: SkillEdit | None) -> ChatMessage:
+    """Create a drafted skill: claim, recheck, create and finish in one transaction.
+
+    Any refusal raises before the commit, so the card stays pending and can be
+    corrected and confirmed again.
+    """
+    from db.accessors import skill_definition as skill_access
+
+    from api.skills.service import NAME_CONFLICT_MESSAGE, QUOTA_MESSAGE, validate_skill_payload
+    from api.skills.types import SkillError
+
+    async with get_session_maker()() as session:
+        claimed = await message_access.claim_proposal_in_session(session, message.id)
+        if claimed is None:
+            current = await message_access.get_message(message.id)
+            if current and current.proposal_status == "pending" and (not current.context_id or not await context_access.is_live(current.context_id)):
+                raise ProposalContextRevokedError
+            raise ProposalStateError
+        proposal = proposal_view(claimed)
+        assert proposal is not None and proposal.skill is not None
+        context = await context_access.get_context_in_session(session, claimed.context_id) if claimed.context_id else None
+        if context is None or context.revoked or context.conversation_id != claimed.conversation_id:
+            raise ProposalContextRevokedError
+        # Under the catalog lock a concurrent disable of the creator is either visible here or waits.
+        await skill_access.lock_catalog(session)
+        creator = await skill_access.context_skill_in_session(session, context)
+        if creator is None or creator.origin != "builtin" or creator.slug != SKILL_CREATOR_SLUG:
+            raise ProposalContextRevokedError
+        draft = proposal.skill.model_copy(update=edit.model_dump()) if edit is not None else proposal.skill
+        try:
+            data = validate_skill_payload(
+                slug=draft.slug,
+                name=draft.name,
+                description=draft.description,
+                instructions=draft.instructions,
+                workflow_steps=draft.workflow_steps,
+                allowed_tools=draft.allowed_tools,
+                authoring=True,
+            )
+        except SkillError as error:
+            raise refuse(error.status, error.code, error.message) from None
+        try:
+            row = await skill_access.create_custom_skill_in_session(
+                session,
+                slug=data["slug"],
+                name=data["name"],
+                description=data["description"],
+                instructions=data["instructions"],
+                workflow_steps_json=json.dumps([step.model_dump() for step in data["workflow_steps"]], ensure_ascii=False),
+                allowed_tools_json=json.dumps(data["allowed_tools"], ensure_ascii=False),
+            )
+        except skill_access.DuplicateSkillSlug:
+            raise refuse(409, "skill_conflict", "Ein Skill mit diesem Befehl existiert bereits.") from None
+        except skill_access.DuplicateSkillName:
+            raise refuse(409, "skill_name_conflict", NAME_CONFLICT_MESSAGE) from None
+        except skill_access.SkillQuotaExceeded:
+            raise refuse(409, "skill_quota", QUOTA_MESSAGE) from None
+        proposal.skill = SkillDraft(
+            slug=data["slug"],
+            name=data["name"],
+            description=data["description"],
+            instructions=data["instructions"],
+            workflow_steps=data["workflow_steps"],
+            allowed_tools=data["allowed_tools"],
+        )
+        proposal.result = ProposalResult(done=1, skill_id=row.id)
+        updated = await message_access.finish_proposal_in_session(session, claimed.id, proposal_json=proposal.model_dump_json())
+        await session.commit()
+        return updated
+
+
 async def _store_calendar(message: ChatMessage, proposal: Proposal, outcome: calendar_writes.WriteOutcome) -> ChatMessage:
     code = outcome.error_code or ("calendar_write_not_applied" if outcome.status == "not_applied" else None)
     proposal.result = ProposalResult(done=int(outcome.status == "done"), calendar_write_id=outcome.write_id,
@@ -505,10 +576,17 @@ async def recheck_calendar_card(proposal_id: str) -> ChatMessage:
 
 async def confirm(proposal_id: str, *, selected_ids: list[str], body: str | None = None,
                   task_edit: task_proposals.TaskCreateCommand | None = None,
-                  preference_decision: preference_candidates.PreferenceDecision | None = None) -> ChatMessage:
+                  preference_decision: preference_candidates.PreferenceDecision | None = None,
+                  skill_edit: SkillEdit | None = None) -> ChatMessage:
     message = await _get_proposal(proposal_id)
     proposal = proposal_view(message)
     assert proposal is not None
+    if proposal.kind == 'skill':
+        if selected_ids or body is not None or task_edit is not None or preference_decision is not None:
+            raise ProposalSelectionError('selection_invalid')
+        return await _confirm_skill(message, skill_edit)
+    if skill_edit is not None:
+        raise ProposalSelectionError('selection_invalid')
     if proposal.kind == 'preference':
         if selected_ids or body is not None or task_edit is not None or preference_decision is None:
             raise ProposalSelectionError('selection_invalid')
