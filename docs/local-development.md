@@ -69,6 +69,17 @@ Open `http://localhost:3001/mail` for the inbox or `http://localhost:3001/` for 
 
 To stop, stop API and web with `Ctrl+C`, then run `podman stop liam-e-dev-db`. The container started with `--rm` is removed along with its unbound data storage.
 
+## Chat with a Mistral API key
+
+The sample data shows saved chat histories without Mistral access. New chat answers need a Mistral API key. Without a mounted service-account token, the API uses `MISTRAL_API_KEY` for its own model calls; `MISTRAL_BASE_URL` optionally points it at another Mistral API host. Keep `MISTRAL_SECRETS_ENABLED=false` so the API does not look up Studio workspace secrets. Enter the key at the prompt so it stays out of your shell history, or put it in the ignored root `.env`, and never commit it. See [Mistral clients](../packages/py/utils/src/utils/mistral.py) and [Mistral settings](../packages/py/env/src/env/mistral.py).
+
+```bash
+read -rs MISTRAL_API_KEY && export MISTRAL_API_KEY
+MAIL_WORKER_ENABLED=false MISTRAL_SECRETS_ENABLED=false TELEMETRY_ENABLED=false bunx nx run api:serve
+```
+
+The chat starts without access to any mail account. Open **Settings → Chat mail accounts** (`/settings/chat`), allow sample accounts and save. The sample Outlook and IMAP accounts can be allowed; the sample Gmail account stays outside the chat because its Studio connection is not verified. Saved sample conversations keep the account selection they were created with, so start a new chat afterwards. Sample accounts still get no generated mail summaries, and sending and unsubscribing stay blocked. See [chat access](../packages/py/db/src/db/accessors/chat_settings.py) and the [chat mail access rules](../AGENTS.md#chat-mail-access-80).
+
 ## Local audio browser test
 
 The audio test starts the web app and API on loopback and migrates a disposable PostgreSQL

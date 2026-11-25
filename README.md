@@ -5,6 +5,10 @@
   </picture>
 </h1>
 
+[![CI](https://github.com/plagor44-ux/liam-e/actions/workflows/ci.yml/badge.svg)](https://github.com/plagor44-ux/liam-e/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/plagor44-ux/liam-e/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/plagor44-ux/liam-e/actions/workflows/github-code-scanning/codeql)
+[![License: Apache-2.0](https://img.shields.io/github/license/plagor44-ux/liam-e)](LICENSE)
+
 liam-e brings several mail accounts into one inbox and adds an assistant you talk to in chat.
 The assistant searches your mail, reads and summarizes messages and drafts replies, but it sends
 or changes nothing until you confirm its proposal. liam-e is a single-user app for
@@ -14,6 +18,45 @@ English.
 
 liam-e is under active development. Issues and pull requests are welcome; see
 [Contributing](#contributing).
+
+**[Documentation](#further-documentation) · [Start locally](#start-locally) · [Deploy](#deploy) ·
+[Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md) ·
+[Discussions](https://github.com/plagor44-ux/liam-e/discussions) · [Security](SECURITY.md)**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-inbox-dark.png">
+  <img alt="The liam-e inbox with an opened mail, its summary and due date, showing synthetic sample data" src="docs/assets/screenshot-inbox-light.png">
+</picture>
+
+<details>
+<summary>More screenshots</summary>
+
+A proposal card in chat: the assistant suggests unsubscribing from five newsletters, and nothing
+happens until you confirm.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-chat-dark.png">
+  <img alt="A chat proposal card listing five newsletters to unsubscribe from, with confirm and cancel buttons" src="docs/assets/screenshot-chat-light.png">
+</picture>
+
+On a phone:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-mobile-inbox-dark.png">
+  <img alt="The inbox on a narrow phone screen" src="docs/assets/screenshot-mobile-inbox-light.png" width="260">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-mobile-chat-dark.png">
+  <img alt="The newsletter proposal card on a narrow phone screen" src="docs/assets/screenshot-mobile-chat-light.png" width="260">
+</picture>
+
+A short tour from the inbox to an opened mail and a proposal card in chat:
+
+<img alt="Animation: the inbox, an opened mail with its summary, then a chat proposal card" src="docs/assets/demo.gif" width="800">
+
+All screenshots use the synthetic sample data from `api.mail.dev_seed`.
+
+</details>
 
 ## Features
 
@@ -32,6 +75,18 @@ been tested live: the [provider guide](docs/providers-and-operations.md) shows w
 tests cover and what still needs evidence at the provider. Chat answers need server-side
 Mistral access.
 
+## Why liam-e
+
+- **Confirmation is enforced by the server.** The assistant can search, read and draft on its
+  own, but sending and every change it proposes wait for your confirmation. The model cannot
+  skip that step.
+- **One index for all accounts.** Gmail, Outlook and any IMAP account sit in the same inbox and
+  the same search, so one question in chat covers all of them.
+- **Built on Mistral.** Chat, summaries and voice use Mistral's models, and the app runs in
+  Mistral Studio.
+- **One person, one installation.** The mail index, the encrypted credentials and the chat
+  history live in the database of your own Studio app.
+
 ## Security model
 
 - **Nothing is sent or changed without you.** The assistant may search, read and summarize.
@@ -49,6 +104,15 @@ Mistral access.
 
 The full rules are in [AGENTS.md](AGENTS.md#security). Report suspected vulnerabilities
 privately as described in [SECURITY.md](SECURITY.md).
+
+## What you need
+
+| Goal | What you need |
+| --- | --- |
+| Look around with sample data | Bun, Node.js, uv and Postgres on your machine. No mail account and no Mistral access. |
+| New chat answers locally | A Mistral API key as well ([steps](docs/local-development.md#chat-with-a-mistral-api-key)). |
+| Your own mailboxes | Access at your mail provider: a Studio connector, your own OAuth2 client or an IMAP app password ([provider guide](docs/providers-and-operations.md)). |
+| Deploy | A Mistral Studio organization whose plan includes Apps ([Mistral's Apps overview](https://docs.mistral.ai/studio/apps/overview)). |
 
 ## Start locally
 
@@ -97,13 +161,33 @@ missing, so it never creates a second app.
 
 Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup,
 the checks and the rules, and the [Code of Conduct](CODE_OF_CONDUCT.md) applies in all project
-spaces. Report vulnerabilities privately ([SECURITY.md](SECURITY.md)), not in an issue.
+spaces. Issues labelled `good first issue` or `help wanted` are a good start, and the
+[roadmap](docs/roadmap.md) shows the direction. Ask questions and share ideas in
+[Discussions](https://github.com/plagor44-ux/liam-e/discussions). Report vulnerabilities
+privately ([SECURITY.md](SECURITY.md)), not in an issue.
+
+## Built to work with coding agents
+
+The repository is set up so that coding agents can contribute under the same rules as people:
+
+- [AGENTS.md](AGENTS.md) is the binding description of the architecture, the domain rules and
+  the security and publication rules.
+- [DESIGN.md](DESIGN.md) governs UI tokens, components and how the interface text sounds.
+- Every issue follows one of the [issue forms](.github/ISSUE_TEMPLATE/);
+  `tools/issue_form.py` creates and checks issues in that shape.
+- CI guards the rules: a hygiene test rejects tenant IDs, private links, home paths and
+  realistic-looking email addresses, gitleaks scans the whole history for secrets, and a drift
+  check keeps the generated API client in step with the API.
+- [`openwiki/`](openwiki/quickstart.md) is a generated index of the code base for orientation;
+  it may lag behind the code.
+- `.agents/skills/` holds agent skills for the stack; [NOTICE](NOTICE) names their origin.
 
 ## Further documentation
 
 - [Architecture and domains](docs/architecture.md)
 - [Providers, synchronization and Studio deployment](docs/providers-and-operations.md)
 - [Local development and checks](docs/local-development.md)
+- [Roadmap](docs/roadmap.md)
 - [UI and text rules](DESIGN.md)
 - [OpenWiki](openwiki/quickstart.md), generated and possibly behind the code
 
