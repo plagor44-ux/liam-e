@@ -686,7 +686,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   and `x` („Skill entfernen“, or „Skill beenden“ when kept). The note on later messages and unchanged
   scopes is the duration chip's tooltip and lasting accessible description, never a row of its own.
   An attached template uses the same row: „Vorlage: Name“, when it applies, and `x`. On `mobile`
-  the `x` stays beside the tag and the controls take the second row, so it never wraps alone.
+  the `x` stays beside the tag and the controls take the second row, so it never wraps alone; the
+  banner's chips use tighter padding there so duration and steps share that row from 390 px.
   With a skill the field reads „Frag etwas mit „Name“ …“; the compact phone row shows „Deine Frage
   an den Skill“ and keeps the full text as the field's name. Each answer that used a skill shows
   „Skill: Name · Version 2“ above it.

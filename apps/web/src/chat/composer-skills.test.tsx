@@ -1,5 +1,6 @@
 // i18n-exempt: synthetic fixtures and route tests.
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -927,6 +928,18 @@ test('an attached skill and template each take one row, the duration note is a l
   fireEvent.click(steps)
   expect(steps.getAttribute('aria-controls')).toBeNull()
   expect(screen.queryByText(dailySkill.workflow_steps[0]!.title)).toBeNull()
+})
+
+test('on phones the x stays beside the tag and the banner chips are tightened so both fit the second row', () => {
+  const css = readFileSync(new URL('./composer-skills.css', import.meta.url), 'utf8')
+  const phone = css.match(/@media \(max-width: 639px\) \{([\s\S]*?)\n\}/u)?.[1] ?? ''
+  const rule = (body: string, selector: string) => body.match(new RegExp(`${selector.replaceAll('.', '\\.')} \\{([^}]*)\\}`, 'u'))?.[1] ?? ''
+  expect(rule(phone, '.le-composer-active-row')).toContain(`grid-template-areas: 'tag close' 'actions actions'`)
+  const chips = rule(phone, '.le-composer-active-actions .le-chip')
+  expect(chips).toContain('gap: var(--space-1)')
+  expect(chips).toContain('padding-inline: var(--space-2)')
+  // Wider screens keep the default chip spacing.
+  expect(rule(css.replace(phone, ''), '.le-composer-active-actions .le-chip')).toBe('')
 })
 
 test('the compact phone composer shows a short skill or creator placeholder and keeps the full one as the field name', async () => {

@@ -55,6 +55,12 @@
     grid-template-areas: 'tag close' 'actions actions';
     row-gap: var(--space-1);
   }
+
+  /* Tighter chips so the duration and steps chips share the second row on a 390 px phone. */
+  .le-composer-active-actions .le-chip {
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
+  }
 }
 
 .le-composer-active-meta {
