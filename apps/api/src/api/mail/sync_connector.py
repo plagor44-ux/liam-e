@@ -9,7 +9,7 @@ for an unfinished window. Window boundaries overlap by one second.
 
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -96,6 +96,12 @@ async def fetch_changes(
         return current
     # A UID seen in the historical page remains ambiguous even if the overlapping delta also lists it.
     current.initial_history_uids.update(row['provider_uid'] for row in history.upserts)
+    current.history_observed_uids.update(
+        current.initial_history_uids, history.moved_out, history.unconfirmed_uids,
+        history.read_updates, history.flag_updates, history.confirmed_inbox,
+    )
+    for members in history.restored_members.values():
+        current.history_observed_uids.update(members)
     current.initial_deferred_threads.update(history.deferred_threads)
     current.initial_deferred_threads.update(history.restored_members)
     merge_observations(current, history)
@@ -188,8 +194,15 @@ async def confirm_trash_conflicts(account, changes: SyncChanges, candidates: dic
         changes.trashed.difference_update(uncertain)
 
 
-async def pending_label_checks(account: MailAccount, binding: str, changes: SyncChanges):
-    """Read only the exact pending members on the verified connector binding."""
+type LabelCheck = tuple[str, dict[str, str], list[str] | None]
+
+
+async def pending_label_checks(
+    account: MailAccount, binding: str, changes: SyncChanges, *, prior_checks: Sequence[LabelCheck] = (),
+) -> list[LabelCheck]:
+    """Read exact pending members and reuse checkpoint results unaffected by history."""
+    reusable = {job_id: labels for job_id, target, labels in prior_checks
+                if target["provider_uid"] not in changes.history_observed_uids}
     checked = []
     for job in await mail_job.connector_label_checks(account.id):
         target = json.loads(job.payload_json)
@@ -197,16 +210,19 @@ async def pending_label_checks(account: MailAccount, binding: str, changes: Sync
             checked.append((job.id, target, None))
             continue
         uid = target["provider_uid"]
-        try:
-            labels = (await connectors.thread_labels(
-                account.provider, target["thread_id"], {uid}, minimal_only=True,
-            )).get(uid)
-        except httpx.HTTPStatusError as error:
-            if error.response.status_code in (401, 403):
-                raise
-            labels = [] if error.response.status_code == 404 else None
-        except (ValueError, httpx.TransportError):
-            labels = None
+        if job.id in reusable:
+            labels = reusable[job.id]
+        else:
+            try:
+                labels = (await connectors.thread_labels(
+                    account.provider, target["thread_id"], {uid}, minimal_only=True,
+                )).get(uid)
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code in (401, 403):
+                    raise
+                labels = [] if error.response.status_code == 404 else None
+            except (ValueError, httpx.TransportError):
+                labels = None
         checked.append((job.id, target, labels))
         # This delivery is already indexed. Keep the point read separate from
         # search results so a stale page cannot replace the row or trigger rules.
@@ -219,7 +235,7 @@ async def pending_label_checks(account: MailAccount, binding: str, changes: Sync
     return checked
 
 
-async def apply_label_checks(session, account: MailAccount, binding: str, checked) -> None:
+async def apply_label_checks(session, account: MailAccount, binding: str, checked: Sequence[LabelCheck]) -> None:
     completed, pending = [], []
     for job_id, target, labels in checked:
         if target["binding"] != binding:

@@ -107,9 +107,10 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                     changes, deferred = await _connector_changes(account, progress, known_deferred, options,
                         initial_deferred=tracked, first_import=first_import, before_history=before_history)
                     if proof:
-                        checks = await sync_connector.pending_label_checks(account, proof[0], changes)
-            except connector_throttle.RateLimited:
-                if checkpoint is None:
+                        checks = await sync_connector.pending_label_checks(
+                            account, proof[0], changes, prior_checks=checkpoint[2] if checkpoint else ())
+            except (connector_throttle.RateLimited, httpx.HTTPStatusError) as error:
+                if checkpoint is None or (isinstance(error, httpx.HTTPStatusError) and error.response.status_code not in (429, 503)):
                     raise
                 # The independently verified delta does not depend on the throttled backfill.
                 changes, deferred, checks = checkpoint

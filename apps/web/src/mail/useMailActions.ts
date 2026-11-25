@@ -13,7 +13,7 @@ type Removal = 'archive' | 'trash' | 'spam'
 type Kind = Removal | 'mark_read' | 'mark_unread'
 const removes = (kind: Kind | 'remove'): kind is Removal => kind === 'archive' || kind === 'trash' || kind === 'spam'
 type MailNotice = { tone: 'success' | 'danger'; text: string; wrap: boolean }
-type Retry = { label: string; resume: () => void }
+type Retry = { label: string; resume: (onAdmitted: () => void) => void }
 type RetryNotice = { id: number; text: string; label: string; retry: () => void }
 type Change = { key: QueryKey; page: number; index: number; row: MessageListItemOut }
 type GroupItem = { actionId: string; messageId: string; changes: Change[]; previousRead?: boolean; subject?: string }
@@ -72,7 +72,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
   const notify = (text: string, tone: 'danger' | 'success' = 'danger', wrap = false, retry?: Retry) => {
     if (retry) {
       const id = ++retryCount.current
-      setRetryNotices(current => [...current, { id, text, label: retry.label, retry: () => { dismissRetryNotice(id); retry.resume() } }])
+      setRetryNotices(current => [...current, { id, text, label: retry.label, retry: () => retry.resume(() => dismissRetryNotice(id)) }])
       return
     }
     setNotice({ text, tone, wrap })
@@ -138,11 +138,13 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       : texts.inbox.retryMail(action, subjects[0] ?? '')
     return texts.inbox.retryAction(undo ? texts.inbox.undoAction(target) : target)
   }
-  const run = (id: string, kind: Kind, options?: { silent?: boolean; subject?: string }) => {
+  const run = (id: string, kind: Kind, options?: { silent?: boolean; subject?: string; onAdmitted?: () => void }) => {
     // Refused before anything changed: nothing was removed, so nothing came back.
     if (!options?.silent && !checkCapacity()) return Promise.resolve(false)
     if (!options?.silent) { reservations.current++; setReserved(reservations.current) }
-    return enqueue(id, () => execute(id, kind, options))
+    const work = enqueue(id, () => execute(id, kind, options))
+    options?.onAdmitted?.()
+    return work
   }
   const execute = async (id: string, kind: Kind, options?: { silent?: boolean; subject?: string }) => {
     ++pending.current
@@ -167,7 +169,10 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         }))
       }
       const subject = options?.subject ?? subjectFor(id, changes)
-      const retry = { label: retryLabel(kind, [subject], false), resume: () => { void run(id, kind, { subject }) } }
+      const retry: Retry = {
+        label: retryLabel(kind, [subject], false),
+        resume: onAdmitted => { void run(id, kind, { subject, onAdmitted }) },
+      }
       update(id, kind)
       const result = await mailMessageAction({ path: { message_id: id }, body: { kind } })
       const code = errorCode(result.error)
@@ -233,7 +238,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       settle()
     }
   }
-  const runBulk = (ids: string[], kind: Kind, savedSubjects?: Map<string, string | undefined>) => {
+  const runBulk = (ids: string[], kind: Kind, savedSubjects?: Map<string, string | undefined>, onAdmitted?: () => void) => {
     if (!ids.length || !checkCapacity()) return Promise.resolve()
     reservations.current++; setReserved(reservations.current)
     const previous = ids.map(id => queues.current.get(id)).filter((p): p is Promise<unknown> => Boolean(p))
@@ -311,7 +316,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           notify([group.length ? '' : text, throttled].filter(Boolean).join(' '), 'danger', true,
             retryIds.length ? {
               label: retryLabel(kind, retryIds.map(id => subjects.get(id)), true),
-              resume: () => { void runBulk(retryIds, kind, subjects) },
+              resume: onAdmitted => { void runBulk(retryIds, kind, subjects, onAdmitted) },
             } : undefined)
         } else if (!group.length) notify(text, 'danger', wrap)
         reconcile.current = true
@@ -328,6 +333,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     for (const id of ids) queues.current.set(id, work)
     setQueueVersion(version => version + 1)
     void work.finally(() => { for (const id of ids) if (queues.current.get(id) === work) queues.current.delete(id); setQueueVersion(version => version + 1) })
+    onAdmitted?.()
     return work
   }
   const undo = (actionId?: string) => {
@@ -338,7 +344,16 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     const group = selected.group ?? [{ actionId: selected.actionId, messageId: selected.messageId, changes: selected.changes, previousRead: selected.previousRead, subject: selected.subject }]
     return submitUndo(selected, group)
   }
-  const submitUndo = (selected: UndoEntry, group: GroupItem[]) => {
+  const notifyUndoRetry = (selected: UndoEntry, group: GroupItem[], text: string) => {
+    notify(text, 'danger', true, {
+      label: retryLabel(selected.kind, group.map(item => item.subject), !!selected.group, true),
+      resume: onAdmitted => {
+        void submitUndo(selected, group, true)
+        onAdmitted()
+      },
+    })
+  }
+  const submitUndo = (selected: UndoEntry, group: GroupItem[], manualRetry = false): Promise<void> => {
     const executeUndo = async () => {
       ++pending.current
       const controller = new AbortController()
@@ -357,12 +372,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         if (code === 'provider_permission_missing') void client.invalidateQueries({ queryKey: ['accounts'] })
         const retry = group.filter(item => result.data?.retryable?.includes(item.actionId))
         const unconfirmed = group.filter(item => result.data?.unconfirmed?.includes(item.actionId))
-        if (retry.length) {
-          notify(texts.errors.provider_rate_limited, 'danger', true, {
-            label: retryLabel(selected.kind, retry.map(item => item.subject), !!selected.group, true),
-            resume: () => { void submitUndo(selected, retry) },
-          })
-        }
+        if (retry.length) notifyUndoRetry(selected, retry, texts.errors.provider_rate_limited)
         if (selected.group && result.data) {
           const restored = group.filter(item => result.data!.restored.includes(item.actionId))
           restore(restored.flatMap(item => item.changes).sort((a, b) => a.page - b.page || a.index - b.index), removes(selected.kind))
@@ -391,8 +401,10 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
           else if (result.data?.failed.includes(selected.actionId)) notify(texts.inbox.undoFailed)
           else notify(texts.inbox.undoUncertain)
         }
-      } catch { notify(timedOut ? texts.inbox.undoTimeout : texts.inbox.undoUncertain) }
-      finally {
+      } catch {
+        if (timedOut && manualRetry) notifyUndoRetry(selected, group, texts.inbox.undoTimeout)
+        else notify(timedOut ? texts.inbox.undoTimeout : texts.inbox.undoUncertain)
+      } finally {
         if (timeout !== undefined) clock.clearTimeout(timeout)
         publish(timedOut
           ? entriesRef.current.map(entry => entry.actionId === selected.actionId ? { ...entry, pending: false, deadline: clock.now() + 10_000 } : entry)
