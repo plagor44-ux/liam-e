@@ -907,6 +907,103 @@ test('the English conflict notice ties the replacement to keeping the draft', as
   expect(screen.getByRole('button', { name: 'Keep draft' })).toBeTruthy()
 })
 
+// Records which elements were scrolled into view, and how; jsdom lays nothing out.
+function trackScrolls() {
+  const scrolls: { element: Element; options: unknown }[] = []
+  spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element, options?: unknown) { scrolls.push({ element: this, options }) })
+  return scrolls
+}
+const conflictText = /^Die Regel wurde an anderer Stelle geändert/u
+
+for (const stage of ['preview', 'save'] as const) {
+  for (const code of ['rule_not_found', 'rule_version_conflict'] as const) {
+    test(`${stage} with ${code} brings the editor notice into view and moves the focus to it`, async () => {
+      const { RuleSettings } = await import('./MailFiling')
+      const { state } = deletedRuleSetup({ detail: { code } })
+      const scrolls = trackScrolls()
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+      fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'My draft' } })
+      state.deleted = true
+      const button = screen.getByRole('button', { name: stage === 'preview' ? 'Vorschau' : 'Speichern' })
+      act(() => button.focus())
+      fireEvent.click(button)
+      const group = await screen.findByRole('group', { name: code === 'rule_not_found' ? ruleMissingText : conflictText })
+      await waitFor(() => expect(document.activeElement).toBe(group))
+      expect(group.getAttribute('tabindex')).toBe('-1')
+      expect(scrolls.filter(scroll => scroll.element === group).map(scroll => scroll.options)).toEqual([{ block: 'nearest', behavior: 'smooth' }])
+      // Announced once through the focus: no live alert role inside the focused notice.
+      expect(within(group).queryByRole('alert')).toBeNull()
+    })
+  }
+}
+
+test('the editor notice scrolls without animation when the owner prefers reduced motion', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const { state } = deletedRuleSetup({ detail: { code: 'rule_not_found' } })
+  const scrolls = trackScrolls()
+  const matchMedia = window.matchMedia
+  window.matchMedia = ((query: string) => ({ matches: query.includes('prefers-reduced-motion') || /min-width/u.test(query), media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia
+  try {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+    state.deleted = true
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    const group = await screen.findByRole('group', { name: ruleMissingText })
+    await waitFor(() => expect(document.activeElement).toBe(group))
+    expect(scrolls.filter(scroll => scroll.element === group).map(scroll => scroll.options)).toEqual([{ block: 'nearest', behavior: 'auto' }])
+  } finally { window.matchMedia = matchMedia }
+})
+
+test('negative case: a generic save error leaves the focus and scroll position alone', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  deletedRuleSetup({ detail: { code: 'rule_invalid' } })
+  const scrolls = trackScrolls()
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  const save = screen.getByRole('button', { name: 'Speichern' })
+  act(() => save.focus())
+  fireEvent.click(save)
+  expect(await screen.findByText(genericRuleError)).toBeTruthy()
+  expect(document.activeElement).toBe(save)
+  expect(screen.queryByRole('group', { name: ruleMissingText })).toBeNull()
+  expect(scrolls).toEqual([])
+})
+
+test('a kept draft in create mode can be dropped with Abbrechen', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const { state, create } = deletedRuleSetup({ detail: { code: 'rule_not_found' } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'My draft' } })
+  state.deleted = true
+  fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Als neue Regel behalten' }))
+  expect(screen.getByRole('button', { name: 'Regel anlegen' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText('Absenderdomain') as HTMLInputElement).value).toBe('')
+  expect(screen.queryByRole('button', { name: 'Abbrechen' })).toBeNull()
+  expect(create).not.toHaveBeenCalled()
+})
+
+test('negative case: an empty create form offers no Abbrechen until it holds a draft', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  deletedRuleSetup({ detail: { code: 'rule_not_found' } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  await screen.findByRole('button', { name: 'Regel bearbeiten' })
+  expect(screen.queryByRole('button', { name: 'Abbrechen' })).toBeNull()
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'New rule' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('')
+  expect(screen.queryByRole('button', { name: 'Abbrechen' })).toBeNull()
+})
+
 test('label group describes its hint and keeps the label prefix with a long name', async () => {
   const { RuleSettings } = await import('./MailFiling')
   const longName = 'SyntheticLongLabel'.repeat(4)

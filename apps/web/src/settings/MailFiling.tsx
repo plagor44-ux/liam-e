@@ -101,6 +101,17 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
   // The edited rule was deleted elsewhere (404 on save or preview, or gone on a conflict reload).
   const [editorMissing, setEditorMissing] = useState(false)
   const editorBlocked = editorConflict || editorMissing
+  const editorNotice = editorMissing ? 'missing' : editorConflict ? 'conflict' : undefined
+  const editorNoticeRef = useRef<HTMLDivElement>(null), editorNoticeId = useId()
+  // The notice sits at the top of the form, the Save and Preview that raise it at the bottom: bring it
+  // into view and move the focus to it, which announces it once (it has no live role).
+  useEffect(() => {
+    const node = editorNoticeRef.current
+    if (!editorNotice || !node) return
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    node.focus({ preventScroll: true })
+    node.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }, [editorNotice])
   const [busy, setBusy] = useState(false), [error, setError] = useState(false)
   const executing = useRef(false)
   useEffect(() => {
@@ -233,8 +244,10 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       {sourceActive && !editing && (sourceMissing || source.error instanceof MessageNotFoundError || source.data?.local_reference_only) && <Notice tone="danger">{t.sourceGone}</Notice>}
       {sourceActive && !editing && source.isError && !(source.error instanceof MessageNotFoundError) && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void source.refetch() } }}>{t.error}</Notice>}
       {sourceActive && !editing && source.data && accounts.isSuccess && !sourceAccountAvailable && <Notice tone="danger">{t.sourceAccountGone}</Notice>}
-      {editorConflict && <Notice tone="danger"><span>{t.editorConflict}</span><div className="le-prompt-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => { void resolveEditorConflict(false) }}>{t.editorLoadSaved}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => { void resolveEditorConflict(true) }}>{t.editorKeepDraft}</Button></div>{conflictLoadError && <span>{t.editorLoadFailed}</span>}</Notice>}
-      {editorMissing && <Notice tone="danger"><span>{t.editorRuleMissing}</span><div className="le-prompt-actions"><Button type="button" variant="secondary" disabled={busy} onClick={discard}>{t.editorDiscardDraft}</Button><Button type="button" variant="secondary" disabled={busy} onClick={keepAsNewRule}>{t.editorKeepAsNew}</Button></div></Notice>}
+      {editorNotice && <div ref={editorNoticeRef} className="le-filing-notice" tabIndex={-1} role="group" aria-labelledby={editorNoticeId}>
+      {editorConflict && <Notice tone="danger" live={false}><span id={editorNoticeId}>{t.editorConflict}</span><div className="le-prompt-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => { void resolveEditorConflict(false) }}>{t.editorLoadSaved}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => { void resolveEditorConflict(true) }}>{t.editorKeepDraft}</Button></div>{conflictLoadError && <span role="alert">{t.editorLoadFailed}</span>}</Notice>}
+      {editorMissing && <Notice tone="danger" live={false}><span id={editorNoticeId}>{t.editorRuleMissing}</span><div className="le-prompt-actions"><Button type="button" variant="secondary" disabled={busy} onClick={discard}>{t.editorDiscardDraft}</Button><Button type="button" variant="secondary" disabled={busy} onClick={keepAsNewRule}>{t.editorKeepAsNew}</Button></div></Notice>}
+      </div>}
       <fieldset className="le-filing-fields" disabled={sourceInitializing}>
       <TextField label={t.ruleName} value={draft.name} onChange={event => update({ name: event.target.value })} maxLength={120} required />
       {choose('account_id', t.account, (accounts.data ?? []).map(account => ({ id: account.id, name: account.display_name || account.email_address })))}
@@ -248,7 +261,7 @@ function RuleSettingsForm({ sourceMessageId, onSourceUsed }: RuleSettingsProps) 
       <TextField type="number" label={t.priority} value={draft.position ?? 0} onChange={event => update({ position: Number(event.target.value) })} />
       <div className="le-prompt-actions"><Button type="submit" variant="primary" aria-describedby={!draft.folder_id && !draft.label_ids?.length ? targetHintId : undefined} disabled={busy || editorBlocked || !draft.name.trim() || !(draft.folder_id || draft.label_ids?.length) || Boolean(sourceActive && !editing && (!source.data || source.data.local_reference_only || sourceMissing || !sourceAccountAvailable))}>{editing ? t.save : t.addRule}</Button>
       <Button type="button" variant="secondary" disabled={busy || editorBlocked || !draft.name.trim()} onClick={() => { void execute('preview') }}>{t.preview}</Button>
-      {(editing || sourceActive) && !sourceInitializing && <Button type="button" variant="secondary" disabled={busy} onClick={discard}>{t.cancel}</Button>}</div>
+      {(dirty || sourceActive) && !sourceInitializing && <Button type="button" variant="secondary" disabled={busy} onClick={discard}>{t.cancel}</Button>}</div>
       {!draft.folder_id && !draft.label_ids?.length && <p id={targetHintId} className="le-hint">{editing ? t.ruleTargetRequiredEdit : t.ruleTargetRequired}</p>}
       {matched !== undefined && <div role="status"><p>{t.matches(matched.matched)}</p>{matched.already_filed > 0 && <p>{t.alreadyFiledMatches(matched.already_filed)}</p>}</div>}
       </fieldset>

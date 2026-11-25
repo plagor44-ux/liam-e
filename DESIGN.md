@@ -379,7 +379,10 @@ Quoted German labels and the German icon names in this section are UI text.
     that version only if the draft is kept. A failed reload keeps the draft and the conflict
     visible. A rule deleted elsewhere says so on the first save or preview, not as a generic
     error: the owner discards the draft or keeps it as a new rule, which is saved only with
-    „Regel anlegen“.
+    „Regel anlegen“. Both editor notices come into view and take the focus when „Speichern“ or
+    „Vorschau“ raises them, scrolling smoothly only without reduced motion. A notice that takes
+    the focus has no live role, so it is announced once. „Abbrechen“ discards any unsaved rule
+    draft, in create mode too.
   - Tag `default`, `warm` (deadline, with `clock`) and `on-surface` (account in lists, with account dot).
   - Avatar `md` and `lg` (account card).
   - Badge shows „999+“ from 1,000.
