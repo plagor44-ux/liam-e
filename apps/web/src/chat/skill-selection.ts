@@ -1,6 +1,6 @@
 // i18n-exempt: internal identifiers and pure matching helpers.
 import type { PromptDetailOut, PromptOut, SkillOut, SkillWorkflowStep } from '../api/generated/types.gen'
-import type { Catalogue } from '../i18n/catalogue'
+import { everyCatalogue, type Catalogue } from '../i18n/catalogue'
 
 export type ActiveSkillSelection = {
   id: string
@@ -35,7 +35,10 @@ export function isSkillCreator(skill: SkillIdentity): boolean {
   return skill.origin === 'builtin' && skill.slug === SKILL_CREATOR_SLUG
 }
 
-function builtinText(skill: SkillIdentity, texts: Catalogue) {
+type StepText = Pick<SkillWorkflowStep, 'title' | 'description'>
+type BuiltinText = { name: string; description: string; steps?: Readonly<Record<string, StepText>> }
+
+function builtinText(skill: SkillIdentity, texts: Catalogue): BuiltinText | undefined {
   const known = texts.skills.builtin
   return skill.origin === 'builtin' && Object.hasOwn(known, skill.slug) ? known[skill.slug as keyof typeof known] : undefined
 }
@@ -47,6 +50,12 @@ export function skillName(skill: SkillIdentity & Pick<SkillOut, 'name'>, texts: 
 
 export function skillDescription(skill: SkillIdentity & Pick<SkillOut, 'description'>, texts: Catalogue): string {
   return builtinText(skill, texts)?.description ?? skill.description
+}
+
+/** Built-in steps are localized by slug and step ID like their names; other steps show as stored. */
+export function skillStep(skill: SkillIdentity, step: Pick<SkillWorkflowStep, 'id'> & StepText, texts: Catalogue): StepText {
+  const steps = builtinText(skill, texts)?.steps
+  return steps && Object.hasOwn(steps, step.id) ? steps[step.id]! : { title: step.title, description: step.description }
 }
 
 export type SlashMatch = {
@@ -232,7 +241,9 @@ export function buildSlashOptions({
   const actionOptions: SlashOption[] = []
   // The creator never appears as an ordinary skill: its action always starts a fresh conversation.
   const creator = skills.find(skill => isSkillCreator(skill) && skill.status === 'active')
-  if (creator && selectedSkillId !== creator.id && matches(trimmed, skillName(creator, texts), creator.slug, texts.skills.createSkillKeywords)) {
+  // The owner may type the action's name or a keyword in either language, whatever the app language.
+  const creatorTerms = everyCatalogue.flatMap(catalogue => [catalogue.skills.builtin.skill_creator.name, catalogue.skills.createSkillKeywords])
+  if (creator && selectedSkillId !== creator.id && matches(trimmed, skillName(creator, texts), creator.slug, ...creatorTerms)) {
     actionOptions.push({
       key: 'action:create-skill',
       group: 'actions',

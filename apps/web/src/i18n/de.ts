@@ -270,7 +270,14 @@ export const de = {
     cancelOnly: 'Dieser Vorschlag stammt aus einem widerrufenen Skill- oder Chat-Kontext. Du kannst ihn verwerfen.',
     unavailableSelection: 'Der gewählte Skill ist nicht mehr verfügbar. Entferne die Auswahl oder wähle einen anderen.',
     builtin: {
-      daily_briefing: { name: 'Tagesüberblick', description: 'Führt freigegebene Termine, fällige Aufgaben und bekannte Mailfristen für einen Tag strukturiert zusammen.' },
+      daily_briefing: {
+        name: 'Tagesüberblick', description: 'Führt freigegebene Termine, fällige Aufgaben und bekannte Mailfristen für einen Tag strukturiert zusammen.',
+        steps: {
+          collect_agenda: { title: 'Termine, Aufgaben und Fristen sammeln', description: 'Termine, fällige und überfällige Aufgaben und bekannte Mailfristen abrufen.' },
+          inspect_details: { title: 'Details nachlesen', description: 'Bei Rückfragen oder unvollständigen Serien einzelne Termine, Aufgaben oder Mails im freigegebenen Umfang nachlesen.' },
+          summarize_and_propose: { title: 'Überblick geben', description: 'Getrennt nach Terminen, Aufgaben und Mailfristen antworten, Lücken nennen und Aufgabenänderungen nur zur Bestätigung vorschlagen.' },
+        },
+      },
       skill_creator: { name: 'Skill erstellen', description: 'Entwirft im Gespräch einen eigenen Skill und legt ihn erst nach deiner Bestätigung an.' },
     },
     createSkillHint: 'Beschreib im Chat, was der Skill erledigen soll. Startet eine neue Unterhaltung.',

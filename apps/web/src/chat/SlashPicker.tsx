@@ -191,7 +191,7 @@ export function SlashPicker({
                           )}
                           {option.checked && <Icon name="check" size="sm" />}
                         </span>
-                        {option.hint && <span className="le-menu-meta">{option.hint}</span>}
+                        {option.hint && <span className={option.group === 'actions' ? 'le-menu-meta le-menu-meta--wrap' : 'le-menu-meta'}>{option.hint}</span>}
                       </button>
                     </div>
                   )

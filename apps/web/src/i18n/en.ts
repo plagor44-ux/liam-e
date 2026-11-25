@@ -280,7 +280,14 @@ export const en = {
     cancelOnly: 'This proposal uses a revoked skill or chat context. You can discard it.',
     unavailableSelection: 'The selected skill is no longer available. Remove it or choose another.',
     builtin: {
-      daily_briefing: { name: 'Daily overview', description: 'Brings together shared appointments, due tasks and known email deadlines for one day.' },
+      daily_briefing: {
+        name: 'Daily overview', description: 'Brings together shared appointments, due tasks and known email deadlines for one day.',
+        steps: {
+          collect_agenda: { title: 'Gather appointments, tasks and deadlines', description: 'Get appointments, due and overdue tasks and known email deadlines.' },
+          inspect_details: { title: 'Check details', description: 'Read single appointments, tasks or emails within the shared scope when something is unclear or incomplete.' },
+          summarize_and_propose: { title: 'Give the overview', description: 'Answer by appointments, tasks and email deadlines, name any gaps and propose task changes only for your confirmation.' },
+        },
+      },
       skill_creator: { name: 'Create a skill', description: 'Drafts your own skill in the conversation and saves it only after you confirm.' },
     },
     createSkillHint: 'Describe in the chat what the skill should do. Starts a new conversation.',

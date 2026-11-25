@@ -199,6 +199,12 @@
   color: var(--ink-muted);
 }
 
+/* An action's hint explains its consequence (e.g. a new conversation), so it wraps instead of truncating. */
+.le-menu-meta--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .le-menu-empty {
   display: flex;
   flex-direction: column;

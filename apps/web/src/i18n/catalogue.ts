@@ -12,3 +12,6 @@ export type Catalogue = CatalogueShape<typeof de>
 const catalogues = { de, en } satisfies Record<Locale, Catalogue>
 
 export const catalogue = (locale: Locale): Catalogue => catalogues[locale]
+
+/** Every supported catalogue, for input the owner may type in either language. */
+export const everyCatalogue: readonly Catalogue[] = Object.values(catalogues)

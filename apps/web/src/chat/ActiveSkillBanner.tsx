@@ -4,7 +4,7 @@ import type { SkillOut } from '../api/generated/types.gen'
 import { Chip, IconButton, Notice, Tag } from '../ds'
 import { useI18n } from '../i18n/I18n'
 import type { SelectedSkillEntry, SkillPersistence } from './session'
-import { isSkillCreator, skillName } from './skill-selection'
+import { isSkillCreator, skillName, skillStep } from './skill-selection'
 import './composer-skills.css'
 
 export function ActiveSkillBanner({
@@ -75,12 +75,15 @@ export function ActiveSkillBanner({
       {!creator && showSteps && steps.length > 0 && (
         <div className="le-composer-steps">
           <ol className="le-composer-steps-list">
-            {steps.map(step => (
-              <li key={step.id}>
-                <strong>{step.title}</strong>
-                {step.description ? `: ${step.description}` : null}
-              </li>
-            ))}
+            {steps.map(step => {
+              const { title, description } = skillStep(skill, step, texts)
+              return (
+                <li key={step.id}>
+                  <strong>{title}</strong>
+                  {description ? `: ${description}` : null}
+                </li>
+              )
+            })}
           </ol>
         </div>
       )}
