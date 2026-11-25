@@ -95,7 +95,8 @@ export function MailList({ onOpen }: { onOpen(id: string): void }) {
   const selectionHint = selectionPaused ? texts.mail.gmailActionsPaused : texts.inbox.unsupportedSelection
   const bulkRead = !selectedMails.length || selectedMails.some(item => !item.is_read) ? 'mark_read' : 'mark_unread'
   const bulk = (kind: ListAction) => {
-    if (bulkBlocked(kind)) { notify(selectionHint, 'danger', selectionPaused); return }
+    // Both selection hints are long guidance and wrap like the inline notice (DESIGN.md §6, Notice).
+    if (bulkBlocked(kind)) { notify(selectionHint, 'danger', true); return }
     if (!selectedMails.length || !checkCapacity()) return
     void runBulk(selectedMails.map(item => item.id), kind)
     endSelection()

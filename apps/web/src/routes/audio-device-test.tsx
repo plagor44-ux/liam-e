@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { audioDeviceTestGet, audioDeviceTestRecord, audioDeviceTestSample } from '../api/generated/sdk.gen'
 import type { AudioDeviceTestRecordData, DeviceTestOut } from '../api/generated/types.gen'
 import { unwrap } from '../api/unwrap'
+import { InferenceCheck, UploadLimitCheck } from '../audio/DeviceChecks'
 import { AudioRecorder, supportedAudioFormat } from '../chat/AudioRecorder'
 import { SpeechControls, useSpeechPlayback } from '../chat/SpeechPlayback'
 import { Notice, TextField } from '../ds'
@@ -20,6 +21,8 @@ function Check({ config }: { config: DeviceTestOut }) {
   const copy = texts.audio.deviceTest
   const [draft, setDraft] = useState('')
   const [recording, setRecording] = useState(false)
+  // The recorder and both checks share the transcription slot, so only one runs at a time.
+  const [checking, setChecking] = useState(false)
   const format = supportedAudioFormat({ status: 'available', formats: [config.format] })
   const speech = useSpeechPlayback('device-test', true, recording, sample)
   const lock = useCallback((active: boolean) => {
@@ -35,7 +38,7 @@ function Check({ config }: { config: DeviceTestOut }) {
     <section className="grid gap-3" aria-labelledby="device-capture">
       <h2 className="text-lg font-semibold" id="device-capture">{copy.capture}</h2>
       {format
-        ? <AudioRecorder format={format} limits={config.app_limits} disabled={false} onLock={lock}
+        ? <AudioRecorder format={format} limits={config.app_limits} disabled={checking} onLock={lock}
             onTranscript={text => setDraft(previous => previous.trim() ? previous + '\n\n' + text : text)}
             submit={submit} copy={copy} />
         : <Notice tone="info">{copy.webmUnsupported}</Notice>}
@@ -47,6 +50,8 @@ function Check({ config }: { config: DeviceTestOut }) {
       <p lang="de">{config.sample_text}</p>
       <SpeechControls messageId="sample" player={speech} disabled={recording} copy={copy} />
     </section>
+    <UploadLimitCheck limit={config.app_limits.max_upload_bytes} disabled={recording || checking} onBusy={setChecking} />
+    <InferenceCheck disabled={recording || checking} onBusy={setChecking} />
   </>
 }
 

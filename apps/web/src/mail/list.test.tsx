@@ -512,6 +512,30 @@ test('a mixed selection keeps every message and explains why actions are blocked
   expect(screen.getByText('2 ausgewählt')).toBeTruthy()
 })
 
+const unsupportedSelection = 'Einige Aktionen sind für die ausgewählten Mails nicht verfügbar. Wähle dafür nur Mails aus Konten aus, die die Aktion unterstützen.'
+const toastText = () => document.querySelector<HTMLElement>('.le-inbox-toast .le-inbox-toast-text')
+
+test.each([['E', 'e'], ['U', 'u'], ['#', '#'], ['Delete', 'Delete']])('the %s shortcut on an unsupported, unpaused selection wraps the full guidance in the toast', async (_name, key) => {
+  const bulk = spyOn(sdk, 'mailMessagesBulkAction')
+  setup('rows', '/mail', false, false, true)
+  await screen.findByText('Zweite')
+  fireEvent.click(screen.getByRole('button', { name: 'Auswählen: Termin' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Auswählen: Zweite' }))
+  fireEvent.keyDown(document.body, { key, shiftKey: key === '#' })
+  await waitFor(() => expect(toastText()?.textContent).toBe(unsupportedSelection))
+  expect(toastText()?.classList.contains('le-inbox-toast-text--wrap')).toBe(true)
+  expect(bulk).not.toHaveBeenCalled()
+})
+
+test('negative case: a short selection notice keeps its single line', async () => {
+  setup('rows', '/mail', false, false, true)
+  await screen.findByText('Zweite')
+  fireEvent.click(screen.getByRole('button', { name: 'Auswählen' }))
+  fireEvent.keyDown(document.body, { key: 'v' })
+  await waitFor(() => expect(toastText()?.textContent).toBe('Wähle zuerst eine Mail.'))
+  expect(toastText()?.classList.contains('le-inbox-toast-text--wrap')).toBe(false)
+})
+
 test('a Gmail Studio row explains unavailable actions on hover and focus', async () => {
   const action = spyOn(sdk, 'mailMessageAction')
   setup('rows', '/mail', false, false, true)

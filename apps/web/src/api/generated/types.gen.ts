@@ -1258,6 +1258,18 @@ export type DestinationPage = {
 };
 
 /**
+ * DeviceInferenceOut
+ */
+export type DeviceInferenceOut = {
+    /**
+     * Checked At
+     */
+    checked_at: string;
+    stt: TranscriptionCheckOut;
+    tts: SpeechCheckOut;
+};
+
+/**
  * DeviceRecordingOut
  */
 export type DeviceRecordingOut = {
@@ -4080,6 +4092,32 @@ export type SpeechCapabilityOut = {
 };
 
 /**
+ * SpeechCheckOut
+ */
+export type SpeechCheckOut = {
+    /**
+     * Audio Bytes
+     */
+    audio_bytes?: number | null;
+    /**
+     * Code
+     */
+    code?: string | null;
+    /**
+     * Elapsed Ms
+     */
+    elapsed_ms: number;
+    /**
+     * Model
+     */
+    model: string | null;
+    /**
+     * Outcome
+     */
+    outcome: 'passed' | 'failed';
+};
+
+/**
  * SpeechLimitsOut
  */
 export type SpeechLimitsOut = {
@@ -4646,6 +4684,36 @@ export type TranscriptionCapabilityOut = {
      * Status
      */
     status: 'available' | 'unavailable' | 'unknown';
+};
+
+/**
+ * TranscriptionCheckOut
+ */
+export type TranscriptionCheckOut = {
+    /**
+     * Code
+     */
+    code?: string | null;
+    /**
+     * Elapsed Ms
+     */
+    elapsed_ms: number;
+    /**
+     * Matches Sample
+     */
+    matches_sample?: boolean | null;
+    /**
+     * Model
+     */
+    model: string | null;
+    /**
+     * Outcome
+     */
+    outcome: 'passed' | 'failed';
+    /**
+     * Reported Model
+     */
+    reported_model?: string | null;
 };
 
 /**
@@ -5244,6 +5312,41 @@ export type AudioDeviceTestGetResponses = {
 };
 
 export type AudioDeviceTestGetResponse = AudioDeviceTestGetResponses[keyof AudioDeviceTestGetResponses];
+
+export type AudioDeviceTestInferenceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/audio/device-test/inference';
+};
+
+export type AudioDeviceTestInferenceErrors = {
+    /**
+     * Owner access or browser origin could not be verified
+     */
+    401: unknown;
+    /**
+     * The device check is closed
+     */
+    404: unknown;
+    /**
+     * Another audio request holds the transcription slot
+     */
+    429: unknown;
+    /**
+     * The transcription slot is unavailable
+     */
+    503: unknown;
+};
+
+export type AudioDeviceTestInferenceResponses = {
+    /**
+     * Successful Response
+     */
+    200: DeviceInferenceOut;
+};
+
+export type AudioDeviceTestInferenceResponse = AudioDeviceTestInferenceResponses[keyof AudioDeviceTestInferenceResponses];
 
 export type AudioDeviceTestRecordData = {
     body: {

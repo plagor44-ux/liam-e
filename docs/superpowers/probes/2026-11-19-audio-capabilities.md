@@ -75,8 +75,9 @@ Results contain only measurements and fixed reason codes.
 ## Release decision
 
 Both chat audio capabilities remain disabled on the Studio deployment at `017a89f`.
-Record the owner's acceptance of the effective Mistral data handling for the selected models
-before using personal or mail-derived content.
+The owner accepted the effective Mistral data handling for the selected models on
+25 November 2026 (see [Mistral data retention](#mistral-data-retention)). Personal or
+mail-derived content still waits for the remaining checks below.
 
 | Capability | Remaining Studio evidence |
 | --- | --- |
@@ -95,6 +96,9 @@ To verify inference from production while the release gates are closed, use an e
 owner-only smoke with a fixed bundled recording and a fixed sample text. Exercise the real
 production validator, app credential and provider adapter with those fixtures. Keep the
 regular chat routes gated until the applicable checks and data-handling decision are recorded.
+The device check's [model check](#synthetic-model-check) is that smoke, and its
+[upload limit check](#upload-limit-at-the-gateway) measures the gateway bound. Both are
+described below with the order of the remaining owner steps.
 
 ## Runtime contract
 
@@ -152,6 +156,10 @@ processing followed by 30 rolling days of retention of inputs and outputs for ab
 monitoring, subject to exceptions and any applicable organization agreement. Use that standard
 as the release assumption until Mistral confirms a different effective policy for the app's
 inference credential. Keep verification calls synthetic.
+
+Owner decision (25 November 2026): the release accepts this standard API retention for audio
+requests, as for the chat text the app already sends to Mistral. ZDR is not a release
+condition. Revisit the decision if the models, the credential or Mistral's terms change.
 [Mistral Privacy Policy](https://legal.mistral.ai/terms/privacy-policy/),
 [Admin privacy settings](https://admin.mistral.ai/vibe/privacy).
 
@@ -207,8 +215,69 @@ setting to close the check earlier.
 The page uses the chat recorder's actual WebM/Opus output and the same multipart upload limits
 and FFmpeg checks as transcription. The API releases the temporary file and returns a fixed
 editable test draft. Playback uses a bundled German MP3 generated offline with eSpeak NG
-and FFmpeg. The check uses no audio model, chat turn or connector. It leaves the independent
-STT and TTS release attestations in effect.
+and FFmpeg. Recording and playback use no audio model, chat turn or connector. The whole
+check, including the two sections below, leaves the independent STT and TTS release
+attestations in effect.
+
+### Upload limit at the gateway
+
+“Check the upload limit” uploads two zero-filled files declared as WebM/Opus to the device
+check's recording route: exactly the app's `max_upload_bytes` (10,485,760 bytes) and one byte
+more. The app rejects both before any model is involved. Only the code each size must produce
+proves that the whole body reached the app: 415 `audio_format_unsupported` at the limit, because
+the container check runs after the full upload, and 413 `audio_too_large` above it. Any other
+app code, for example a busy transcription slot, makes the result unclear. An answer without an
+app code, or a dropped connection, means the gateway or the connection stopped the upload. The
+page then tries 8, 4, 2 and 1 MiB and reports the largest size that arrived in full. If the
+proven bound is below the app limit, lower `MAX_BYTES` in `apps/api/src/api/audio/containers.py`
+to it before attesting, because the attestation must match `TRANSCRIPTION_APP_LIMITS` exactly.
+The normal case uploads about 20 MB.
+
+### Synthetic model check
+
+“Run the model check” calls `POST /api/v1/audio/device-test/inference`
+(`audio_device_test_inference`). Like every audio POST it requires the Studio owner and the
+configured browser origin. It closes with the device check and holds the transcription lock, so
+a second run waits (429). The route validates the bundled synthetic recording
+`apps/api/src/api/audio/device-sample.webm` with the production validator. It sends that file
+to `/v1/audio/transcriptions` with `AUDIO_STT_MODEL` and the language `de`, and the fixed sample
+sentence to `/v1/audio/speech` with `AUDIO_TTS_MODEL` and the default German voice. Speech uses
+the largest limits an attestation may carry: 500 characters, 1,000,000 bytes and 20 seconds.
+Both calls use the deployed API module's own inference credential, one after the other, and a
+failure of one does not stop the other.
+
+For each capability the response names the outcome, a fixed code on failure, the configured
+model and the duration of the provider call. STT adds the reported model and whether the
+normalized transcript equals the sample sentence; TTS adds the MP3 size. The response contains
+no transcript text and no audio, nothing is stored, and the attestations stay unchanged. Each
+run is a paid provider call. The tests replace the provider, so CI never calls Mistral.
+
+The WebM fixture is the bundled MP3's eSpeak NG utterance, transcoded once:
+
+```bash
+ffmpeg -v error -nostdin -i apps/api/src/api/audio/device-sample.mp3 -map 0:a:0 -ac 1 -ar 48000 \
+  -c:a libopus -b:a 32k -fflags +bitexact -flags:a +bitexact -map_metadata -1 -f webm \
+  apps/api/src/api/audio/device-sample.webm
+```
+
+With FFmpeg n9.1, two runs produced the same 9,449-byte file. The production validator accepted
+it with 2.064 seconds of decoded audio.
+
+### Remaining owner steps before attesting
+
+1. Set `AUDIO_DEVICE_TEST_UNTIL` on the deployed API module, at most three days ahead.
+2. Open `/audio-device-test` in the Studio session on the desktop and on the iPhone (Safari 18.4
+   or later). Record and upload, check the microphone prompt inside the Studio frame, and play
+   the sample.
+3. Run “Check the upload limit” once and record the verdict and each line.
+4. Run “Run the model check” once and record both results with `checked_at`.
+5. Open the app in a fresh Studio session and record whether an app consent appears.
+6. Write `AUDIO_STT_VERIFICATION` and `AUDIO_TTS_VERIFICATION` with `scope: studio_release`, the
+   checked format `audio/webm;codecs=opus`, the configured model and, for STT, the reported model
+   as `resolved_model`. STT carries the exact app limits; TTS carries the model check's speech
+   limits or lower ones. Clear `AUDIO_DEVICE_TEST_UNTIL`.
+7. Confirm that `GET /api/v1/audio/capabilities` reports both as `available`, then run one
+   regular transcription and one reply read aloud with synthetic speech.
 
 ## Repeat the Chromium recording offline
 

@@ -46,7 +46,8 @@ export function ActionToast({ inline }: { inline?: boolean }) {
     {notice && <Notice tone={notice.tone}>
       <span className={`le-inbox-toast-text${notice.wrap ? ' le-inbox-toast-text--wrap' : ''}`}>{notice.text}</span>
     </Notice>}
-    {permissionNotice && <Notice tone="danger" trailing={<IconButton icon="x" label={texts.inbox.dismissNotice} tipPosition="top-end" onClick={dismissPermissionNotice} />}>
+    {/* The close tooltip clears the whole toast, so it covers neither this guidance nor an undo link above it. */}
+    {permissionNotice && <Notice tone="danger" trailing={<IconButton icon="x" label={texts.inbox.dismissNotice} tipPosition="top-end" tipClear={root} onClick={dismissPermissionNotice} />}>
       <span className="le-inbox-toast-text le-inbox-toast-text--wrap">{permissionNotice}</span>
     </Notice>}
   </div>

@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useId, useRef, useState, type ReactElement, type HTMLAttributes } from 'react'
+import { cloneElement, useEffect, useId, useRef, useState, type ReactElement, type HTMLAttributes, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useFloating, type Align, type Side } from './floating'
 
@@ -61,7 +61,8 @@ const keyboardFocus = (element: Element) => {
 const PLACEMENT: Record<Pos, [Side, Align]> = { top: ['top', 'center'], 'top-end': ['top', 'end'], bottom: ['bottom', 'center'], 'bottom-end': ['bottom', 'end'], right: ['right', 'center'] }
 
 // The bubble hangs in <body> with fixed coordinates from floating.ts; `pos` is only the preferred side.
-export function Tooltip({ content, children, pos = 'top' }: { content: string; children: ReactElement<TriggerProps>; pos?: Pos }) {
+// `clearOf`: a box around the trigger the bubble keeps clear of above or below (floating.ts).
+export function Tooltip({ content, children, pos = 'top', clearOf }: { content: string; children: ReactElement<TriggerProps>; pos?: Pos; clearOf?: RefObject<HTMLElement | null> }) {
   ensureModalityListeners()
   const [visible, setVisible] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -90,7 +91,7 @@ export function Tooltip({ content, children, pos = 'top' }: { content: string; c
   }, [visible])
   const [side, align] = PLACEMENT[pos]
   // A long text (a mail subject) that fits on neither side covers the trigger rather than leave the screen.
-  const coords = useFloating(visible, anchor, bubble, side, align, () => setVisible(false), content, true)
+  const coords = useFloating(visible, anchor, bubble, side, align, () => setVisible(false), content, true, clearOf)
   return <span ref={anchor} className="le-tooltip-anchor">{cloneElement(children, {
     'aria-describedby': [children.props['aria-describedby'], visible && id].filter(Boolean).join(' ') || undefined,
     onPointerDown: (event) => {
