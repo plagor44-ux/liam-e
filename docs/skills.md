@@ -2,7 +2,8 @@
 
 This document defines the backend skill architecture, security boundaries,
 versioning/revocation rules, the executable `daily_briefing` vertical slice,
-and the coordination/integration contract for Issue `#84` and Issue `#81`.
+the chat-drafted skills of Issue `#97`, and the coordination/integration
+contract for Issue `#84` and Issue `#81`.
 
 ## 1. Core separation: Tools, Skills, and Templates
 
@@ -12,6 +13,14 @@ and the coordination/integration contract for Issue `#84` and Issue `#81`.
      data can define code, unlock unregistered tools, or bypass scope checks.
    - Tools carry `skill_only: bool` so skill-specific backend tools (such as
      `collect_daily_briefing`) are never part of the default base chat toolset.
+   - `authorable: bool` approves a tool for skills drafted in the chat (`#97`).
+     The approved tools are the read and display tools plus `propose_action`,
+     `create_draft`, `propose_task`, `propose_calendar_change`, `propose_filing`
+     and `collect_daily_briefing`. `propose_rule` and `propose_preference` are
+     never authorable.
+   - `builtin_only: bool` reserves a tool for built-in skills; such a tool can
+     never be authorable and no custom skill can reference it
+     (`skill_tool_not_authorable`). The creator's own tools are built-in only.
 
 2. **Versioned Skill Catalog (`skill_definition`, `skill_revision`)**
    - Each skill has a stable `id`, unique `slug` (for example `daily_briefing`),
@@ -94,6 +103,8 @@ and the coordination/integration contract for Issue `#84` and Issue `#81`.
 | `skill_tool_unavailable` | `422` | Pinned skill revision requires a tool absent from current server code. |
 | `skill_builtin_protected` | `403` | Attempted structural edit or deletion of a `builtin` skill. |
 | `skill_conflict` / `skill_quota` | `409` | Duplicate `slug` or custom skill storage limit reached. |
+| `skill_name_conflict` | `409` | Another skill already uses this name (compared case-insensitively). |
+| `skill_tool_not_authorable` | `422` | A custom skill selects a built-in-only tool, or a chat-drafted skill selects a tool that is not authorable. |
 | `skill_invalid` | `422` | Invalid slug/name/description/instructions/steps (input not echoed). |
 | `version_conflict` | `409` | Stale `expected_version` on concurrent update/delete. |
 
@@ -122,7 +133,48 @@ and the coordination/integration contract for Issue `#84` and Issue `#81`.
 - **Intentional least-privilege exclusion:** `create_draft`, `propose_action`,
   and `propose_calendar_change` are omitted from `daily_briefing.allowed_tools`.
 
-## 5. Adding and Versioning a New Skill or Tool
+## 5. Drafting a Skill in the Chat (`#97`)
+
+- **Creator skill:** the built-in `skill_creator` ("Skill erstellen") has only
+  `list_authorable_tools`, `propose_skill` and `suggest_followups`. It reads no
+  mail, calendar or task data. Both creator tools are `builtin_only` and check
+  at dispatch that the turn runs the active built-in creator; otherwise they
+  return `tool_not_permitted`. The web client offers the creator only as the
+  "Skill erstellen" slash action, which always starts a new conversation and
+  keeps the creator attached until the owner ends it.
+- **Draft card:** `propose_skill` accepts exactly `slug`, `name`,
+  `description`, `instructions`, `workflow_steps` and `allowed_tools`, validates
+  them with the HTTP rules plus `authoring=True` (authorable tools only), and
+  reports `skill_conflict`, `skill_name_conflict` or `skill_quota` to the model
+  so it can suggest an alternative. It stores a pending proposal of kind
+  `skill`; nothing is created yet. A changed tool selection or workflow needs a
+  new card.
+- **Confirmation:** `POST /api/v1/chat/proposals/{proposal_id}/confirm` accepts
+  an optional `skill_edit` (`slug`, `name`, `description`, `instructions`) and
+  no selection, body, task edit or preference decision. In one transaction it
+  claims the card, rechecks that the bound context is live and belongs to the
+  conversation, takes the catalog lock `380084`, rechecks that the context ran
+  the built-in creator, validates the edited draft again (`authoring=True`),
+  creates the custom skill and finishes the card with `result.skill_id`. Any
+  refusal raises before the commit, so the card stays pending and can be
+  corrected. A disabled creator yields `409 proposal_context_revoked`. As for
+  the other card kinds, the claim also requires the turn's chat grant to be
+  current; a refused claim or a second confirm yields
+  `409 proposal_not_pending`, and the history shows a card from an older
+  grant as cancel-only.
+- **Uniqueness:** slugs are unique; names are unique case-insensitively
+  (`lower(name)` under the catalog lock) for HTTP creation, updates and
+  confirmed cards alike. `tools` and `skill_creator` are reserved slugs.
+- **What a created skill can do:** it is an ordinary custom skill. Activated
+  on a turn, it may use its authorable read tools within the turn's mail,
+  calendar and task scopes, and its proposal tools still create confirmation
+  cards.
+- **HTTP path:** `POST`/`PATCH /api/v1/skills` keep validating against the
+  whole registry except built-in-only tools; only chat-drafted skills are
+  limited to authorable tools. `GET /api/v1/skills/tools` reports
+  `authorable` per tool.
+
+## 6. Adding and Versioning a New Skill or Tool
 
 1. **Add a backend tool:**
    - Implement an async handler `(arguments: dict, ctx: TurnContext) -> ToolOutcome`
@@ -130,6 +182,9 @@ and the coordination/integration contract for Issue `#84` and Issue `#81`.
    - Define a `RegisteredTool(..., skill_only=True)` and register it in
      `register_default_tools()` (`apps/api/src/api/skills/registry.py`) and
      dispatch it in `api.mail.agent_tools.execute_tool`.
+   - Set `authorable=True` only when the tool is safe for skills drafted in
+     the chat, and add its localized name to `skillProposal.toolNames` in both
+     web catalogues.
 2. **Add or version a built-in skill:**
    - Add or update a `BuiltinSkillSpec` in `BUILTIN_SKILLS`
      (`apps/api/src/api/skills/catalog.py`).
@@ -143,7 +198,7 @@ and the coordination/integration contract for Issue `#84` and Issue `#81`.
      `PATCH /api/v1/skills/{skill_id}` (`skill_update`), and
      `DELETE /api/v1/skills/{skill_id}?expected_version=...` (`skill_delete`).
 
-## 6. Coordination Inventory: Shared Files Touched by `#84`
+## 7. Coordination Inventory: Shared Files Touched by `#84`
 
 To prevent merge conflicts with `#91` (mail hotfix) and `#77` (`Heute fällig`
 quick action), `#84` keeps all changes outside `#91`/`#77` UI/i18n paths:

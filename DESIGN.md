@@ -582,6 +582,15 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   the reason, „Bisher“ and „Vorschlag“ side by side (one column on `mobile`) and the time zone.
   The card states that a concurrent change in Google can be overwritten. There is no „Rückgängig“;
   an open result offers „Prüfen“, and a changed appointment asks for a new proposal.
+- **Skill card:** „Neuen Skill speichern?“ with editable name, command (`/command`, shown as
+  „Aufruf im Chat mit /…“), description and instructions (collapsed until opened or invalid), each
+  with a character count. Below are the approved tools by localized name with a kind tag
+  („Nur lesen“, „Mit Bestätigung“, „Anzeige“) and the numbered steps. A fixed sentence says the skill uses
+  only these tools and still proposes changes on a card. An empty or invalid field, or a name or
+  command already taken, marks its own field and disables „Skill speichern“. After saving, a
+  success notice replaces the card; „Jetzt verwenden“ attaches the new skill to this conversation's
+  composer for one message without sending. A card the client cannot render shows a neutral notice
+  instead of breaking the conversation.
 - **Actions initiated by the user in the inbox** on one mail or multiple selected mails take effect
   immediately and then show a notice for 10 seconds with a shared „Rückgängig“. Provider permission
   guidance wraps and stays visible until dismissed, alongside later action results. Its close
@@ -645,6 +654,12 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   floating menu (`body` portal). Picking an entry attaches it visibly in the composer without sending;
   sending stays explicit. Skills default to a single turn (`Nur für diese Nachricht`) and can
   optionally be kept across clarifying follow-up turns until explicitly ended.
+  Built-in skill names come from the catalogue by command, so they follow the app language.
+  **„Skill erstellen“** is the first action in the `/` menu, never a skill or favorite. It always
+  starts a new conversation (from a conversation, mail or calendar context it leaves that context)
+  and carries the typed text over. The creator stays attached until „Skill beenden“; its banner
+  shows only the name and a note that nothing is saved before confirmation, and the field reads
+  „Beschreib, was der Skill erledigen soll …“.
   Settings → Chat controls which mail accounts the assistant can use. Each active account has a
   checkbox. The initial selection is empty and Save applies it across devices. The composer’s
   task chip determines which tasks the assistant may read
