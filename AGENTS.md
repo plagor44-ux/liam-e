@@ -36,6 +36,7 @@ managed Postgres (module in mistral.json)              Mail index, credentials, 
 - `/tasks` and `/tasks/$taskId` — task list, manual creation and due dates with history.
 - `/settings` and `/settings/prompts` — settings with template library; `settingsSections` is the navigation entry point for further implemented areas.
 - `/settings/prompts/new` and `/settings/prompts/$promptId` — create or edit a template in a separate view at all screen sizes.
+- `/settings/skills` — built-in and custom skills with command, version, origin and status; switch them on or off and delete custom skills after a confirmation dialog, through `skills_list`, `skill_update` and `skill_delete` with `expected_version`.
 - `/settings/preferences`, `/settings/preferences/new` and `/settings/preferences/$preferenceId` — preferences, usage toggle and separate create/edit views, including on mobile.
 
 ### App language

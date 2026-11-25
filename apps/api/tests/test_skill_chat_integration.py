@@ -608,11 +608,16 @@ def test_skill_http_crud_validation_and_error_privacy(skill_runtime):
     assert [rev["number"] for rev in detail.json()["revisions"]] == [2, 1]
 
     # Builtin skill protects structure/deletion, permits disable/enable
-    assert client.delete(f"/api/v1/skills/{builtin['id']}?expected_version=1").status_code == 403
+    protected = client.delete(f"/api/v1/skills/{builtin['id']}?expected_version=1")
+    assert protected.status_code == 403 and protected.json()["detail"]["code"] == "skill_builtin_protected"
     assert client.patch(f"/api/v1/skills/{builtin['id']}", json={"expected_version": 1, "instructions": "Hijack"}).status_code == 403
     disabled = client.patch(f"/api/v1/skills/{builtin['id']}", json={"expected_version": 1, "status": "disabled"})
     assert disabled.status_code == 200 and disabled.json()["status"] == "disabled"
 
+    # A stale version deletes nothing; the settings view reloads the current state instead (#156).
+    stale = client.delete(f"/api/v1/skills/{custom['id']}?expected_version=1")
+    assert stale.status_code == 409 and stale.json()["detail"]["code"] == "version_conflict"
+    assert client.get(f"/api/v1/skills/{custom['id']}").status_code == 200
     assert client.delete(f"/api/v1/skills/{custom['id']}?expected_version=2").status_code == 204
     assert client.get(f"/api/v1/skills/{custom['id']}").status_code == 404
 

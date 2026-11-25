@@ -36,6 +36,7 @@ import { Route as AppSettingsPromptsIndexRouteImport } from './routes/_app/setti
 import { Route as AppSettingsPromptsPromptIdRouteImport } from './routes/_app/settings/prompts/$promptId'
 import { Route as AppSettingsPromptsNewRouteImport } from './routes/_app/settings/prompts/new'
 import { Route as AppSettingsRulesIndexRouteImport } from './routes/_app/settings/rules/index'
+import { Route as AppSettingsSkillsIndexRouteImport } from './routes/_app/settings/skills/index'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -178,6 +179,11 @@ const AppSettingsRulesIndexRoute = AppSettingsRulesIndexRouteImport.update({
   path: '/rules/',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsSkillsIndexRoute = AppSettingsSkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -206,6 +212,7 @@ export interface FileRoutesByFullPath {
   '/settings/preferences/': typeof AppSettingsPreferencesIndexRoute
   '/settings/prompts/': typeof AppSettingsPromptsIndexRoute
   '/settings/rules/': typeof AppSettingsRulesIndexRoute
+  '/settings/skills/': typeof AppSettingsSkillsIndexRoute
 }
 export interface FileRoutesByTo {
   '/audio-device-test': typeof AudioDeviceTestRoute
@@ -231,6 +238,7 @@ export interface FileRoutesByTo {
   '/settings/preferences': typeof AppSettingsPreferencesIndexRoute
   '/settings/prompts': typeof AppSettingsPromptsIndexRoute
   '/settings/rules': typeof AppSettingsRulesIndexRoute
+  '/settings/skills': typeof AppSettingsSkillsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -261,6 +269,7 @@ export interface FileRoutesById {
   '/_app/settings/preferences/': typeof AppSettingsPreferencesIndexRoute
   '/_app/settings/prompts/': typeof AppSettingsPromptsIndexRoute
   '/_app/settings/rules/': typeof AppSettingsRulesIndexRoute
+  '/_app/settings/skills/': typeof AppSettingsSkillsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/settings/preferences/'
     | '/settings/prompts/'
     | '/settings/rules/'
+    | '/settings/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/audio-device-test'
@@ -316,6 +326,7 @@ export interface FileRouteTypes {
     | '/settings/preferences'
     | '/settings/prompts'
     | '/settings/rules'
+    | '/settings/skills'
   id:
     | '__root__'
     | '/_app'
@@ -345,6 +356,7 @@ export interface FileRouteTypes {
     | '/_app/settings/preferences/'
     | '/_app/settings/prompts/'
     | '/_app/settings/rules/'
+    | '/_app/settings/skills/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -543,6 +555,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRulesIndexRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/skills/': {
+      id: '/_app/settings/skills/'
+      path: '/skills'
+      fullPath: '/settings/skills/'
+      preLoaderRoute: typeof AppSettingsSkillsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
   }
 }
 
@@ -587,6 +606,7 @@ interface AppSettingsRouteChildren {
   AppSettingsPreferencesIndexRoute: typeof AppSettingsPreferencesIndexRoute
   AppSettingsPromptsIndexRoute: typeof AppSettingsPromptsIndexRoute
   AppSettingsRulesIndexRoute: typeof AppSettingsRulesIndexRoute
+  AppSettingsSkillsIndexRoute: typeof AppSettingsSkillsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
@@ -604,6 +624,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsPreferencesIndexRoute: AppSettingsPreferencesIndexRoute,
   AppSettingsPromptsIndexRoute: AppSettingsPromptsIndexRoute,
   AppSettingsRulesIndexRoute: AppSettingsRulesIndexRoute,
+  AppSettingsSkillsIndexRoute: AppSettingsSkillsIndexRoute,
 }
 
 const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(

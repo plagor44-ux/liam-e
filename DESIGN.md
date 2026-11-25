@@ -798,6 +798,15 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   open separate views (`/settings/prompts/new`, `/settings/prompts/$promptId`), including on desktop.
   These dedicated create/edit views (and `/settings/preferences/new`,
   `/settings/preferences/$preferenceId`) retain their own form save, pause and delete actions.
+- `/settings/skills` („Skills“) lists built-in skills first, then custom ones by name. Each row shows
+  name, command (`/slug`), description and „Version 2 · Integriert/Eigener Skill · Aktiv/Deaktiviert“;
+  text wraps rather than truncates and the actions move below it on narrow screens. A switch
+  „Verwenden“ (name „„Name“ verwenden“) turns a skill on or off at once; built-in skills offer only
+  this switch, custom skills also „Löschen“. Deleting asks in a dialog that names the consequences:
+  conversations keep their history, their open proposals can then only be discarded, and the stored
+  versions are removed. Escape or „Abbrechen“ returns to „Löschen“; after deleting, the focus moves
+  to the result. Changes send the listed version: a conflict or a vanished skill reloads the list
+  and says so without retrying. Favorites and the `/` menu follow through the shared skills query.
 - Name and instructions use TextField with counters (80 and 8,000 characters respectively). Saving
   is explicit; errors preserve inputs. A version conflict offers the current version without itself
   overwriting. Deletion requires a dialog with focus management and names consequences including

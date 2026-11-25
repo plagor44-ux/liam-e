@@ -17,3 +17,15 @@
 .le-chat-account-list small { display: block; }
 .le-settings-bar { position: sticky; bottom: var(--space-3); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--control-border); border-radius: var(--radius-md); background: var(--surface-overlay); box-shadow: var(--shadow-overlay); }
 .le-settings-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
+
+/* Skills (#156): names, commands and descriptions wrap instead of truncating; the actions move below
+   the text on narrow screens and keep 44 px targets on touch screens. */
+.le-skill-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.le-skill-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.le-skill-row:hover { background: var(--surface-soft); }
+.le-skill-row-info { display: grid; gap: var(--space-1); flex: 1 1 18rem; min-width: 0; }
+.le-skill-command code { font-size: var(--font-size-small); overflow-wrap: anywhere; }
+.le-skill-description, .le-skill-row small { color: var(--ink-muted); }
+.le-skill-row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.le-skill-outcome { border-radius: var(--radius-md); scroll-margin-block: var(--space-2); }
+@media (pointer: coarse) { .le-skill-row-actions .le-btn { min-height: var(--control-height-lg); } }
