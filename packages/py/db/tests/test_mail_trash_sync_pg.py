@@ -2869,3 +2869,72 @@ def test_pending_restore_from_trash_uses_one_point_read_per_poll(pg_db, monkeypa
             assert (await mail_action.latest_open(target)).id == trashed.json()["action_id"]
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("fallback_status", [None, 200, 404], ids=["complete", "incomplete", "full-not-found"])
+def test_gmail_pending_and_trash_checks_share_one_thread_read(pg_db, monkeypatch, fallback_status):
+    from db.accessors import mail_job
+
+    async def run():
+        provider = StudioMailbox()
+        provider.date = (datetime.now(UTC) - timedelta(days=21)).isoformat()
+        provider.labels["ordinary"] = {"INBOX"}
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target, sibling, ordinary = (ids[key] for key in ("target", "sibling", "ordinary"))
+        reading_during_sync = False
+        formats = []
+        missing_labels = fallback_status is not None
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            arguments = payload["arguments"]
+            request = httpx.Request("POST", "https://example.test")
+            if reading_during_sync and tool == "search_threads":
+                return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+            if reading_during_sync and tool == "get_thread" and arguments.get("threadId") == "mixed":
+                formats.append(arguments["messageFormat"])
+                if arguments["messageFormat"] == "FULL_CONTENT" and fallback_status == 404:
+                    httpx.Response(404, request=request).raise_for_status()
+                if formats.count("MINIMAL") > 1:
+                    httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+            response = await provider.dispatch(path, payload)
+            if tool == "unlabel_message" and arguments["messageId"] in ("target", "sibling"):
+                raise httpx.ReadTimeout("synthetic Archive response timeout", request=request)
+            if missing_labels and reading_during_sync and tool == "get_thread" and arguments == {
+                "threadId": "mixed", "messageFormat": "MINIMAL",
+            }:
+                thread = json.loads(response["content"][0]["text"])
+                for member in thread["messages"]:
+                    if member["id"] in ("sibling", "ordinary"):
+                        member.pop("labelIds")
+                response["content"][0]["text"] = json.dumps(thread)
+            return response
+
+        async with client() as browser:
+            trashed = await browser.post(f"{MAIL}/messages/{ordinary}/actions", json={"kind": "trash"})
+            assert trashed.status_code == 200
+            monkeypatch.setattr(connectors, "_post", dispatch)
+            bulk = await browser.post(f"{MAIL}/messages/actions", json={"kind": "archive", "message_ids": [target, sibling]})
+            assert bulk.status_code == 200
+            assert [item["status"] for item in bulk.json()["results"]] == ["failed", "failed"]
+            assert provider.labels["target"] == provider.labels["sibling"] == set()
+            assert await listed(browser, "INBOX") == {target, sibling}
+            assert await listed(browser, "TRASH") == {ordinary}
+            assert len(await mail_job.connector_label_checks(provider.account.id)) == 2
+            write_count = len(provider.writes)
+
+            provider.labels["ordinary"] = {"INBOX"}
+            reading_during_sync = True
+            assert (await sync.sync_account(provider.account.id)).status == "ok"
+            assert await listed(browser, "ARCHIVE") == ({target} if missing_labels else {target, sibling})
+            remaining_inbox = {sibling} if missing_labels else set()
+            if fallback_status != 404:
+                remaining_inbox.add(ordinary)
+            assert await listed(browser, "INBOX") == remaining_inbox
+            assert await listed(browser, "TRASH") == ({ordinary} if fallback_status == 404 else set())
+            jobs = await mail_job.connector_label_checks(provider.account.id)
+            assert [json.loads(job.payload_json)["provider_uid"] for job in jobs] == (["sibling"] if missing_labels else [])
+            assert formats == (["MINIMAL", "FULL_CONTENT"] if missing_labels else ["MINIMAL"])
+            assert len(provider.writes) == write_count
+
+    asyncio.run(run())

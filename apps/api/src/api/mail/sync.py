@@ -97,7 +97,7 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                     first_import = not progress
                     tracked = set() if first_import else initial_deferred
                     label_jobs = await mail_job.connector_label_checks(account.id) if proof else []
-                    protected = sync_connector.pending_label_uids(label_jobs, proof[0]) if proof else set()
+                    pending_labels = sync_connector.PendingLabelChecks(label_jobs, proof[0]) if proof and label_jobs else None
 
                     async def save_checkpoint(current):
                         nonlocal checkpoint
@@ -105,18 +105,17 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                             if not (known_deferred or current.restored_members or label_jobs):
                                 return
                             current = deepcopy(current)
-                        sync_connector.protect_pending_label_checks(current, protected)
                         kept, deferred = await _refine_connector_changes(
                             account, current, known_deferred, options,
-                            initial_deferred=tracked, defer_probes=True, protected_uids=protected)
+                            initial_deferred=tracked, defer_probes=True, pending_labels=pending_labels)
                         await connector_mailbox.verify_bound_mailbox(account, binding, generation=generation, observed=previous)
                         checkpoint = kept, deferred
 
                     changes, deferred = await _connector_changes(account, progress, known_deferred, options,
                         initial_deferred=tracked, first_import=first_import, checkpoint_delta=save_checkpoint,
-                        protected_uids=protected)
-                    if proof:
-                        checks = await sync_connector.pending_label_checks(account, proof[0], changes, jobs=label_jobs)
+                        pending_labels=pending_labels)
+                    if pending_labels is not None:
+                        checks = pending_labels.results()
             except (connector_throttle.RateLimited, httpx.HTTPStatusError) as error:
                 if checkpoint is None or (isinstance(error, httpx.HTTPStatusError) and error.response.status_code not in (429, 503)):
                     raise
@@ -218,19 +217,19 @@ async def _check_native_returns(account, changes):
 
 async def _connector_changes(
     account, progress, deferred, options, *, initial_deferred=frozenset(), first_import=False,
-    checkpoint_delta=None, protected_uids=frozenset(),
+    checkpoint_delta=None, pending_labels=None,
 ):
     changes = await sync_connector.fetch_changes(account, cursor=progress, **options,
         **({"before_history": checkpoint_delta} if checkpoint_delta is not None else {}))
     if checkpoint_delta is not None and progress and not progress.startswith("initial:"):
         await checkpoint_delta(changes)
     return await _refine_connector_changes(account, changes, deferred, options,
-        initial_deferred=initial_deferred, first_import=first_import, protected_uids=protected_uids)
+        initial_deferred=initial_deferred, first_import=first_import, pending_labels=pending_labels)
 
 
 async def _refine_connector_changes(
     account, changes, deferred, options, *, initial_deferred, first_import=False, defer_probes=False,
-    protected_uids=frozenset(),
+    pending_labels=None,
 ):
     pending = list(dict.fromkeys([*deferred, *changes.restored_members]))
     retry_count = 0 if defer_probes else min(5, len(pending))
@@ -251,10 +250,12 @@ async def _refine_connector_changes(
     possible = {row["provider_uid"] for row in changes.upserts} | changes.read_updates.keys() | changes.flag_updates.keys()
     # Studio's date searches omit an old message restored today. Rotate point reads through local trash.
     candidates = await message_access.trash_conflicts(account.id, possible, changes.moved_out, check_unlisted=not defer_probes)
-    if protected_uids:
-        candidates = {uid: thread for uid, thread in candidates.items() if uid not in protected_uids}
-    if candidates:
-        await sync_connector.confirm_trash_conflicts(account, changes, candidates)
+    if pending_labels is not None:
+        sync_connector.protect_pending_label_checks(changes, pending_labels.uids)
+        candidates = {uid: thread for uid, thread in candidates.items() if uid not in pending_labels.uids}
+    if candidates or pending_labels is not None:
+        await sync_connector.confirm_trash_conflicts(
+            account, changes, candidates, pending=pending_labels, defer_probes=defer_probes)
     remaining = list(dict.fromkeys([*pending[retry_count:], *changes.deferred_threads]))
     changes.initial_deferred_threads = initial_threads.intersection(remaining)
     return changes, remaining

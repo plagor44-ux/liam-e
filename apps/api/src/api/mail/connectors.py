@@ -455,22 +455,25 @@ async def _confirm_label_change(
 
 async def thread_labels(
     provider: str, thread_id: str, uids: set[str], *, minimal_only: bool = False,
+    point_only_uids: frozenset[str] | set[str] = frozenset(),
     on_read: Callable[[str, dict[str, list[str]]], None] | None = None,
 ) -> dict[str, list[str]]:
     """Point-read exact thread members, with a full read for missing labels."""
     found = {}
+    fallback_uids = uids - point_only_uids
     formats = ("MINIMAL",) if minimal_only else ("MINIMAL", "FULL_CONTENT")
     for fmt in formats:
+        requested = uids if fmt == "MINIMAL" else fallback_uids - found.keys()
         thread = await call_read_tool_json(provider, "get_thread", {"threadId": thread_id, "messageFormat": fmt})
         valid = isinstance(thread, dict) and thread.get("id") == thread_id and isinstance(thread.get("messages"), list)
         if valid:
             for item in thread["messages"]:
-                if isinstance(item, dict) and isinstance(uid := item.get("id"), str) and uid in uids:
+                if isinstance(item, dict) and isinstance(uid := item.get("id"), str) and uid in requested:
                     labels = item.get("labelIds")
                     if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
                         found[uid] = labels
         if on_read is not None:
             on_read(fmt, found)
-        if not valid or uids <= found.keys():
+        if not valid or fallback_uids <= found.keys():
             break
     return found

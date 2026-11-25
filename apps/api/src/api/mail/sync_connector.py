@@ -161,27 +161,54 @@ async def _thread_messages(provider: str, thread_id: str):
     return messages if isinstance(messages, list) else None
 
 
-async def confirm_trash_conflicts(account, changes: SyncChanges, candidates: dict[str, str]) -> None:
-    """Search and history can replay an old folder after a move in either direction."""
+type LabelCheck = tuple[str, dict[str, str], list[str] | None]
+
+
+class PendingLabelChecks:
+    """Pending delivery checks and point-read results from one verified mailbox poll."""
+
+    def __init__(self, jobs: Sequence[MailJob], binding: str):
+        self.targets = {job.id: json.loads(job.payload_json) for job in jobs}
+        self.binding = binding
+        self.by_thread: dict[str, set[str]] = {}
+        self.uids: set[str] = set()
+        self.observed: dict[str, dict[str, list[str]]] = {}
+        for target in self.targets.values():
+            if target["binding"] == binding:
+                uid = target["provider_uid"]
+                self.by_thread.setdefault(target["thread_id"], set()).add(uid)
+                self.uids.add(uid)
+
+    def results(self) -> list[LabelCheck]:
+        return [
+            (job_id, target, self.observed.get(target["thread_id"], {}).get(target["provider_uid"])
+             if target["binding"] == self.binding else None)
+            for job_id, target in self.targets.items()
+        ]
+
+
+async def confirm_trash_conflicts(
+    account: MailAccount, changes: SyncChanges, candidates: dict[str, str], *,
+    pending: PendingLabelChecks | None = None, defer_probes: bool = False,
+) -> None:
+    """Verify Trash conflicts and pending deliveries with one point read per thread."""
     rows = {row["provider_uid"]: row for row in changes.upserts}
     by_thread: dict[str, set[str]] = {}
     uncertain = set()
     for uid, thread in candidates.items():
         by_thread.setdefault(rows.get(uid, {}).get("thread_id") or thread, set()).add(uid)
-    for thread, uids in by_thread.items():
-        try:
-            latest = await connectors.thread_labels(account.provider, thread, uids) if thread else {}
-        except httpx.HTTPStatusError as error:
-            if error.response.status_code == 404:
-                latest = dict.fromkeys(uids, [])
-            elif error.response.status_code in (400, 410, 422):
-                latest = {}
-            else:
-                raise
-        except json.JSONDecodeError:
-            # A text tool error for this thread does not invalidate the other inbox observations.
-            latest = {}
-        for uid in uids:
+    if pending is not None and not defer_probes:
+        for thread in pending.by_thread:
+            by_thread.setdefault(thread, set())
+    for thread, trash_uids in by_thread.items():
+        pending_uids = pending.by_thread.get(thread, set()) if pending is not None else set()
+        latest: dict[str, list[str]] = {}
+        # Leave shared checks for the normal pass so the checkpoint can be verified first.
+        if thread and not (defer_probes and pending_uids):
+            latest = await _sync_thread_labels(account.provider, thread, trash_uids, pending_uids)
+            if pending is not None and pending_uids:
+                pending.observed[thread] = latest
+        for uid in trash_uids:
             if uid in latest:
                 changes.observe_current_labels(uid, latest[uid], rows.get(uid))
             else:
@@ -195,7 +222,35 @@ async def confirm_trash_conflicts(account, changes: SyncChanges, candidates: dic
         changes.trashed.difference_update(uncertain)
 
 
-type LabelCheck = tuple[str, dict[str, str], list[str] | None]
+async def _sync_thread_labels(
+    provider: str, thread: str, trash_uids: set[str], pending_uids: set[str],
+) -> dict[str, list[str]]:
+    uids = trash_uids | pending_uids
+    point_labels: dict[str, list[str]] | None = None
+
+    def remember_point(fmt: str, observed: dict[str, list[str]]) -> None:
+        nonlocal point_labels
+        if fmt == "MINIMAL":
+            point_labels = observed.copy()
+
+    try:
+        return await connectors.thread_labels(provider, thread, uids, point_only_uids=pending_uids,
+            on_read=remember_point if pending_uids else None)
+    except httpx.HTTPStatusError as error:
+        status = error.response.status_code
+        if status == 404:
+            if point_labels is None:  # The MINIMAL read itself confirmed the thread is gone.
+                return dict.fromkeys(uids, [])
+            return dict.fromkeys(trash_uids, []) | point_labels
+        if status in (401, 403) or (trash_uids and status not in (400, 410, 422)):
+            raise
+    except json.JSONDecodeError:
+        # A text tool error leaves unread members inconclusive.
+        pass
+    except (ValueError, httpx.TransportError):
+        if trash_uids:
+            raise
+    return point_labels or {}
 
 
 def protect_pending_label_checks(changes: SyncChanges, uids: set[str]) -> None:
@@ -210,37 +265,6 @@ def protect_pending_label_checks(changes: SyncChanges, uids: set[str]) -> None:
     for uid in uids:
         changes.read_updates.pop(uid, None)
         changes.flag_updates.pop(uid, None)
-
-
-def pending_label_uids(jobs: Sequence[MailJob], binding: str) -> set[str]:
-    targets = (json.loads(job.payload_json) for job in jobs)
-    return {target["provider_uid"] for target in targets if target["binding"] == binding}
-
-
-async def pending_label_checks(
-    account: MailAccount, binding: str, changes: SyncChanges, *, jobs: Sequence[MailJob],
-) -> list[LabelCheck]:
-    """Read exact pending members on their verified binding."""
-    checked = []
-    for job in jobs:
-        target = json.loads(job.payload_json)
-        if target["binding"] != binding:
-            checked.append((job.id, target, None))
-            continue
-        uid = target["provider_uid"]
-        try:
-            labels = (await connectors.thread_labels(
-                account.provider, target["thread_id"], {uid}, minimal_only=True,
-            )).get(uid)
-        except httpx.HTTPStatusError as error:
-            if error.response.status_code in (401, 403):
-                raise
-            labels = [] if error.response.status_code == 404 else None
-        except (ValueError, httpx.TransportError):
-            labels = None
-        checked.append((job.id, target, labels))
-    protect_pending_label_checks(changes, pending_label_uids(jobs, binding))
-    return checked
 
 
 async def apply_label_checks(session, account: MailAccount, binding: str, checked: Sequence[LabelCheck]) -> None:
