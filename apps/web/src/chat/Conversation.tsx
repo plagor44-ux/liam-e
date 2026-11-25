@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { chatCalendarSourcesQuery, chatMailReferenceQuery, historyQuery, modelsQuery, skillsQuery, summaryQuery } from '../api/queries'
+import { chatCalendarSourcesQuery, chatMailReferenceQuery, historyQuery, MessageNotFoundError, modelsQuery, skillsQuery, summaryQuery } from '../api/queries'
 import { errorCode } from '../api/unwrap'
 import type { AccountSummaryOut, ChatMessageOut, MailRefOut } from '../api/generated/types.gen'
 import { Button, ChatMessage, Chip, Composer, MailReference, Notice, Tag } from '../ds'
@@ -109,6 +109,9 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
     if (tokenKey !== null) setDismissedToken(tokenKey)
   }, [tokenKey])
 
+  // Removing a banner unmounts its focused x; the message field is where the owner continues.
+  const focusField = () => { requestAnimationFrame(() => textareaRef.current?.focus()) }
+
   const restoreFocusAt = (cursor: number) => {
     requestAnimationFrame(() => {
       const el = textareaRef.current
@@ -201,12 +204,13 @@ export function ChatComposer({ conversationId, contextMail, contextOccurrenceId,
           skillsLoaded={skills.isSuccess}
           disabled={busy || audioDraftLocked}
           onChangePersistence={persistence => { stopLiveVoice.current?.(); setSkillPersistence(draftKey, persistence) }}
-          onRemove={() => { stopLiveVoice.current?.(); setSelectedSkill(draftKey, null) }}
+          onRemove={() => { stopLiveVoice.current?.(); setSelectedSkill(draftKey, null); focusField() }}
         />
       )}
       <ActiveTemplateBanner
         conversationId={conversationId}
         selection={templateSelection}
+        onClear={() => { void templateSelection.choose(null); focusField() }}
       />
     </div>
   ) : undefined
@@ -329,8 +333,9 @@ function Reference({ mail, accounts, draft }: { mail: MailRefOut; accounts: Acco
 }
 function HistoryReference({ id, accounts, draft, version, contextId }: { id: string; accounts: Accounts; draft: Draft; version: number; contextId: string }) {
   const { texts } = useI18n()
-  const { data, isError } = useQuery(chatMailReferenceQuery(id, version, contextId))
-  if (isError) return <p className="le-hint">{texts.chat.referenceError}</p>
+  const { data, isError, error } = useQuery(chatMailReferenceQuery(id, version, contextId))
+  // A 404 stays a 404 for this conversation, so only transient failures invite another try.
+  if (isError) return <p className="le-hint">{error instanceof MessageNotFoundError ? texts.chat.referenceUnavailable : texts.chat.referenceError}</p>
   return data && accounts.some(account => account.id === data.account_id) ? <Reference mail={data} accounts={accounts} draft={draft} /> : null
 }
 // DESIGN.md §9.1: at most three follow-up suggestions, whatever the model sent.
@@ -452,7 +457,7 @@ export function Conversation({ conversationId }: { conversationId: string }) {
     return <>{message.context && <PreferenceContext context={message.context} />}{usedSkillLabel && <div><Tag tone="on-surface" icon="sparkle">{usedSkillLabel}</Tag></div>}{message.id === firstRevokedId && <Notice tone="info" action={oldGrant ? undefined : restartAction}>{revokedText}</Notice>}<ChatMessage role="assistant" model={modelLabel(message.extras.model)} stopped={message.stopped}><SafeMarkdown text={message.content} /></ChatMessage>
       {speechEnabled && !message.stopped && !message.context?.revoked && message.content.trim() &&
         <SpeechControls messageId={message.id} player={speech} disabled={audioDraftLocked} />}
-      {message.extras.mails?.map(id => !oldGrant && grantVersion != null && message.context && !message.context.revoked ? <HistoryReference key={id} id={id} accounts={accounts} draft={draft} version={grantVersion} contextId={message.context.id} /> : <p className="le-hint" key={id}>{texts.chat.referenceError}</p>)}{!oldGrant && message.extras.calendars?.map(ref => <CalendarReference key={ref.occurrence_id} occurrenceId={ref.occurrence_id} sourceId={ref.source_id} />)}</>
+      {message.extras.mails?.map(id => !oldGrant && grantVersion != null && message.context && !message.context.revoked ? <HistoryReference key={id} id={id} accounts={accounts} draft={draft} version={grantVersion} contextId={message.context.id} /> : <p className="le-hint" key={id}>{texts.chat.referenceUnavailable}</p>)}{!oldGrant && message.extras.calendars?.map(ref => <CalendarReference key={ref.occurrence_id} occurrenceId={ref.occurrence_id} sourceId={ref.source_id} />)}</>
   }
   const status = state.status?.code === 'searching' ? texts.status.searching(state.status.count ?? 0) : state.status ? texts.status[state.status.code] : null
   const historyGone = errorCode(history.error instanceof Error ? history.error.cause : history.error) === 'conversation_not_found'

@@ -1,7 +1,7 @@
 import { oldSource } from '../../calendar/state'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, redirect, useNavigate, useSearch } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type SyntheticEvent } from 'react'
 import { chatCalendarSourcesQuery, chatMailReferenceQuery, MessageNotFoundError, modelsQuery, skillsQuery, summaryQuery } from '../../api/queries'
 import { CalendarReference, readableCalendar } from '../../chat/CalendarContext'
 import { ChatComposer } from '../../chat/Conversation'
@@ -126,6 +126,13 @@ function Greeting() {
   const hasDueCaveats = unreachableAccounts.length > 0 || incompleteAccounts.length > 0 || unavailableCalendars.length > 0 || incompleteCalendars.length > 0
   const turnError = started && state.phase === 'error' && !state.conversationId
   const resetFocus = () => { void navigate({ to: '/', search: { about, calendarAbout } }) }
+  // Opened under the quick actions, the list would run on behind the composer: bring all of it into view (#163).
+  const revealSources = (event: SyntheticEvent<HTMLDetailsElement>) => {
+    const node = event.currentTarget
+    if (!node.open) return
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    node.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }
   return <div className={about ? 'le-chat-view le-chat-view--mail-question' : 'le-chat-view'}>
     <ChatHeader modelMenu={<ModelMenu disabled={audioDraftLocked} model={model} onChange={setModel} />} />
     {about && <h1 className="le-sr">{texts.mail.askInChat}</h1>}
@@ -150,7 +157,7 @@ function Greeting() {
       </div>}
       {!about && calendars.isError && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void calendars.refetch() } }}>{texts.calendar.error}</Notice>}
       {!about && disconnectedCalendars.length > 0 && <Notice tone="danger" action={{ label: texts.calendar.manage, onClick: () => { void navigate({ to: '/accounts' }) } }}>{texts.calendarSettings.unreachable(disconnectedCalendars.map(source => source.name).join(', '))}</Notice>}
-      {sourceHints.length > 0 && <details className="le-chat-source-status">
+      {sourceHints.length > 0 && <details className="le-chat-source-status" onToggle={revealSources}>
         <summary>{texts.chat.sourceStatus(sourceHints.length)}</summary>
         <ul>{sourceHints.map(hint => <li key={hint}>{hint}</li>)}</ul>
       </details>}

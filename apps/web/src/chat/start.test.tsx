@@ -114,6 +114,25 @@ test('Today includes readable calendars without mail and reflects a pause', asyn
   await waitFor(() => expect(within(status()).getByText(de.calendarSettings.unavailable)).toBeTruthy())
 })
 
+test.each([[false, 'smooth'], [true, 'auto']] as const)('opening the source status brings the whole list into view (reduced motion: %p)', async (reduced, behavior) => {
+  setup(false)
+  const media = window.matchMedia
+  window.matchMedia = ((query: string) => query === '(prefers-reduced-motion: reduce)' ? { ...media(query), matches: reduced } : media(query)) as typeof window.matchMedia
+  spyOn(sdk, 'calendarSourcesList').mockResolvedValue({ data: [{ id: 'work', name: 'Arbeit', is_active: true, chat_access: 'read_only', incomplete: true }] } as never)
+  const scrolls: { element: Element, options?: unknown }[] = []
+  spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element, options?: unknown) { scrolls.push({ element: this, options }) })
+  const summary = await screen.findByText(/^Stand der Quellen anzeigen/)
+  const status = summary.closest('details') as HTMLDetailsElement
+  fireEvent.click(summary)
+  // Compared by identity: a deep diff of a DOM node never finishes.
+  await waitFor(() => expect(scrolls.map(({ element, options }) => [element === status, options])).toEqual([[true, { block: 'nearest', behavior }]]))
+  // Negative case: closing it again leaves the scroll position alone.
+  fireEvent.click(summary)
+  await waitFor(() => expect(status.open).toBe(false))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(scrolls).toHaveLength(1)
+})
+
 test('priority sends its fixed prompt and central grant revision', async () => {
   setup()
   fireEvent.click(await screen.findByRole('button', { name: /Priorisieren/ }))

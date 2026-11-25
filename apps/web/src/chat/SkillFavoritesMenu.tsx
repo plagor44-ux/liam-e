@@ -111,7 +111,8 @@ export function SkillFavoritesMenu({
           ref={triggerRef}
           type="button"
           disabled={disabled}
-          aria-haspopup="menu"
+          // The popup is a dialog with buttons, not a menu of menuitems (#163).
+          aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? menuId : undefined}
           className="le-chip le-chip--quiet"

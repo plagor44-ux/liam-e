@@ -644,7 +644,8 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   (mail still being fetched, incomplete calendars, paused or unreadable calendars, a failed refresh,
   excluded tasks) collapse into one closed line „Stand der Quellen anzeigen (3)“ that opens to the
   list. „Einige Kalender sind derzeit nicht lesbar.“ appears only when no named line explains it.
-  With a coarse pointer the line is 44 px tall. „Heute fällig“ keeps the caveats in its tooltip.
+  Opening the line scrolls the whole list into view above the composer (instantly with reduced
+  motion), with a `space-2` margin. With a coarse pointer the line is 44 px tall. „Heute fällig“ keeps the caveats in its tooltip.
 - **Revoked context:** one notice per conversation at its first revoked answer, with
   „Neue Unterhaltung“; different causes share the general text. When a restart notice replaces the
   composer (changed grant or calendars), the revoked notice only names its cause.
@@ -652,6 +653,9 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
 - **Error** with its own cause and next step, e.g. model unreachable („Das Modell antwortet gerade
   nicht. Versuch es gleich noch mal.“), interruption mid-answer („Die Antwort ist abgebrochen.“ with
   button „Noch mal versuchen“), account unreachable (notice names the account; other accounts continue).
+- **Cited mail:** a citation that the conversation may no longer read (404, revoked context or an
+  older grant) says calmly „Diese Mail ist in dieser Unterhaltung nicht verfügbar.“ without retry
+  wording or action. Only a transient failure (network, server error) invites another try.
 
 ### 9.6 Header, composer and mail context
 
@@ -682,15 +686,16 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   sending stays explicit. Skills default to a single message („Nur für diese Nachricht“) and can
   optionally be kept across clarifying follow-ups until explicitly ended.
   An attached skill takes **one row**: the tag „Skill: Name“, a duration chip („Nur für diese
-  Nachricht“ or „Aktiv, bis du ihn beendest“) that opens the two choices with one explanatory line
+  Nachricht“ or „Bis du ihn beendest“) that opens the two choices with one explanatory line
   each, a steps chip („3 Schritte“; the label stays, `aria-expanded` says whether the list is open)
   and `x` („Skill entfernen“, or „Skill beenden“ when kept). The note on later messages and unchanged
   scopes is the duration chip's tooltip and lasting accessible description, never a row of its own.
   An attached template uses the same row: „Vorlage: Name“, when it applies, and `x`. On `mobile`
   the `x` stays beside the tag and the controls take the second row, so it never wraps alone; the
-  banner's chips use tighter padding there so duration and steps share that row from 390 px.
-  With a skill the field reads „Frag etwas mit „Name“ …“; the compact phone row shows „Deine Frage
-  an den Skill“ and keeps the full text as the field's name. Each answer that used a skill shows
+  banner's chips use tighter padding there so duration and steps share that row from 375 px.
+  Removing a skill or template banner with its `x` puts the focus in the message field.
+  With a skill the field reads „Frag etwas mit „Name“ …“; the compact phone row shows „Frag den
+  Skill …“, which stays on one line at 320 px, and keeps the full text as the field's name. Each answer that used a skill shows
   „Skill: Name · Version 2“ above it.
   Built-in skill names and steps come from the catalogue by command and step, so they follow the
   app language.

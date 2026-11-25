@@ -942,6 +942,14 @@ test('on phones the x stays beside the tag and the banner chips are tightened so
   expect(rule(css.replace(phone, ''), '.le-composer-active-actions .le-chip')).toBe('')
 })
 
+// Measured in a browser with the seed data (#163): body text takes about 6 to 7 px per character; a
+// 320 px phone field holds 146 px and a 375 px banner row 293 px. These budgets keep the compact
+// placeholder on one line and the sticky duration chip beside „3 Schritte“ without truncating either.
+test.each([['de', de], ['en', en]] as const)('phone-sized skill labels stay within their measured budgets (%s)', (_locale, texts) => {
+  for (const placeholder of [texts.skills.compactPlaceholder, texts.skills.creatorCompactPlaceholder]) expect(placeholder.length).toBeLessThanOrEqual(20)
+  expect(texts.skills.durationUntilStopped.length + texts.skills.showSteps(3).length).toBeLessThanOrEqual(30)
+})
+
 test('the compact phone composer shows a short skill or creator placeholder and keeps the full one as the field name', async () => {
   setup({ compact: true, skills: [creatorSkill, dailySkill, digestSkill] })
   const field = await screen.findByPlaceholderText(de.controls.composerPlaceholder)
@@ -957,4 +965,32 @@ test('the compact phone composer shows a short skill or creator placeholder and 
   fireEvent.click(await screen.findByRole('option', { name: new RegExp(de.skills.createSkillHint) }))
   const creatorField = await screen.findByPlaceholderText(de.skills.creatorCompactPlaceholder)
   expect(creatorField.getAttribute('aria-label')).toBe(de.skills.creatorPlaceholder)
+})
+
+test.each([
+  ['skill', '/daily', (): RegExp => new RegExp(dailySkill.name), (): string => de.skills.removeSelection],
+  ['skill creator', '/erstellen', (): RegExp => new RegExp(de.skills.createSkillHint), (): string => de.skills.endSkill],
+  ['template', '/Fristen', (): RegExp => new RegExp(promptTemplate.name), (): string => de.prompts.clearSelection],
+] as const)('removing the %s banner with its x moves the focus to the message field', async (_kind, command, option, close) => {
+  setup({ skills: [creatorSkill, dailySkill, digestSkill] })
+  const field = await screen.findByPlaceholderText(de.chat.placeholder)
+  fireEvent.change(field, { target: { value: command, selectionStart: command.length } })
+  fireEvent.click(await screen.findByRole('option', { name: option() }))
+  const x = await screen.findByRole('button', { name: close() })
+  // Space or Enter on a focused button fires its click.
+  act(() => x.focus())
+  fireEvent.click(x)
+  await waitFor(() => expect(screen.queryByRole('button', { name: close() })).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(field))
+  expect(field.getAttribute('role')).toBe('combobox')
+})
+
+test('the favorites trigger announces the dialog it opens', async () => {
+  setup()
+  const trigger = await screen.findByRole('button', { name: de.skills.favoritesChip })
+  expect(trigger.getAttribute('aria-haspopup')).toBe('dialog')
+  fireEvent.click(trigger)
+  const popup = await screen.findByRole('dialog', { name: de.skills.favoritesMenuLabel })
+  expect(trigger.getAttribute('aria-controls')).toBe(popup.id)
+  expect(popup.getAttribute('role')).toBe(trigger.getAttribute('aria-haspopup'))
 })

@@ -6,6 +6,8 @@ import * as sdk from '../api/generated/sdk.gen'
 import type { ChatMessageOut, ConversationOut, MailSummaryOut } from '../api/generated/types.gen'
 import { Route as StartRoute } from '../routes/_app/index'
 import { de } from '../i18n/de'
+import { en } from '../i18n/en'
+import { I18nProvider } from '../i18n/I18n'
 import { Conversation, turnOrder } from './Conversation'
 import { ChatSessionProvider, useChatSession } from './session'
 
@@ -22,7 +24,7 @@ let requestBody: Record<string, unknown>
 let summary: MailSummaryOut = { accounts: [], unread_total: 0, newsletter_senders: 0, last_sync_at: null }
 // A test can hold the account summary back to see the state while it loads.
 let summaryGate: Promise<void> | null = null
-function setup(path = '/', historyGone = false, selection: string | null = null, voiceTrigger = false) {
+function setup(path = '/', historyGone = false, selection: string | null = null, voiceTrigger = false, locale: 'de' | 'en' = 'de') {
   history = []
   summary = { mail_scope_version: 4, accounts: [{ id: 'a', display_name: 'Privat', email_address: 'ich@example.com', provider: 'gmail', color_index: 0, state: 'ok' } as MailSummaryOut['accounts'][number]], unread_total: 0, newsletter_senders: 0, last_sync_at: null }
   window.matchMedia = ((query: string) => ({ matches: query !== '(max-width: 639px)', addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
@@ -40,7 +42,7 @@ function setup(path = '/', historyGone = false, selection: string | null = null,
     const { send } = useChatSession()
     return <button onClick={() => void send({ text: 'Hallo', conversation_id: 'c', voice_response: true }, { voiceAudio: { push() {}, end: async () => {}, fail() {} } })}>Test voice turn</button>
   }
-  const root = createRootRoute({ component: () => <QueryClientProvider client={client}><ChatSessionProvider>{voiceTrigger && <VoiceTrigger />}<Outlet /></ChatSessionProvider></QueryClientProvider> })
+  const root = createRootRoute({ component: () => <I18nProvider locale={locale}><QueryClientProvider client={client}><ChatSessionProvider>{voiceTrigger && <VoiceTrigger />}<Outlet /></ChatSessionProvider></QueryClientProvider></I18nProvider> })
   const start = createRoute({ getParentRoute: () => root, path: '/', validateSearch: StartRoute.options.validateSearch, component: StartRoute.options.component })
   const chat = createRoute({ getParentRoute: () => root, path: '/chat/$conversationId', component: function ChatRoute() { const { conversationId } = chat.useParams(); return <Conversation conversationId={conversationId} /> } })
   const mail = createRoute({ getParentRoute: () => root, path: '/mail/$messageId', component: () => <p>Mail</p> })
@@ -682,6 +684,54 @@ test('a missing history mail reference is requested only once', async () => {
   await waitFor(() => expect(client.getQueryState(['chat-mail-reference', 'missing', 4, currentContext.id])?.status).toBe('error'))
   expect(client.getQueryState(['chat-mail-reference', 'missing', 4, currentContext.id])?.fetchFailureCount).toBe(1)
   expect(get).toHaveBeenCalledTimes(1)
+})
+
+const citedAnswer = (context: ChatMessageOut['context']): ChatMessageOut => ({ id: 'cited', conversation_id: 'c', role: 'assistant', content: 'Antwort', created_at: '', extras: { mails: ['cited-mail'] }, proposal: null, proposal_status: '', stopped: false, context, tool_name: '' })
+const retryWording = /Versuch es|noch mal|Try again/u
+
+test('a citation that returns 404 is not available in this conversation and invites no retry', async () => {
+  spyOn(sdk, 'chatMailReferenceGet').mockImplementation((async () => ({ response: new Response(null, { status: 404 }) })) as never)
+  const { client } = setup('/chat/c')
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [citedAnswer(currentContext)]) })
+  const hint = await screen.findByText(de.chat.referenceUnavailable)
+  expect(hint.textContent).not.toMatch(retryWording)
+  expect(screen.queryByText(de.chat.referenceError)).toBeNull()
+  expect(screen.queryByRole('button', { name: de.chat.retry })).toBeNull()
+})
+
+test.each([
+  ['a revoked context', { ...currentContext, revoked: true }],
+  ['an old-grant context', { ...currentContext, mail_scope_version: 3 }],
+])('a citation of %s shows the same permanent text without a live read', async (_label, context) => {
+  const get = spyOn(sdk, 'chatMailReferenceGet')
+  const { client } = setup('/chat/c')
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [citedAnswer(context)]) })
+  expect(await screen.findByText(de.chat.referenceUnavailable)).toBeTruthy()
+  expect(screen.queryByText(de.chat.referenceError)).toBeNull()
+  expect(get).not.toHaveBeenCalled()
+})
+
+test('the English permanent citation text carries no retry wording', async () => {
+  spyOn(sdk, 'chatMailReferenceGet').mockImplementation((async () => ({ response: new Response(null, { status: 404 }) })) as never)
+  const { client } = setup('/chat/c', false, null, false, 'en')
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [citedAnswer(currentContext)]) })
+  const hint = await screen.findByText(en.chat.referenceUnavailable)
+  expect(hint.textContent).not.toMatch(retryWording)
+})
+
+test.each([
+  ['a server error', async () => ({ error: { detail: { code: 'settings_unavailable' } }, response: new Response(null, { status: 503 }) })],
+  ['a network error', async () => { throw new TypeError('Failed to fetch') }],
+])('negative case: a citation read failing with %s keeps the retry text', async (_label, failure) => {
+  spyOn(sdk, 'chatMailReferenceGet').mockImplementation(failure as never)
+  const { client } = setup('/chat/c')
+  await waitFor(() => expect(client.getQueryData(['history', 'c'])).toEqual([]))
+  act(() => { client.setQueryData(['history', 'c'], [citedAnswer(currentContext)]) })
+  expect(await screen.findByText(de.chat.referenceError)).toBeTruthy()
+  expect(screen.queryByText(de.chat.referenceUnavailable)).toBeNull()
 })
 
 test('history renders safe text, model, mail account and only the latest suggestions', async () => {

@@ -155,8 +155,9 @@
 .le-chat-view--mail-question .le-chat-scope { margin-top: var(--space-4); }
 .le-chat-start-scroll { display: flex; flex-direction: column; }
 .le-chat-start { width: 100%; margin: auto 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-4); }
-/* One quiet line for info-level source states; it opens to the individual hints. */
-.le-chat-source-status { max-width: 100%; font-size: var(--font-size-small); color: var(--ink-muted); overflow-wrap: anywhere; }
+/* One quiet line for info-level source states; it opens to the individual hints. Opening scrolls
+   the whole list into view above the composer, and the margin keeps it off that edge (#163). */
+.le-chat-source-status { max-width: 100%; font-size: var(--font-size-small); color: var(--ink-muted); overflow-wrap: anywhere; scroll-margin-block: var(--space-2); }
 .le-chat-source-status summary { width: fit-content; cursor: pointer; }
 .le-chat-source-status ul { margin: var(--space-2) 0 0; padding-inline-start: var(--space-5); display: grid; gap: var(--space-1); }
 @media (pointer: coarse) { .le-chat-source-status summary { min-height: var(--control-height-lg); align-content: center; } }
