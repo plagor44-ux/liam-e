@@ -1,12 +1,12 @@
 // i18n-exempt: CSS classes, protocol codes, DOM selectors and field limits.
 import { useQuery } from '@tanstack/react-query'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { SkillDraft, SkillEdit } from '../api/generated/types.gen'
 import { skillsQuery, skillToolsQuery } from '../api/queries'
 import { Button, Notice, Tag, TextField } from '../ds'
 import type { Catalogue } from '../i18n/catalogue'
 import { useI18n } from '../i18n/I18n'
-import { useChatSession } from './session'
+import { useChatSession, useRestartConversation } from './session'
 import { SKILL_CREATOR_SLUG, toActiveSkillSelection } from './skill-selection'
 import './skill-proposal.css'
 
@@ -44,7 +44,7 @@ export function SkillProposal({ draft, value, onChange, busy, error, onRestart, 
 }) {
   const { texts } = useI18n()
   const t = texts.skillProposal
-  const headingId = useId()
+  const headingId = useId(), nameId = useId(), slugId = useId()
   const tools = useQuery(skillToolsQuery())
   const kinds = new Map(tools.data?.map(tool => [tool.name, tool.kind]))
   const [instructionsOpen, setInstructionsOpen] = useState(false)
@@ -60,6 +60,16 @@ export function SkillProposal({ draft, value, onChange, busy, error, onRestart, 
   const update = (patch: Partial<SkillEdit>) => onChange({ ...value, ...patch })
   const steps = draft.workflow_steps ?? []
   const allowed = draft.allowed_tools ?? []
+  // A taken name or command marks its field while Save stays disabled, and the busy Save button lost
+  // the focus. Move the focus to that field and bring it with its error into view: focusing it reads
+  // the error through aria-describedby once, so the error itself has no live role.
+  useEffect(() => {
+    const input = document.getElementById(error === 'skill_name_conflict' ? nameId : error === 'skill_conflict' ? slugId : '')
+    if (!input) return
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    input.focus({ preventScroll: true })
+    ;(input.closest('.le-field') ?? input).scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }, [error, nameId, slugId])
 
   return <section className="le-confirm le-skill-proposal" aria-labelledby={headingId}>
     <div className="le-confirm-head">
@@ -67,10 +77,10 @@ export function SkillProposal({ draft, value, onChange, busy, error, onRestart, 
       <span>{t.reason}</span>
     </div>
     <div className="le-skill-fields">
-      <TextField label={t.name} value={value.name} maxLength={LIMITS.name} required
+      <TextField id={nameId} label={t.name} value={value.name} maxLength={LIMITS.name} required
         hint={texts.prompts.count(length(value.name), LIMITS.name)} error={fieldErrors.name}
         onChange={event => update({ name: event.target.value })} />
-      <TextField label={t.command} value={value.slug} maxLength={LIMITS.slug} required autoCapitalize="none" autoComplete="off" spellCheck={false}
+      <TextField id={slugId} label={t.command} value={value.slug} maxLength={LIMITS.slug} required autoCapitalize="none" autoComplete="off" spellCheck={false}
         hint={t.commandHint(slug || '…')} error={fieldErrors.slug}
         onChange={event => update({ slug: event.target.value })} />
       <TextField multiline rows={2} label={t.description} value={value.description} maxLength={LIMITS.description} required
@@ -106,21 +116,34 @@ export function SkillProposal({ draft, value, onChange, busy, error, onRestart, 
   </section>
 }
 
-/** Result of a confirmed skill card: the skill can be attached to this conversation's composer without sending. */
-export function SkillSaved({ conversationId, skillId, name }: { conversationId: string; skillId?: string | null; name: string }) {
+/**
+ * Result of a confirmed skill card. With a message field (`composer`), the skill can be attached to
+ * this conversation without sending. Without one, for example when the conversation shows a restart
+ * notice instead, it never claims an attachment and offers a new conversation with the skill attached.
+ */
+export function SkillSaved({ conversationId, skillId, name, composer = false }: { conversationId: string; skillId?: string | null; name: string; composer?: boolean }) {
   const { texts } = useI18n()
   const t = texts.skillProposal
   const skills = useQuery(skillsQuery())
   const { selectedSkills, setSelectedSkill } = useChatSession()
+  const restart = useRestartConversation(conversationId)
   const live = skills.data?.find(skill => skill.id === skillId && skill.status === 'active')
-  const attached = Boolean(skillId) && selectedSkills[conversationId]?.skill.id === skillId
+  const label = live?.name ?? name
+  const attached = composer && Boolean(skillId) && selectedSkills[conversationId]?.skill.id === skillId
   const use = () => {
-    if (!live) return
+    if (!live || !composer) return
     setSelectedSkill(conversationId, toActiveSkillSelection(live), 'turn')
     // The action disappears once used; the owner continues in the message field.
     requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[role="combobox"]')?.focus())
   }
-  return <Notice tone="success" action={live && !attached ? { label: t.useNow, onClick: use } : undefined}>
-    {attached ? t.attached(live?.name ?? name) : t.saved(live?.name ?? name)}
+  const useInNew = () => {
+    if (!live) return
+    // The restart clears the new conversation's skill, so attach it afterwards.
+    restart()
+    setSelectedSkill('new', toActiveSkillSelection(live), 'turn')
+  }
+  const action = !live || attached ? undefined : composer ? { label: t.useNow, onClick: use } : { label: t.useInNew, onClick: useInNew }
+  return <Notice tone="success" action={action}>
+    {attached ? t.attached(label) : live && !composer ? t.savedNoComposer(label) : t.saved(label)}
   </Notice>
 }

@@ -319,6 +319,8 @@ export const de = {
     saved: (name: string) => `Skill „${name}“ gespeichert.`,
     useNow: 'Jetzt verwenden',
     attached: (name: string) => `„${name}“ ist im Eingabefeld ausgewählt.`,
+    savedNoComposer: (name: string) => `Skill „${name}“ gespeichert. Diese Unterhaltung nimmt keine Nachrichten mehr an.`,
+    useInNew: 'In neuer Unterhaltung verwenden',
     quota: 'Du hast schon die Höchstzahl eigener Skills gespeichert. Dieser Entwurf wurde nicht gespeichert.',
     invalid: 'Prüf Name, Befehl, Beschreibung und Anweisungen.',
     toolUnavailable: 'Ein Werkzeug dieses Entwurfs ist nicht mehr freigegeben. Bitte um einen neuen Entwurf.',

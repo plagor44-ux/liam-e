@@ -399,7 +399,7 @@ export function Conversation({ conversationId }: { conversationId: string }) {
         ? <Notice tone="danger" action={{ label: texts.calendar.retry, onClick: () => { void sources.refetch() } }}>{texts.calendar.error}</Notice>
         : <p role="status">{texts.calendar.loading}</p>
     }
-    return <ProposalCard key={message.id} message={message} oldGrant={revoked} grantVersion={grantVersion} skillRevoked={isSkillRevokedOnly(context)} />
+    return <ProposalCard key={message.id} message={message} oldGrant={revoked} grantVersion={grantVersion} skillRevoked={isSkillRevokedOnly(context)} composer={!oldGrant} />
   }
   const speechEnabled = grantVersion != null && !oldGrant && tts?.status === 'available' && tts.formats.includes('audio/mpeg') &&
     typeof Audio !== 'undefined' && typeof URL.createObjectURL === 'function'

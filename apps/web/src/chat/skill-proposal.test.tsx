@@ -2,7 +2,8 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import * as sdk from '../api/generated/sdk.gen'
 import type { ChatMessageOut, RegisteredToolOut, SkillOut } from '../api/generated/types.gen'
 import { de } from '../i18n/de'
@@ -32,10 +33,14 @@ function card(status = 'pending', extra: Partial<ChatMessageOut['proposal'] & ob
 
 function SelectedProbe() {
   const { selectedSkills } = useChatSession()
-  return <div data-testid="selected" data-skill={selectedSkills.c?.skill.id ?? ''} data-persistence={selectedSkills.c?.persistence ?? ''} />
+  return <div data-testid="selected" data-skill={selectedSkills.c?.skill.id ?? ''} data-persistence={selectedSkills.c?.persistence ?? ''}
+    data-new-skill={selectedSkills.new?.skill.id ?? ''} data-new-persistence={selectedSkills.new?.persistence ?? ''} />
 }
 
-function setup(initial: ChatMessageOut, skills: SkillOut[] = []) {
+// `composer` stands in for the conversation's message field: Conversation shows it only while the
+// conversation still accepts messages, and a restart notice in its place otherwise.
+function setup(initial: ChatMessageOut, skills: SkillOut[] = [], { composer = true } = {}) {
+  const controls = { setComposer: (_value: boolean) => {} }
   spyOn(sdk, 'skillToolsList').mockResolvedValue({ data: tools } as never)
   const list = spyOn(sdk, 'skillsList').mockResolvedValue({ data: skills } as never)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
@@ -43,12 +48,21 @@ function setup(initial: ChatMessageOut, skills: SkillOut[] = []) {
   client.setQueryData(['history', 'c'], [initial])
   function Page() {
     const { data } = useQuery({ queryKey: ['history', 'c'], queryFn: async () => client.getQueryData<ChatMessageOut[]>(['history', 'c']) ?? [], staleTime: Infinity })
-    return <><ProposalCard message={data![0]!} /><SelectedProbe /></>
+    const [available, setAvailable] = useState(composer)
+    controls.setComposer = setAvailable
+    return <><ProposalCard message={data![0]!} composer={available} /><SelectedProbe />{available && <textarea role="combobox" aria-label="Nachricht" aria-expanded={false} />}</>
   }
   const root = createRootRoute({ component: () => <QueryClientProvider client={client}><ChatSessionProvider><Page /></ChatSessionProvider></QueryClientProvider> })
   const router = createRouter({ routeTree: root, history: createMemoryHistory({ initialEntries: ['/chat/c'] }) })
   render(<RouterProvider router={router} />)
-  return { client, list, router }
+  return { client, list, router, controls }
+}
+
+// Records which elements were scrolled into view, and how; jsdom lays nothing out.
+function trackScrolls() {
+  const scrolls: { element: Element; options: unknown }[] = []
+  spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element, options?: unknown) { scrolls.push({ element: this, options }) })
+  return scrolls
 }
 afterEach(() => { cleanup(); mock.restore() })
 
@@ -82,6 +96,7 @@ test('a skill card shows the draft with localized tools and confirms only the ed
   // "Use now" attaches the new skill to this conversation for one message and sends nothing.
   fireEvent.click(await screen.findByRole('button', { name: t.useNow }))
   expect(await screen.findByText(t.attached(saved.name))).toBeTruthy()
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Nachricht' })))
   expect(screen.getByTestId('selected').dataset.skill).toBe(saved.id)
   expect(screen.getByTestId('selected').dataset.persistence).toBe('turn')
   expect(screen.queryByRole('button', { name: t.useNow })).toBeNull()
@@ -152,3 +167,84 @@ test('an unknown proposal kind shows a notice instead of breaking the conversati
   setup({ ...card(), proposal: { kind: 'future', reason: '', items: [] } } as unknown as ChatMessageOut)
   expect(await screen.findByText(de.proposal.unsupported)).toBeTruthy()
 })
+
+test('without a message field the saved notice offers a new conversation instead of claiming success', async () => {
+  const { router } = setup(card('done', { result: { done: 1, skill_id: saved.id } }), [saved], { composer: false })
+  expect(await screen.findByText(t.savedNoComposer(saved.name))).toBeTruthy()
+  expect(screen.queryByRole('button', { name: t.useNow })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: t.useInNew }))
+  // The new conversation starts with the skill attached for one message; nothing is sent.
+  await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+  expect(screen.getByTestId('selected').dataset.newSkill).toBe(saved.id)
+  expect(screen.getByTestId('selected').dataset.newPersistence).toBe('turn')
+  expect(screen.getByTestId('selected').dataset.skill).toBe('')
+  expect(screen.queryByText(t.attached(saved.name))).toBeNull()
+})
+
+test('negative case: an attached skill is not reported as attached once the message field is gone', async () => {
+  const { controls } = setup(card('done', { result: { done: 1, skill_id: saved.id } }), [saved])
+  fireEvent.click(await screen.findByRole('button', { name: t.useNow }))
+  expect(await screen.findByText(t.attached(saved.name))).toBeTruthy()
+  act(() => controls.setComposer(false))
+  expect(await screen.findByText(t.savedNoComposer(saved.name))).toBeTruthy()
+  expect(screen.queryByText(t.attached(saved.name))).toBeNull()
+  expect(screen.getByRole('button', { name: t.useInNew })).toBeTruthy()
+})
+
+for (const [code, field] of [['skill_name_conflict', t.name], ['skill_conflict', t.command]] as const) {
+  test(`a ${code} moves the focus to its field and brings the field with its error into view`, async () => {
+    spyOn(sdk, 'chatProposalConfirm').mockRejectedValue({ detail: { code } } as never)
+    const scrolls = trackScrolls()
+    setup(card())
+    const save = await screen.findByRole('button', { name: t.save })
+    act(() => save.focus())
+    fireEvent.click(save)
+    expect(await screen.findByText(code === 'skill_name_conflict' ? t.nameTaken : t.commandTaken)).toBeTruthy()
+    const input = screen.getByLabelText(field)
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    // Focusing the field reads its error through aria-describedby; no live role announces it twice.
+    const error = document.getElementById(`${input.id}-error`)
+    expect(error?.textContent).toBe(code === 'skill_name_conflict' ? t.nameTaken : t.commandTaken)
+    expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(`${input.id}-error`)
+    const fieldBox = input.closest('.le-field')!
+    expect(within(fieldBox as HTMLElement).queryByRole('alert')).toBeNull()
+    expect(scrolls.filter(scroll => scroll.element === fieldBox).map(scroll => scroll.options)).toEqual([{ block: 'nearest', behavior: 'smooth' }])
+  })
+}
+
+test('the conflicting field scrolls without animation when the owner prefers reduced motion', async () => {
+  spyOn(sdk, 'chatProposalConfirm').mockRejectedValue({ detail: { code: 'skill_name_conflict' } } as never)
+  const scrolls = trackScrolls()
+  const matchMedia = window.matchMedia
+  window.matchMedia = ((query: string) => ({ matches: query.includes('prefers-reduced-motion'), media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia
+  try {
+    setup(card())
+    fireEvent.click(await screen.findByRole('button', { name: t.save }))
+    expect(await screen.findByText(t.nameTaken)).toBeTruthy()
+    const input = screen.getByLabelText(t.name)
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    expect(scrolls.filter(scroll => scroll.element === input.closest('.le-field')).map(scroll => scroll.options)).toEqual([{ block: 'nearest', behavior: 'auto' }])
+  } finally { window.matchMedia = matchMedia }
+})
+
+test('negative case: a refusal without a field leaves the focus and the scroll position alone', async () => {
+  spyOn(sdk, 'chatProposalConfirm').mockRejectedValue({ detail: { code: 'skill_quota' } } as never)
+  const scrolls = trackScrolls()
+  setup(card())
+  const save = await screen.findByRole('button', { name: t.save })
+  act(() => save.focus())
+  fireEvent.click(save)
+  expect(await screen.findByText(t.quota)).toBeTruthy()
+  expect(document.activeElement).not.toBe(screen.getByLabelText(t.name))
+  expect(document.activeElement).not.toBe(screen.getByLabelText(t.command))
+  expect(scrolls).toEqual([])
+})
+
+test('the instructions disclosure is a large touch target with a coarse pointer', async () => {
+  const css = await Bun.file(new URL('./skill-proposal.css', import.meta.url)).text()
+  const rule = css.match(/@media \(pointer: coarse\) \{ \.le-skill-instructions summary \{ ([^{}]+) \} \}/u)
+  expect(rule).toBeTruthy()
+  for (const property of ['min-height: var(--control-height-lg)', 'align-content: center']) expect(rule?.[1]).toContain(property)
+})
+

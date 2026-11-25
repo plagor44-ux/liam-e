@@ -8,3 +8,4 @@
 .le-skill-steps { margin: 0; padding-inline-start: var(--space-5); display: grid; gap: var(--space-1); }
 .le-skill-steps li, .le-skill-section p { overflow-wrap: anywhere; }
 .le-skill-proposal .le-confirm-foot { flex-wrap: wrap; }
+@media (pointer: coarse) { .le-skill-instructions summary { min-height: var(--control-height-lg); align-content: center; } }

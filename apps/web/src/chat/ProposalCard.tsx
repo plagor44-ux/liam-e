@@ -84,7 +84,7 @@ function failureText(code: string | undefined, kind: Proposal['kind'], texts: Ca
   }
 }
 
-function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOut; proposal: Proposal; clock: Clock; onUndone: () => void }) {
+function Result({ message, proposal, clock, onUndone, composer }: { message: ChatMessageOut; proposal: Proposal; clock: Clock; onUndone: () => void; composer: boolean }) {
   const { texts } = useI18n()
   const client = useQueryClient()
   const { visible, beforeDeadline, expire } = useUndoWindow(client, message.id, clock)
@@ -112,7 +112,7 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
     }
   }
   if (proposal.kind === 'calendar') return <CalendarProposal message={message} />
-  if (proposal.kind === 'skill') return <SkillSaved conversationId={message.conversation_id} skillId={result?.skill_id} name={proposal.skill?.name ?? ''} />
+  if (proposal.kind === 'skill') return <SkillSaved conversationId={message.conversation_id} skillId={result?.skill_id} name={proposal.skill?.name ?? ''} composer={composer} />
   if (proposal.kind === 'task') return <Notice tone="success"><span>{texts.taskChat.done}</span>{result?.task_series_id && <> <Link className="le-link" to="/tasks/$taskId" params={{ taskId: result.task_series_id }}>{texts.tasks.detail}</Link></>}</Notice>
   if (proposal.kind === 'preference') return <Notice tone="success">{result?.preference_outcome === 'kept' ? texts.preferenceCandidates.kept : result?.preference_outcome === 'unchanged' ? texts.preferenceCandidates.unchanged : result?.preferences_enabled ? texts.preferences.saved : texts.preferences.savedOff}</Notice>
   if (proposal.kind === 'filing' || proposal.kind === 'rule') return <Notice tone="success">{proposal.kind === 'filing' ? texts.mailFiling.filingDone : texts.mailFiling.ruleDone}</Notice>
@@ -141,7 +141,8 @@ function Result({ message, proposal, clock, onUndone }: { message: ChatMessageOu
     {error && <Notice tone="danger">{error}</Notice>}</>
 }
 
-export function ProposalCard({ message, clock = systemClock, oldGrant = false, grantVersion, skillRevoked = false }: { message: ChatMessageOut; clock?: Clock; oldGrant?: boolean; grantVersion?: number | null; skillRevoked?: boolean }) {
+/** `composer`: the conversation still shows its message field (not a restart notice in its place). */
+export function ProposalCard({ message, clock = systemClock, oldGrant = false, grantVersion, skillRevoked = false, composer = false }: { message: ChatMessageOut; clock?: Clock; oldGrant?: boolean; grantVersion?: number | null; skillRevoked?: boolean; composer?: boolean }) {
   const { texts, locale } = useI18n()
   const client = useQueryClient()
   const [updated, setUpdated] = useState<ChatMessageOut | null>(null)
@@ -235,7 +236,7 @@ export function ProposalCard({ message, clock = systemClock, oldGrant = false, g
     const failure = failures.find(item => item.code === 'provider_permission_missing') ?? failures[0]
     return settled(<Notice tone="danger">{failureText(failure?.code, proposal.kind, texts)}</Notice>)
   }
-  if (current.proposal_status === 'done' || current.proposal_status === 'partial' || current.proposal_status === 'failed') return settled(<Result key={current.id} message={current} proposal={proposal} clock={clock} onUndone={() => outcome.current?.focus()} />)
+  if (current.proposal_status === 'done' || current.proposal_status === 'partial' || current.proposal_status === 'failed') return settled(<Result key={current.id} message={current} proposal={proposal} clock={clock} onUndone={() => outcome.current?.focus()} composer={composer} />)
   if (current.proposal_status !== 'pending') return null
   if (proposal.kind === 'skill') {
     if (!proposal.skill) return null

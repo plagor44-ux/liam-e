@@ -587,10 +587,15 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   with a character count. Below are the approved tools by localized name with a kind tag
   („Nur lesen“, „Mit Bestätigung“, „Anzeige“) and the numbered steps. A fixed sentence says the skill uses
   only these tools and still proposes changes on a card. An empty or invalid field, or a name or
-  command already taken, marks its own field and disables „Skill speichern“. After saving, a
-  success notice replaces the card; „Jetzt verwenden“ attaches the new skill to this conversation's
-  composer for one message without sending. A card the client cannot render shows a neutral notice
-  instead of breaking the conversation.
+  command already taken, marks its own field and disables „Skill speichern“. A name or command
+  refused as taken on saving takes the focus and comes into view with its error, scrolling
+  smoothly only without reduced motion; the focus reads the error once, so it has no live role.
+  With a coarse pointer the „Anweisungen“ disclosure is 44 px tall. After saving, a success notice
+  replaces the card; „Jetzt verwenden“ attaches the new skill to this conversation's composer for
+  one message without sending. Where the conversation shows a restart notice instead of a composer,
+  the notice says so and offers „In neuer Unterhaltung verwenden“, which starts a new conversation
+  with the skill attached. A card the client cannot render shows a neutral notice instead of
+  breaking the conversation.
 - **Actions initiated by the user in the inbox** on one mail or multiple selected mails take effect
   immediately and then show a notice for 10 seconds with a shared „Rückgängig“. Provider permission
   guidance wraps and stays visible until dismissed, alongside later action results. Its close

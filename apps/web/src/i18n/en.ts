@@ -329,6 +329,8 @@ export const en = {
     saved: name => 'Saved skill “' + name + '”.',
     useNow: 'Use now',
     attached: name => '“' + name + '” is selected in the message field.',
+    savedNoComposer: name => 'Saved skill “' + name + '”. This conversation no longer accepts messages.',
+    useInNew: 'Use in a new conversation',
     quota: 'You’ve already saved the maximum number of your own skills. This draft wasn’t saved.',
     invalid: 'Check the name, command, description and instructions.',
     toolUnavailable: 'A tool in this draft is no longer approved. Ask for a new draft.',
