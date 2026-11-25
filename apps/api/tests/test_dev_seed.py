@@ -151,12 +151,15 @@ async def test_seed_is_repeatable_and_preserves_other_rows(fake_store, monkeypat
         pass
     monkeypatch.setattr(dev_seed, "seed_tasks", skip_tasks)
     monkeypatch.setattr(dev_seed, "seed_filing", AsyncMock())
+    skill_card = AsyncMock(return_value=True)
+    monkeypatch.setattr(dev_seed, "seed_skill_card", skill_card)
     monkeypatch.setattr(calendar_seed, "replace", AsyncMock())
     now = datetime(2026, 11, 13, 12, 30, tzinfo=UTC)
     for _ in range(2):
         result = await dev_seed.seed(now)
-        assert (result.accounts, result.mails, result.unread, result.insights, result.conversations, result.proposals) == (4, 67, 47, 1, 4, 1)
-        assert len(conversations) == 5
+        assert (result.accounts, result.mails, result.unread, result.insights, result.conversations, result.proposals) == (4, 67, 47, 1, 5, 2)
+        assert skill_card.await_args.args[0].id == dev_seed.seed_id("conversation", "skill-offene-rechnungen")
+        assert len(conversations) == 6
         assert len(chats) == 8
         assert conversations[outsider_conversation.id] == outsider_conversation
         assert chats[outsider_chat.id] == outsider_chat

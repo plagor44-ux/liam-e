@@ -238,12 +238,13 @@ async def seed(now: datetime | None = None) -> SeedResult:
         ("newsletter-aufraeumen", "Newsletter aufräumen", at(1, "10:00")),
         ("angebot-meyer-gmbh", "Angebot Meyer GmbH", at(3, "10:00")),
         ("belege-fuer-die-steuer", "Belege für die Steuer", at(12, "10:00")),
+        ("skill-offene-rechnungen", "Skill für offene Rechnungen", at(0, "08:30")),
     ]
     conversations = [ChatConversation(id=seed_id("conversation", key), title=title,
                                      model="mistral-medium-latest", created_at=updated, updated_at=updated)
                      for key, title, updated in conversation_specs]
     await seed_access.replace_conversations(conversations)
-    first, second, third, fourth = conversations
+    first, second, third, fourth, fifth = conversations
     await chat_access.add_message(conversation_id=first.id, role="user", content="Was ist heute wichtig?")
     extras = ChatExtrasOut(
         mails=[seed_id("mail", key) for key in ("hausverwaltung-nebenkosten", "meyer-angebot-4471", "kita-elternabend")],
@@ -273,8 +274,55 @@ async def seed(now: datetime | None = None) -> SeedResult:
         kind="unsubscribe", reason="Du hast sie seit über drei Monaten nicht geöffnet.", items=items))
     for conversation in (third, fourth):
         await chat_access.add_message(conversation_id=conversation.id, role="user", content=conversation.title)
+    skill_card = await seed_skill_card(fifth)
     await seed_calendars(local_now)
-    return SeedResult(len(accounts), len(messages), sum(not m.is_read for m in messages), 1, len(conversations), 1)
+    return SeedResult(len(accounts), len(messages), sum(not m.is_read for m in messages), 1, len(conversations), 1 + skill_card)
+
+
+async def seed_skill_card(conversation: ChatConversation) -> bool:
+    """Add a pending skill-creator card bound to the current chat grant.
+
+    The card renders in full and can be confirmed locally while that grant stays unchanged;
+    confirming creates an ordinary custom skill. Returns False when the creator is unavailable.
+    """
+    from api.mail.agent_prompt import APP_PROMPT_VERSION
+    from api.skills.catalog import ensure_builtin_skills
+    from api.skills.types import SKILL_CREATOR_SLUG, SkillDraft, SkillExecutionRef, SkillWorkflowStep
+    from db.accessors import chat_settings, skill_definition
+    from db.models.chat_context import ChatContext
+
+    await ensure_builtin_skills()
+    creator = await skill_definition.get_skill(SKILL_CREATOR_SLUG)
+    if creator is None or creator.origin != "builtin" or creator.status != "active" or not creator.revision_id:
+        return False
+    settings = await chat_settings.get()
+    context = await seed_access.add_context(ChatContext(
+        conversation_id=conversation.id, app_prompt_version=APP_PROMPT_VERSION, mail_scope_version=settings.version,
+        account_scope_json=json.dumps({"selection": None, "account_ids": settings.account_ids}),
+        skill_id=creator.id, skill_revision_id=creator.revision_id))
+    await chat_access.add_message(conversation_id=conversation.id, role="user", context_id=context.id,
+        content="Ich möchte morgens sehen, welche Rechnungen noch offen sind.")
+    extras = ChatExtrasOut(model="mistral-medium-latest", skill=SkillExecutionRef(
+        id=creator.id, slug=creator.slug, revision_id=creator.revision_id, version=creator.version, origin="builtin"))
+    await chat_access.add_message(conversation_id=conversation.id, role="assistant", context_id=context.id,
+        extras_json=extras.model_dump_json(),
+        content="Hier ist ein Entwurf für den Skill „Offene Rechnungen“. Er sucht Mails mit Rechnungen und zeigt dir Betrag und Frist. Prüf ihn und speichere ihn, wenn er passt.")
+    draft = SkillDraft(
+        slug="offene-rechnungen", name="Offene Rechnungen",
+        description="Zeigt Mails mit offenen Rechnungen der letzten 30 Tage mit Betrag und Frist.",
+        instructions=("Suche in den freigegebenen Konten nach Mails mit Rechnungen der letzten 30 Tage. "
+                      "Nenne Absender, Betrag und Frist, wenn sie in der Mail stehen. "
+                      "Schlage keine Mailaktionen vor, wenn sie nicht ausdrücklich gewünscht sind."),
+        workflow_steps=[
+            SkillWorkflowStep(id="suchen", title="Rechnungen suchen", description="Mails mit Rechnungen der letzten 30 Tage finden.", tool_names=["search_messages"]),
+            SkillWorkflowStep(id="zeigen", title="Übersicht zeigen", description="Treffer mit Betrag und Frist auflisten.", tool_names=["get_message", "show_mails"]),
+        ],
+        allowed_tools=["search_messages", "get_message", "show_mails"],
+    )
+    await proposals.create_proposal(conversation.id, proposals.Proposal(
+        kind="skill", reason="Skill-Entwurf „Offene Rechnungen“ (/offene-rechnungen) liegt zur Bestätigung vor.", items=[], skill=draft),
+        context_id=context.id)
+    return True
 
 
 async def seed_calendars(now: datetime) -> None:

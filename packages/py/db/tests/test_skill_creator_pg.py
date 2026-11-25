@@ -133,3 +133,34 @@ def test_a_failure_after_the_insert_leaves_no_skill_and_a_pending_card(pg_db, mo
         assert await custom_skills() == []
         assert (await chat_message.get_message(card.id)).proposal_status == "pending"
     asyncio.run(run())
+
+
+def test_the_seeded_creator_card_confirms_once_and_reseeding_removes_its_context(pg_db):
+    async def run():
+        from sqlmodel import select
+
+        from api.mail import dev_seed, proposals
+        from db.accessors import chat_message, dev_seed as seed_access
+        from db.engine import get_session_maker
+        from db.models.chat_context import ChatContext
+        from db.models.chat_conversation import ChatConversation
+
+        conversation = ChatConversation(id=dev_seed.seed_id("conversation", "skill-offene-rechnungen"), title="Synthetic")
+        await seed_access.replace_conversations([conversation])
+        assert await dev_seed.seed_skill_card(conversation) is True
+        rows = await chat_message.list_messages(conversation.id)
+        card = next(row for row in rows if row.role == "proposal")
+        assert [row.role for row in rows] == ["user", "assistant", "proposal"]
+        assert {row.context_id for row in rows} == {card.context_id}
+
+        done = await proposals.confirm(card.id, selected_ids=[])
+        assert done.proposal_status == "done"
+        assert [row.slug for row in await custom_skills()] == ["offene-rechnungen"]
+
+        await seed_access.replace_conversations([ChatConversation(id=conversation.id, title="Synthetic")])
+        async with get_session_maker()() as session:
+            left = (await session.execute(select(ChatContext).where(ChatContext.conversation_id == conversation.id))).scalars().all()
+        assert left == [] and await chat_message.list_messages(conversation.id) == []
+        # The created skill is ordinary owner data and survives a reseed.
+        assert [row.slug for row in await custom_skills()] == ["offene-rechnungen"]
+    asyncio.run(run())

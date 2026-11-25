@@ -58,6 +58,8 @@ async def seeded(fake_store, monkeypatch):
     # The task seed writes through real sessions; its own tests cover it (test_dev_seed.py).
     monkeypatch.setattr(dev_seed, "seed_tasks", AsyncMock())
     monkeypatch.setattr(dev_seed, "seed_filing", AsyncMock())
+    # The skill card also writes through real sessions; test_skill_creator_pg.py covers it.
+    monkeypatch.setattr(dev_seed, "seed_skill_card", AsyncMock(return_value=False))
     monkeypatch.setattr(dev_seed.chat_access, "add_message", add)
     monkeypatch.setattr(dev_seed.chat_access, "cancel_open_proposals", AsyncMock())
     monkeypatch.setattr(proposals.message_access, "get_message", AsyncMock(side_effect=lambda id: chats.get(id)))
