@@ -7,7 +7,7 @@ import { useMailActionsContext } from './useMailActions'
 // renders it inline when it stands alone (mobile and tablet), since the list is unmounted there.
 export function ActionToast({ inline }: { inline?: boolean }) {
   const { texts } = useI18n()
-  const { notice, permissionNotice, dismissPermissionNotice, undo, entries } = useMailActionsContext()
+  const { notice, retryNotices, dismissRetryNotice, permissionNotice, dismissPermissionNotice, undo, entries } = useMailActionsContext()
   const root = useRef<HTMLDivElement>(null)
   const lastFocus = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
@@ -25,9 +25,9 @@ export function ActionToast({ inline }: { inline?: boolean }) {
       lastFocus.current = null
       next?.focus({ preventScroll: true })
     }
-  }, [entries.length, notice, permissionNotice])
+  }, [entries.length, notice, retryNotices, permissionNotice])
   const latest = entries.at(-1)
-  if (!latest && !notice && !permissionNotice) return null
+  if (!latest && !notice && !retryNotices.length && !permissionNotice) return null
   const single = entries.length === 1 ? latest : undefined
   return <div ref={root} className={inline ? 'le-inbox-toast le-inbox-toast--inline' : 'le-inbox-toast'}>
     {latest && <Notice tone={latest.partial ? 'danger' : 'success'}>
@@ -43,9 +43,15 @@ export function ActionToast({ inline }: { inline?: boolean }) {
         }))}
       />}
     </Notice>}
-    {notice && <Notice tone={notice.tone} action={notice.retry ? { label: texts.chat.retry, onClick: notice.retry } : undefined}>
+    {notice && <Notice tone={notice.tone}>
       <span className={`le-inbox-toast-text${notice.wrap ? ' le-inbox-toast-text--wrap' : ''}`}>{notice.text}</span>
     </Notice>}
+    {retryNotices.map(notice => <Notice
+      key={notice.id} tone="danger" action={{ label: texts.chat.retry, onClick: notice.retry }}
+      trailing={<IconButton icon="x" label={texts.inbox.dismissNotice} tipPosition="top-end" tipClear={root} onClick={() => dismissRetryNotice(notice.id)} />}
+    >
+      <span className="le-inbox-toast-text le-inbox-toast-text--wrap">{notice.text}</span>
+    </Notice>)}
     {/* The close tooltip clears the whole toast, so it covers neither this guidance nor an undo link above it. */}
     {permissionNotice && <Notice tone="danger" trailing={<IconButton icon="x" label={texts.inbox.dismissNotice} tipPosition="top-end" tipClear={root} onClick={dismissPermissionNotice} />}>
       <span className="le-inbox-toast-text le-inbox-toast-text--wrap">{permissionNotice}</span>

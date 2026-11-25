@@ -854,6 +854,7 @@ test.each([true, false])('single connector throttling restores the row and only 
 
 test('a bulk rate-limit retry sends only the safe failed item and retains successful undo', async () => {
   const query = new QueryClient()
+  const time = makeClock()
   const bulk = spyOn(sdk, 'mailMessagesBulkAction')
     .mockResolvedValueOnce({ response: { ok: true }, data: { results: [
       { message_id: '1', status: 'done', action_id: 'action-1' },
@@ -867,9 +868,11 @@ test('a bulk rate-limit retry sends only the safe failed item and retains succes
     const { runBulk } = useMailActionsContext()
     return <button onClick={() => { void runBulk(['1', '2', '3'], 'trash') }}>bulk fixture</button>
   }
-  render(<QueryClientProvider client={query}><MailActionsProvider><Trigger /><ActionToast /></MailActionsProvider></QueryClientProvider>)
+  render(<QueryClientProvider client={query}><MailActionsProvider clock={time.clock}><Trigger /><ActionToast /></MailActionsProvider></QueryClientProvider>)
   fireEvent.click(screen.getByText('bulk fixture'))
   await screen.findByRole('button', { name: de.proposal.undo })
+  act(() => time.advance(60_001))
+  expect(screen.queryByRole('button', { name: de.proposal.undo })).toBeNull()
   fireEvent.click(await screen.findByRole('button', { name: de.chat.retry }))
   await waitFor(() => expect(bulk).toHaveBeenCalledTimes(2))
   expect(bulk.mock.calls[1]?.[0]?.body).toEqual({ kind: 'trash', message_ids: ['2'] })

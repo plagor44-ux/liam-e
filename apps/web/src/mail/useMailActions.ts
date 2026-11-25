@@ -12,7 +12,8 @@ const systemClock: Clock = { now: () => Date.now(), setTimeout: (fn, ms) => setT
 type Removal = 'archive' | 'trash' | 'spam'
 type Kind = Removal | 'mark_read' | 'mark_unread'
 const removes = (kind: Kind | 'remove'): kind is Removal => kind === 'archive' || kind === 'trash' || kind === 'spam'
-type MailNotice = { tone: 'success' | 'danger'; text: string; wrap: boolean; retry?: () => void }
+type MailNotice = { tone: 'success' | 'danger'; text: string; wrap: boolean }
+type RetryNotice = { id: number; text: string; retry: () => void }
 type Change = { key: QueryKey; page: number; index: number; row: MessageListItemOut }
 type GroupItem = { actionId: string; messageId: string; changes: Change[]; previousRead?: boolean }
 export type UndoEntry = { actionId: string; messageId: string; kind: Kind; changes: Change[]; previousRead?: boolean; group?: GroupItem[]; partial?: boolean; wrap?: boolean; text: string; label: string; deadline: number; pending: boolean }
@@ -34,6 +35,9 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
   const [entries, setEntries] = useState<UndoEntry[]>([])
   const entriesRef = useRef<UndoEntry[]>([])
   const [notice, setNotice] = useState<MailNotice | null>(null)
+  const [retryNotices, setRetryNotices] = useState<RetryNotice[]>([])
+  const retryCount = useRef(0)
+  const dismissRetryNotice = (id: number) => setRetryNotices(current => current.filter(item => item.id !== id))
   const [permissionNotice, setPermissionNotice] = useState<string | null>(null)
   const dismissPermissionNotice = () => setPermissionNotice(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -65,7 +69,12 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     schedule(next)
   }
   const notify = (text: string, tone: 'danger' | 'success' = 'danger', wrap = false, retry?: () => void) => {
-    setNotice({ text, tone, wrap, retry: retry && (() => { setNotice(null); retry() }) })
+    if (retry) {
+      const id = ++retryCount.current
+      setRetryNotices(current => [...current, { id, text, retry: () => { dismissRetryNotice(id); retry() } }])
+      return
+    }
+    setNotice({ text, tone, wrap })
     if (noticeTimer.current !== undefined) clock.clearTimeout(noticeTimer.current)
     noticeTimer.current = clock.setTimeout(() => { noticeTimer.current = undefined; setNotice(null) }, 10_000)
   }
@@ -371,7 +380,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     void work.finally(() => { for (const item of group) if (queues.current.get(item.messageId) === work) queues.current.delete(item.messageId); setQueueVersion(version => version + 1) })
     return work
   }
-  return { run, runBulk, undo, notify, notice, permissionNotice, dismissPermissionNotice, entries, checkCapacity, isBusy: (id: string) => queues.current.has(id), capacityAvailable: entries.filter(entry => entry.pending || entry.deadline > clock.now()).length + reserved < LIMIT }
+  return { run, runBulk, undo, notify, notice, retryNotices, dismissRetryNotice, permissionNotice, dismissPermissionNotice, entries, checkCapacity, isBusy: (id: string) => queues.current.has(id), capacityAvailable: entries.filter(entry => entry.pending || entry.deadline > clock.now()).length + reserved < LIMIT }
 }
 
 const MailActionsContext = createContext<ReturnType<typeof useMailActions> | null>(null)

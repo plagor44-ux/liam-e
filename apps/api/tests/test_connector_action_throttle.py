@@ -140,3 +140,73 @@ async def test_write_retry_runs_after_rechecking_the_binding(monkeypatch):
     async with connector_throttle.action("repeat"):
         await connector_throttle.tool(write, write=True, before_retry=verify)
     assert order == ["write", "wait", "verify pin", "write"]
+
+
+@pytest.mark.anyio
+async def test_sync_retry_after_blocks_the_waiting_action(monkeypatch):
+    clock = 100.0
+    monkeypatch.setattr(connector_throttle, "monotonic", lambda: clock)
+    started, action_queued = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def limited():
+        calls.append("sync")
+        started.set()
+        await action_queued.wait()
+        raise status_error(429, "60")
+
+    async def provider():
+        calls.append("provider")
+
+    async def poll():
+        with connector_throttle.sync("sync-first"):
+            with pytest.raises(httpx.HTTPStatusError):
+                await connector_throttle.tool(limited, write=False)
+            with pytest.raises(connector_throttle.RateLimited):
+                await connector_throttle.tool(provider, write=False)
+
+    async def action():
+        await started.wait()
+        action_queued.set()
+        async with connector_throttle.action("sync-first"):
+            with pytest.raises(connector_throttle.RateLimited):
+                await connector_throttle.tool(provider, write=True)
+
+    async with asyncio.TaskGroup() as tasks:
+        tasks.create_task(poll())
+        tasks.create_task(action())
+    assert calls == ["sync"]
+    clock += 61
+    async with connector_throttle.action("sync-first"):
+        await connector_throttle.tool(provider, write=True)
+    assert calls == ["sync", "provider"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("slow_verification", [True, False])
+async def test_retry_deadline_bounds_verification_but_never_cancels_a_write(monkeypatch, slow_verification):
+    monkeypatch.setattr(connector_throttle, "_RETRY_BUDGET_SECONDS", 0.03)
+    monkeypatch.setattr(connector_throttle, "_BACKOFF", (0, 0))
+    calls = []
+
+    async def verify():
+        calls.append("verify")
+        if slow_verification:
+            await asyncio.Event().wait()
+
+    async def write():
+        calls.append("send")
+        if calls == ["send"]:
+            raise status_error(429)
+        await asyncio.sleep(0.05)
+        return "confirmed"
+
+    async with connector_throttle.action("verify-budget"):
+        if slow_verification:
+            with pytest.raises(connector_throttle.RateLimited) as error:
+                await connector_throttle.tool(write, write=True, before_retry=verify)
+            assert error.value.retryable
+            assert calls == ["send", "verify"]
+        else:
+            assert await connector_throttle.tool(write, write=True, before_retry=verify) == "confirmed"
+            assert calls == ["send", "verify", "send"]

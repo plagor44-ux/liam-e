@@ -119,18 +119,33 @@ async def tool[T](
         # FIFO admission between requests lets actions interrupt a poll's burst.
         async with _gate(account_id):
             _check_cooldown(account_id)
-            return await call()
+            try:
+                return await call()
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code in (429, 503):
+                    delay = _retry_after(error.response.headers.get("Retry-After"))
+                    _record_cooldown(account_id, max(delay, _BACKOFF[-1]))
+                raise
 
     _check_cooldown(budget.account_id)
     loop = get_running_loop()
     retry = False
     while True:
+        if retry and budget.deadline is not None and before_retry is not None:
+            try:
+                async with timeout(budget.deadline - loop.time()):
+                    await before_retry()
+            except TimeoutError:
+                raise RateLimited() from None
         try:
             if retry and budget.deadline is not None:
-                async with timeout(budget.deadline - loop.time()):
-                    if before_retry is not None:
-                        await before_retry()
-                    return await call()
+                remaining = budget.deadline - loop.time()
+                if remaining <= 0:
+                    raise RateLimited()
+                if not write:
+                    async with timeout(remaining):
+                        return await call()
+            # Once dispatched, a write uses the normal transport timeout.
             return await call()
         except httpx.HTTPStatusError as error:
             status = error.response.status_code

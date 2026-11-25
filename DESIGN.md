@@ -614,6 +614,7 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   guidance wraps and stays visible until dismissed, alongside later action results. Its close
   button has an accessible name. Each Undo stays beside the action result and keeps its own
   deadline. A rate-limit notice wraps and offers „Noch mal versuchen“ for actions safe to resend.
+  The retry stays available until the user tries again or dismisses it, independently of Undo.
   For a mixed bulk result the retry targets only those items. If the provider result is uncertain,
   the notice asks the user to check after the next sync. Assistant proposals continue through
   the confirmation card.

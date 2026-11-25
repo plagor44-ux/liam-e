@@ -118,19 +118,20 @@ async def _call_tool(
     if credential is not None:
         path += f"?credentials_name={quote(credential, safe='')}"
     writing = tool in WRITE_TOOLS or tool in write_result.LABEL_TOOLS
+
+    async def dispatch():
+        try:
+            return await _post(path, {"arguments": arguments},
+                               **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {}))
+        except httpx.HTTPStatusError as error:
+            if writing and error.response.status_code == 403:
+                raise write_result.PermissionMissing() from None
+            raise
+
     try:
-        data = await connector_throttle.tool(
-            lambda: _post(path, {"arguments": arguments},
-                          **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {})),
-            write=writing, before_retry=before_retry,
-        )
+        data = await connector_throttle.tool(dispatch, write=writing, before_retry=before_retry)
         if writing:
             write_result.confirm(tool, arguments, data)
-    except httpx.HTTPStatusError as error:
-        if not writing or error.response.status_code != 403:
-            raise
-        logger.warning("%s", write_result.PERMISSION_MISSING)
-        raise write_result.PermissionMissing() from None
     except write_result.WriteRefused as error:
         if not isinstance(error, write_result.WriteUnconfirmed):
             logger.warning("%s", error.code)

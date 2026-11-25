@@ -2362,3 +2362,164 @@ def test_sync_rechecks_old_gmail_inbox_message_after_ambiguous_archive(pg_db, mo
             assert provider.writes == [("unlabel_message", "target", ("INBOX",))]
 
     asyncio.run(run())
+
+
+def test_retry_verification_403_does_not_pause_gmail_writes(pg_db, monkeypatch):
+    from api.mail import connector_throttle
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        limited = False
+        mutation_attempts = 0
+
+        async def dispatch(path, payload):
+            nonlocal limited, mutation_attempts
+            tool = urlsplit(path).path.split("/")[-2]
+            if tool == "unlabel_message":
+                mutation_attempts += 1
+                limited = True
+                httpx.Response(429, request=httpx.Request("POST", "https://example.test")).raise_for_status()
+            if limited and tool == "get_thread":
+                httpx.Response(403, request=httpx.Request("POST", "https://example.test")).raise_for_status()
+            return await provider.dispatch(path, payload)
+
+        async def no_delay(_seconds):
+            pass
+
+        monkeypatch.setattr(connector_throttle, "sleep", no_delay)
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            denied = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "archive"})
+            assert denied.status_code == 502
+            assert denied.json()["detail"]["code"] == "provider_failed"
+            assert await listed(browser, "INBOX") == {target, ids["sibling"]}
+            assert await mail_action.latest_open(target) is None
+            assert mutation_attempts == 1 and not provider.writes
+            state = await mail_sync_state.get_state(provider.account.id)
+            assert state.write_evidence()[2] == "ready"
+            monkeypatch.setattr(connectors, "_post", provider.dispatch)
+            confirmed = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "archive"})
+            assert confirmed.status_code == 200
+
+    asyncio.run(run())
+
+
+def test_gmail_undo_waits_for_forward_commit_before_claiming_token(pg_db, monkeypatch):
+    from contextlib import asynccontextmanager
+    from api.mail import connector_throttle
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        commit_waiting, finish_commit, undo_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        undo_claimed = False
+        original_commit = mail_message.commit_trash_move
+        original_claim = mail_action.mark_undone
+        original_gate = connector_throttle.action
+
+        async def commit(message, updates, **kwargs):
+            if updates["folder"] == "TRASH":
+                commit_waiting.set()
+                await finish_commit.wait()
+            await original_commit(message, updates, **kwargs)
+
+        async def claim(*args):
+            nonlocal undo_claimed
+            undo_claimed = True
+            undo_started.set()
+            return await original_claim(*args)
+
+        @asynccontextmanager
+        async def gate(account_id):
+            if asyncio.current_task().get_name() == "undo":
+                undo_started.set()
+            async with original_gate(account_id):
+                yield
+
+        async with client() as browser:
+            url = f"{MAIL}/messages/{target}/actions"
+            archived = await browser.post(url, json={"kind": "archive"})
+            token = archived.json()["action_id"]
+            monkeypatch.setattr(mail_message, "commit_trash_move", commit)
+            monkeypatch.setattr(mail_action, "mark_undone", claim)
+            monkeypatch.setattr(connector_throttle, "action", gate)
+            async with asyncio.timeout(5), asyncio.TaskGroup() as tasks:
+                moving = tasks.create_task(browser.post(url, json={"kind": "trash"}))
+                await commit_waiting.wait()
+                undo = tasks.create_task(browser.post(f"{MAIL}/actions/undo", json={"action_ids": [token]}), name="undo")
+                await undo_started.wait()
+                try:
+                    assert not undo_claimed
+                    assert not undo.done()
+                finally:
+                    finish_commit.set()
+            assert moving.result().status_code == 200
+            assert undo.result().status_code == 200
+            assert undo.result().json()["skipped"] == [token]
+            assert not undo_claimed
+            assert await listed(browser, "TRASH") == {target}
+            assert provider.labels["target"] == {"TRASH"}
+            assert provider.writes == [
+                ("unlabel_message", "target", ("INBOX",)),
+                ("label_message", "target", ("TRASH",)),
+            ]
+
+    asyncio.run(run())
+
+
+def test_gmail_undo_reconciles_second_write_503_and_keeps_token_open(pg_db, monkeypatch):
+    from api.mail import connector_throttle
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        monotonic = connector_throttle.monotonic
+        attempts = []
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            attempts.append(tool)
+            if tool == "unlabel_message":
+                httpx.Response(503, headers={"Retry-After": "60"},
+                               request=httpx.Request("POST", "https://example.test")).raise_for_status()
+            return await provider.dispatch(path, payload)
+
+        async with client() as browser:
+            trashed = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            token = trashed.json()["action_id"]
+            undo_url = f"{MAIL}/actions/undo"
+            body = {"action_ids": [token]}
+            monkeypatch.setattr(connectors, "_post", dispatch)
+            refused = await browser.post(undo_url, json=body)
+            assert refused.status_code == 200
+            assert refused.json()["failed"] == [token]
+            assert refused.json()["error_code"] == "provider_rate_limited"
+            row = await mail_message.get_message(target)
+            assert row is not None and row.folder == "TRASH"
+            assert set(json.loads(row.labels_json)) == provider.labels["target"] == {"INBOX", "TRASH"}
+            assert (await mail_action.latest_open(target)).id == token
+            calls = list(attempts)
+
+            cooled = await browser.post(undo_url, json=body)
+            assert cooled.json()["failed"] == [token]
+            assert cooled.json()["error_code"] == "provider_rate_limited"
+            assert attempts == calls
+            assert (await mail_action.latest_open(target)).id == token
+
+            monkeypatch.setattr(connector_throttle, "monotonic", lambda: monotonic() + 61)
+            monkeypatch.setattr(connectors, "_post", provider.dispatch)
+            restored = await browser.post(undo_url, json=body)
+            assert restored.json()["restored"] == [token]
+            assert await listed(browser, "INBOX") == {target, ids["sibling"]}
+            assert provider.labels["target"] == {"INBOX"}
+            assert provider.writes[-2:] == [
+                ("label_message", "target", ("INBOX",)),
+                ("unlabel_message", "target", ("TRASH",)),
+            ]
+            assert await mail_action.latest_open(target) is None
+
+    asyncio.run(run())
