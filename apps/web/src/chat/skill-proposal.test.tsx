@@ -247,4 +247,3 @@ test('the instructions disclosure is a large touch target with a coarse pointer'
   expect(rule).toBeTruthy()
   for (const property of ['min-height: var(--control-height-lg)', 'align-content: center']) expect(rule?.[1]).toContain(property)
 })
-
