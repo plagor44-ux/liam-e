@@ -19,6 +19,8 @@ build
 # (AGENTS.md, "Publication and private data"). The file holds, with the real values:
 #   {"organizationId": "<organization-id>", "workspaceId": "<workspace-id>", "appId": "<app-id>"}
 /mistral.deployment.json
+# The same for the synthetic MCP-route probe app (tools/probes/mcp_route_app/deploy.sh).
+/tools/probes/mcp_route_app/mistral.deployment.json
 
 # Local package-manager configuration (may contain tokens)
 .npmrc

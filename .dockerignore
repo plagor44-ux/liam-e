@@ -38,7 +38,7 @@ ingest/
 
 # Secrets stay out of image layers; runtime configuration is injected by the selected launcher.
 **/.env
-mistral.deployment.json
+**/mistral.deployment.json
 **/.env.*
 !**/.env.example
 

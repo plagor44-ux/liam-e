@@ -69,8 +69,8 @@ WHOLE_PATH = re.compile(r"[^\s\"'`<>()\[\]{},;]+")
 DEPLOYMENT_KEYS = ("organizationId", "workspaceId", "appId")
 # SHA-256 of the lowercase organization, workspace and app IDs of the owner's Studio app, so that
 # the scan recognises them without this file holding them. They left mistral.json on 2026-11-22
-# and remain in older commits (docs/publishing.md). The ignored deployment file of a checkout that
-# deploys (tools/deploy.sh) adds its own values.
+# and remain in older commits (docs/publishing.md). The ignored deployment files of a checkout that
+# deploys (tools/deploy.sh, tools/probes/mcp_route_app/deploy.sh) add their own values.
 TENANT_ID_SHA256 = frozenset(
     {
         "0616dbc12055327684ace052b5d9b11d57619a6d3e6b442ab8facf4e9d76b5f3",
@@ -122,16 +122,25 @@ def fingerprint(value: str) -> str:
     return hashlib.sha256(value.lower().encode()).hexdigest()
 
 
+# Where each deploy script reads its IDs: (environment override, default path in the checkout).
+DEPLOYMENT_FILES = (
+    ("LIAM_E_DEPLOYMENT_FILE", "mistral.deployment.json"),
+    ("MCP_ROUTE_PROBE_DEPLOYMENT_FILE", "tools/probes/mcp_route_app/mistral.deployment.json"),
+)
+
+
 def local_tenant_fingerprints() -> frozenset[str]:
-    """Fingerprints of the IDs in this checkout's deployment file, if it has one."""
-    path = Path(os.environ.get("LIAM_E_DEPLOYMENT_FILE") or ROOT / "mistral.deployment.json")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return frozenset()
-    if not isinstance(data, dict):
-        return frozenset()
-    return frozenset(fingerprint(value) for key in DEPLOYMENT_KEYS if isinstance(value := data.get(key), str))
+    """Fingerprints of the IDs in this checkout's deployment files, if it has any."""
+    found: set[str] = set()
+    for variable, default in DEPLOYMENT_FILES:
+        path = Path(os.environ.get(variable) or ROOT / default)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            found |= {fingerprint(value) for key in DEPLOYMENT_KEYS if isinstance(value := data.get(key), str)}
+    return frozenset(found)
 
 
 def tenant_id_hits(texts: dict[str, str], fingerprints: frozenset[str]) -> list[str]:
@@ -167,10 +176,33 @@ def has_deployment_block(manifest: object) -> bool:
     return isinstance(manifest, dict) and "deployment" in manifest
 
 
+def tracked_manifests() -> list[str]:
+    return sorted(path for path in tracked_texts(everything=True) if Path(path).name == "mistral.json")
+
+
 def test_mistral_json_binds_no_deployment() -> None:
-    # A plain bool, so that a failure does not print the manifest and any IDs in it.
-    bound = has_deployment_block(json.loads((ROOT / "mistral.json").read_text(encoding="utf-8")))
-    assert not bound, "remove the deployment block; deploy with tools/deploy.sh"
+    manifests = tracked_manifests()
+    assert "mistral.json" in manifests and "tools/probes/mcp_route_app/mistral.json" in manifests
+    # Paths only, so that a failure does not print a manifest and any IDs in it.
+    bound = [path for path in manifests if has_deployment_block(json.loads(tracked_texts(everything=True)[path]))]
+    assert bound == [], "remove the deployment block; deploy with tools/deploy.sh or the probe's deploy.sh"
+
+
+@pytest.mark.parametrize(("variable", "default"), DEPLOYMENT_FILES)
+def test_deployment_files_are_git_ignored(variable: str, default: str) -> None:
+    del variable
+    tracked_texts()  # skips outside a git checkout
+    result = subprocess.run(["git", "check-ignore", "-q", default], cwd=ROOT, check=False)
+    assert result.returncode == 0, f"{default} holds tenant IDs and must stay git-ignored"
+
+
+def test_local_fingerprints_cover_every_deployment_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    synthetic = ("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222")
+    for (variable, _default), value in zip(DEPLOYMENT_FILES, synthetic, strict=True):
+        path = tmp_path / f"{variable}.json"
+        path.write_text(json.dumps({"organizationId": value}), encoding="utf-8")
+        monkeypatch.setenv(variable, str(path))
+    assert local_tenant_fingerprints() == {fingerprint(value) for value in synthetic}
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,11 @@
+# Direct dependencies of the MCP-route probe app (#157), at the versions of the root uv.lock.
+# certifi is pinned so the resolver cannot pick a newer bundle than the lock. Compile with:
+#   bash tools/uv.sh pip compile tools/probes/mcp_route_app/requirements.in --generate-hashes \
+#     --python-version 3.14 --python-platform x86_64-manylinux_2_28 --no-annotate \
+#     --custom-compile-command "bash tools/uv.sh pip compile tools/probes/mcp_route_app/requirements.in (see requirements.in)" \
+#     -o tools/probes/mcp_route_app/requirements.txt
+# apps/api/tests/test_probe_mcp_route_app.py checks that every pin and hash matches uv.lock.
+starlette==1.10.0
+httpx==0.28.1
+uvicorn==0.54.0
+certifi==2026.10.23

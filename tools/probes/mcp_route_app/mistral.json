@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "kind": "app",
+  "name": "liam-e-mcp-route-probe",
+  "modules": [
+    {
+      "type": "app",
+      "name": "probe",
+      "path": ".",
+      "routes": [
+        {
+          "path": "/api"
+        },
+        {
+          "path": "/mcp",
+          "mcp": true
+        },
+        {
+          "path": "/api/mcp",
+          "mcp": true
+        }
+      ],
+      "port": 3000,
+      "serve": "server",
+      "runtime": "python",
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile",
+        "target": "probe"
+      },
+      "deploy": {
+        "startCommand": "uvicorn --app-dir /srv probe_app.main:app --host \"$HOST\" --port \"$PORT\" --proxy-headers --no-access-log"
+      }
+    }
+  ]
+}
