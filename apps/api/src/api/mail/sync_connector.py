@@ -19,6 +19,7 @@ import httpx
 from db.accessors import mail_job
 from db.accessors import mail_message as message_access
 from db.models.mail_account import MailAccount
+from db.models.mail_job import MailJob
 from db.models.mail_message import MailMessage
 
 from api.mail import connectors
@@ -197,14 +198,36 @@ async def confirm_trash_conflicts(account, changes: SyncChanges, candidates: dic
 type LabelCheck = tuple[str, dict[str, str], list[str] | None]
 
 
+def _exclude_label_observations(changes: SyncChanges, uids: set[str]) -> None:
+    if not uids:
+        return
+    # A stale page cannot replace an indexed delivery or trigger rules for it while
+    # a pending point read owns its folder and flags.
+    changes.upserts = [row for row in changes.upserts if row["provider_uid"] not in uids]
+    changes.moved_out = [uid for uid in changes.moved_out if uid not in uids]
+    changes.confirmed_inbox.difference_update(uids)
+    changes.trashed.difference_update(uids)
+    for uid in uids:
+        changes.read_updates.pop(uid, None)
+        changes.flag_updates.pop(uid, None)
+
+
+def protect_pending_label_checks(changes: SyncChanges, jobs: Sequence[MailJob], binding: str) -> None:
+    """Preserve current rows when publishing a checkpoint before optional point reads."""
+    targets = (json.loads(job.payload_json) for job in jobs)
+    _exclude_label_observations(changes, {target["provider_uid"] for target in targets if target["binding"] == binding})
+
+
 async def pending_label_checks(
-    account: MailAccount, binding: str, changes: SyncChanges, *, prior_checks: Sequence[LabelCheck] = (),
+    account: MailAccount, binding: str, changes: SyncChanges, *,
+    prior_checks: Sequence[LabelCheck] = (), jobs: Sequence[MailJob] | None = None,
 ) -> list[LabelCheck]:
     """Read exact pending members and reuse checkpoint results unaffected by history."""
     reusable = {job_id: labels for job_id, target, labels in prior_checks
                 if target["provider_uid"] not in changes.history_observed_uids}
     checked = []
-    for job in await mail_job.connector_label_checks(account.id):
+    jobs = await mail_job.connector_label_checks(account.id) if jobs is None else jobs
+    for job in jobs:
         target = json.loads(job.payload_json)
         if target["binding"] != binding:
             checked.append((job.id, target, None))
@@ -224,14 +247,7 @@ async def pending_label_checks(
             except (ValueError, httpx.TransportError):
                 labels = None
         checked.append((job.id, target, labels))
-        # This delivery is already indexed. Keep the point read separate from
-        # search results so a stale page cannot replace the row or trigger rules.
-        changes.upserts = [row for row in changes.upserts if row["provider_uid"] != uid]
-        changes.moved_out = [moved for moved in changes.moved_out if moved != uid]
-        changes.confirmed_inbox.discard(uid)
-        changes.trashed.discard(uid)
-        changes.read_updates.pop(uid, None)
-        changes.flag_updates.pop(uid, None)
+    protect_pending_label_checks(changes, jobs, binding)
     return checked
 
 

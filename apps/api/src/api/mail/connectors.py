@@ -130,8 +130,7 @@ async def _call_tool(
             if on_ambiguous_write is not None and error.response.status_code >= 500:
                 on_ambiguous_write()
             raise
-        except (httpx.ReadError, httpx.ReadTimeout, httpx.WriteError, httpx.WriteTimeout,
-                httpx.RemoteProtocolError, TimeoutError, json.JSONDecodeError):
+        except (httpx.TransportError, httpx.DecodingError, TimeoutError, json.JSONDecodeError):
             # The provider may have received the mutation even though its result was lost.
             # This callback covers only the POST, never a pre-retry verification read.
             if on_ambiguous_write is not None:
