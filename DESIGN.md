@@ -308,7 +308,9 @@ Quoted German labels in this section are UI text.
   edge. The preferred side is a preference; if there is no room it flips to the opposite side and
   shifts onto the screen. A menu scrolls within the space it has (at most 60% of screen height);
   a tooltip that fits on neither side shifts fully on screen, over its trigger if necessary, and
-  is never taller than the screen. Thus no scroll area or `overflow` around the trigger clips it,
+  is never taller than the screen. A tooltip may also name a box around its trigger to keep clear
+  of (the inbox toast): above or below, its 8 px then count from that box, so it covers none of the
+  box's text or actions. Thus no scroll area or `overflow` around the trigger clips it,
   and no ancestor stacking context (`z-index`, `transform`) overlays it. Order above the scrim
   (50): menu 55, tooltip 60. No CSS rule sets `top`, `left`, `right`, `bottom` or `inset` on
   `.le-menu` or `.le-tooltip` or styles them through an ancestor (`.le-chat-header .le-menu`
@@ -369,11 +371,15 @@ Quoted German labels and the German icon names in this section are UI text.
   - Notice `info`, `success`, `danger`, optionally with an action as a link or a trailing
     control. The icon and trailing control stay beside the first line. Wrapped lines align
     with the start of the text. Inbox permission guidance stays visible until dismissed;
-    long unsupported-action guidance wraps and the close tooltip prefers the top trailing side,
-    above the first line.
+    long unsupported-action guidance wraps, including from keyboard shortcuts, and the close
+    tooltip prefers the top trailing side above the whole toast, so it covers neither the guidance
+    nor „Rückgängig“ in a notice above it.
     A stale rule editor offers explicit choices to discard its draft and load the saved rule,
-    or keep the draft against the latest version; keeping it explains that the next save
-    replaces that version. A failed reload keeps the draft and the conflict visible.
+    or keep the draft against the latest version; the notice says that the next save replaces
+    that version only if the draft is kept. A failed reload keeps the draft and the conflict
+    visible. A rule deleted elsewhere says so on the first save or preview, not as a generic
+    error: the owner discards the draft or keeps it as a new rule, which is saved only with
+    „Regel anlegen“.
   - Tag `default`, `warm` (deadline, with `clock`) and `on-surface` (account in lists, with account dot).
   - Avatar `md` and `lg` (account card).
   - Badge shows „999+“ from 1,000.

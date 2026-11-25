@@ -751,6 +751,49 @@ test('permission guidance stays open alongside later success, Undo and failure f
   expect(screen.queryByText(de.errors.provider_permission_missing)).toBeNull()
 })
 
+test('on a narrow screen the close tooltip sits above the toast, clear of the undo link', async () => {
+  const action = success()
+  const client = new QueryClient()
+  function Trigger() {
+    const { run } = useMailActionsContext()
+    return <><button onClick={() => { void run('2', 'trash') }}>trash 2</button><button onClick={() => { void run('1', 'archive') }}>archive 1</button></>
+  }
+  render(<QueryClientProvider client={client}><MailActionsProvider><Trigger /><ActionToast /></MailActionsProvider></QueryClientProvider>)
+  action.mockResolvedValueOnce({ error: { detail: { code: 'provider_permission_missing' } }, response: { status: 403 } } as never)
+  fireEvent.click(screen.getByText('trash 2'))
+  await screen.findByText(de.errors.provider_permission_missing)
+  fireEvent.click(screen.getByText('archive 1'))
+  const undoLink = await screen.findByRole('button', { name: 'Rückgängig' })
+  const close = screen.getByRole('button', { name: 'Hinweis schließen' })
+  // jsdom lays nothing out: a 375 px phone with the toast at the bottom, the undo link at the end
+  // of the upper notice and the close button at the top trailing edge of the guidance below it.
+  const box = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect
+  const rects = new Map<Element, DOMRect>([[close.closest('.le-inbox-toast')!, box(16, 600, 343, 180)], [close.closest('.le-tooltip-anchor')!, box(311, 668, 32, 32)], [undoLink, box(240, 612, 96, 44)]])
+  const sizes = { width: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!, height: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!, innerWidth: window.innerWidth, innerHeight: window.innerHeight }
+  try {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 812 })
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return this.getAttribute('role') === 'tooltip' ? 140 : 0 } })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.getAttribute('role') === 'tooltip' ? 30 : 0 } })
+    spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) { return rects.get(this) ?? box(0, 0, 0, 0) })
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    act(() => close.focus())
+    const tip = screen.getByRole('tooltip')
+    expect(tip.textContent).toBe('Hinweis schließen')
+    const top = Number.parseFloat(tip.style.top), left = Number.parseFloat(tip.style.left)
+    expect(top + 30).toBeLessThanOrEqual(600 - 8)
+    expect(left + 140).toBe(343)
+    // It does not overlap the undo link above the guidance.
+    const link = rects.get(undoLink)!
+    expect(top + 30 <= link.top || top >= link.bottom || left + 140 <= link.left || left >= link.right).toBe(true)
+  } finally {
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', sizes.width)
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', sizes.height)
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: sizes.innerWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: sizes.innerHeight })
+  }
+})
+
 test.each(['action', 'undo'] as const)('unsupported %s guidance wraps in the actual toast', async mode => {
   const action = success()
   if (mode === 'action') action.mockResolvedValueOnce({ error: { detail: { code: 'provider_action_unsupported' } }, response: { status: 409 } } as never)

@@ -801,6 +801,110 @@ test('a failed conflict reload preserves the draft and blocks save', async () =>
   expect(await screen.findByText(/Die Regel ist nicht mehr vorhanden/u)).toBeTruthy()
   expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('My draft')
   expect((screen.getByRole('button', { name: 'Speichern' }) as HTMLButtonElement).disabled).toBe(true)
+  // The conflict choices no longer apply; the missing notice offers its own way out.
+  expect(screen.queryByText(/Die Regel wurde an anderer Stelle geändert/u)).toBeNull()
+  expect(screen.getByRole('button', { name: 'Als neue Regel behalten' })).toBeTruthy()
+})
+
+const ruleMissingText = 'Die Regel ist nicht mehr vorhanden. Dein Entwurf bleibt erhalten: Verwirf ihn oder behalte ihn als neue Regel.'
+const genericRuleError = 'Die Änderung konnte nicht ausgeführt werden. Versuch es noch einmal.'
+
+function deletedRuleSetup(failure: unknown) {
+  const saved = { id: 'rule', name: 'Original', sender_domain: 'example.org', folder_id: 'folder', version: 1, is_active: true }
+  const state = { deleted: false }
+  spyOn(sdk, 'mailRulesList').mockImplementation((async () => ({ data: state.deleted ? [] : [saved] })) as never)
+  const preview = spyOn(sdk, 'mailRulesPreview').mockImplementation((async () => {
+    if (state.deleted) throw failure
+    return { data: { matched: 1, already_filed: 0, message_ids: [] } }
+  }) as never)
+  const update = spyOn(sdk, 'mailRuleUpdate').mockImplementation((async () => { throw failure }) as never)
+  const create = spyOn(sdk, 'mailRuleCreate').mockImplementation((async (options: { body: { name: string } }) => ({ data: { ...saved, id: 'new', name: options.body.name } })) as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL((input instanceof Request ? input : new Request(input, init)).url).pathname
+    return Response.json(path.endsWith('/folders') ? [{ id: 'folder', name: 'Projects', kind: 'folder' }] : [])
+  }) as typeof fetch
+  return { state, preview, update, create }
+}
+
+for (const stage of ['preview', 'save'] as const) {
+  for (const choice of ['discard', 'keep'] as const) {
+    test(`a rule deleted elsewhere: ${stage} shows the missing notice and lets the owner ${choice} the draft`, async () => {
+      const { RuleSettings } = await import('./MailFiling')
+      const { state, update, create } = deletedRuleSetup({ detail: { code: 'rule_not_found' } })
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+      fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'My draft' } })
+      state.deleted = true
+      fireEvent.click(screen.getByRole('button', { name: stage === 'preview' ? 'Vorschau' : 'Speichern' }))
+      expect(await screen.findByText(ruleMissingText)).toBeTruthy()
+      expect(screen.queryByText(genericRuleError)).toBeNull()
+      expect(screen.queryByText(/Die Regel wurde an anderer Stelle geändert/u)).toBeNull()
+      expect((screen.getByRole('button', { name: 'Speichern' }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByRole('button', { name: 'Vorschau' }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('My draft')
+      // The deleted rule leaves the list once it is reloaded.
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Regel bearbeiten' })).toBeNull())
+      const updates = update.mock.calls.length
+      if (choice === 'discard') {
+        fireEvent.click(screen.getByRole('button', { name: 'Entwurf verwerfen' }))
+        await waitFor(() => expect(screen.queryByText(ruleMissingText)).toBeNull())
+        expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('')
+        expect(screen.queryByRole('button', { name: 'Speichern' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Regel anlegen' })).toBeTruthy()
+        expect(create).not.toHaveBeenCalled()
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'Als neue Regel behalten' }))
+        await waitFor(() => expect(screen.queryByText(ruleMissingText)).toBeNull())
+        expect((screen.getByLabelText('Name der Regel') as HTMLInputElement).value).toBe('My draft')
+        expect(screen.queryByRole('button', { name: 'Speichern' })).toBeNull()
+        // Keeping the draft does not save it; the owner saves the new rule explicitly.
+        expect(create).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByRole('button', { name: 'Regel anlegen' }))
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+        const body = create.mock.calls[0]?.[0]?.body as Record<string, unknown>
+        expect(body).toMatchObject({ name: 'My draft', sender_domain: 'example.org', folder_id: 'folder' })
+        expect(body).not.toHaveProperty('expected_version')
+      }
+      expect(update.mock.calls.length).toBe(updates)
+    })
+  }
+}
+
+test('negative case: other save failures keep the generic error and the edited rule', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  const { update } = deletedRuleSetup({ detail: { code: 'rule_invalid' } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><RuleSettings /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Regel bearbeiten' }))
+  fireEvent.change(screen.getByLabelText('Name der Regel'), { target: { value: 'My draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  expect(await screen.findByText(genericRuleError)).toBeTruthy()
+  expect(update).toHaveBeenCalledTimes(1)
+  expect(screen.queryByText(ruleMissingText)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Als neue Regel behalten' })).toBeNull()
+  expect((screen.getByRole('button', { name: 'Speichern' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('the English conflict notice ties the replacement to keeping the draft', async () => {
+  const { RuleSettings } = await import('./MailFiling')
+  spyOn(sdk, 'mailRulesList').mockResolvedValue({ data: [{ id: 'rule', name: 'Original', sender_domain: 'example.org', folder_id: 'folder', version: 1, is_active: true }] } as never)
+  spyOn(sdk, 'mailRulesPreview').mockRejectedValue({ detail: { code: 'rule_version_conflict' } } as never)
+  api.setConfig({ baseUrl: window.location.origin })
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL((input instanceof Request ? input : new Request(input, init)).url).pathname
+    return Response.json(path.endsWith('/folders') ? [{ id: 'folder', name: 'Projects', kind: 'folder' }] : [])
+  }) as typeof fetch
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<I18nProvider locale="en"><QueryClientProvider client={client}><RuleSettings /></QueryClientProvider></I18nProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit rule' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  const notice = await screen.findByText(/The rule was changed elsewhere/u)
+  expect(notice.textContent).toContain('If you keep it, the next save replaces the newer version.')
+  // Negative case: no unconditional promise about whatever the next save is.
+  expect(notice.textContent).not.toContain('The next save will replace')
+  expect(screen.getByRole('button', { name: 'Keep draft' })).toBeTruthy()
 })
 
 test('label group describes its hint and keeps the label prefix with a long name', async () => {

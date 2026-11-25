@@ -56,6 +56,26 @@ describe('place', () => {
   test('negative case: a trigger with room keeps its preferred side above', () => {
     expect(place(box(100, 400, 40, 40), MENU, 'top', 'start', VIEW).top).toBe(400 - 8 - MENU.height)
   })
+
+  // A close button in the lower notice of a toast whose upper notice holds an undo link.
+  const TIP = { width: 150, height: 30 }
+  const toast = box(16, 600, 968, 180)
+  const close = box(940, 700, 32, 32)
+
+  test('keeps its gap from a box it must clear, still aligned with the trigger', () => {
+    const spot = place(close, TIP, 'top', 'end', VIEW, true, toast)
+    expect(spot).toEqual({ left: 972 - TIP.width, top: 600 - 8 - TIP.height, maxHeight: 600 - 16 })
+    expect(spot.top + TIP.height).toBeLessThanOrEqual(toast.top - 8)
+  })
+
+  test('flips below the box it must clear when there is no room above it', () => {
+    const spot = place(box(940, 40, 32, 32), TIP, 'top', 'end', VIEW, true, box(16, 10, 968, 100))
+    expect(spot.top).toBe(110 + 8)
+  })
+
+  test('negative case: without a box to clear it sits next to its trigger', () => {
+    expect(place(close, TIP, 'top', 'end', VIEW, true).top).toBe(700 - 8 - TIP.height)
+  })
 })
 
 // jsdom lays nothing out: answer with a fixed viewport, a fixed menu size and the given trigger box.
