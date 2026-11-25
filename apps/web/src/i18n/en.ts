@@ -535,6 +535,7 @@ export const en = {
     modelError: 'The model couldn’t be changed. Try again in a moment.', modelUnknown: 'This model is no longer available. Choose another.',
     stand: (unread, count, time) => plural(unread, { zero: 'No unread emails', one: '# unread email', other: '# unread emails' }) + ' in ' + accounts(count) + (time ? ' · As of ' + time : ''),
     allAccountsUnreachable: (names, count) => count === 1 ? `${names} can’t be reached right now. Email deadlines can’t be checked.` : `${names} can’t be reached right now. Email deadlines can’t be checked.`,
+    sourceStatus: count => 'Show source status (' + numberFormat.format(count) + ')',
     mailIncomplete: (names, count) => count === 1 ? `${names} is still fetching or hasn’t completed a full fetch yet, so email deadlines may be incomplete.` : `${names} are still fetching or haven’t completed a full fetch yet, so email deadlines may be incomplete.`,
   },
   status: {

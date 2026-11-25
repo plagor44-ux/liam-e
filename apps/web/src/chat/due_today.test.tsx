@@ -3,7 +3,7 @@ import { mailCapabilities } from '../test/mailCapabilities'
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import * as sdk from '../api/generated/sdk.gen'
 import type { ChatMessageOut, MailSummaryOut, SourceOut } from '../api/generated/types.gen'
 import { Conversation } from './Conversation'
@@ -167,7 +167,7 @@ test('clicking Due today streams from start page to separated conversation reply
   expect(screen.getByText('Antwort entwerfen', { selector: 'button.le-chip' })).toBeTruthy()
 })
 
-test('start page surfaces paused, unreachable, incomplete sources and missing write default in de and en', async () => {
+test('start page keeps danger notices visible and collects info-level source states in one closed disclosure in de and en', async () => {
   for (const locale of ['de', 'en'] as const) {
     const t = locale === 'de' ? de : en
     setup({
@@ -185,18 +185,31 @@ test('start page surfaces paused, unreachable, incomplete sources and missing wr
       defaultSourceId: null,
     })
 
-    expect(await screen.findByText(t.errors.accountUnavailable('Arbeit'))).toBeTruthy()
-    expect(screen.getByText(t.chat.mailIncomplete('Familie', 1))).toBeTruthy()
-    expect(screen.getByText(t.calendarSettings.pausedNames('Privatkalender'))).toBeTruthy()
-    expect(screen.getByText(t.calendarSettings.unreachable('Vereinskalender'))).toBeTruthy()
-    expect(screen.getByText(t.calendarSettings.refreshFailed('Team'))).toBeTruthy()
-    expect(screen.getByText(t.calendarSettings.noDefault)).toBeTruthy()
-    expect(screen.getByText(t.taskChat.excludedHint)).toBeTruthy()
+    // Danger notices stay outside the disclosure, each with its way out.
+    const account = (await screen.findByText(t.errors.accountUnavailable('Arbeit'))).closest('.le-notice') as HTMLElement
+    expect(account.closest('details')).toBeNull()
+    expect(within(account).getByRole('button', { name: t.shell.accounts })).toBeTruthy()
+    const calendar = (await screen.findByText(t.calendarSettings.unreachable('Vereinskalender'))).closest('.le-notice') as HTMLElement
+    expect(calendar.closest('details')).toBeNull()
+    expect(within(calendar).getByRole('button', { name: t.calendar.manage })).toBeTruthy()
+
+    const hints = [t.chat.mailIncomplete('Familie', 1), t.calendarSettings.pausedNames('Privatkalender'), t.calendarSettings.incomplete, t.calendarSettings.refreshFailed('Team'), t.taskChat.excludedHint]
+    const disclosure = (await screen.findByText(t.chat.sourceStatus(hints.length))).closest('details') as HTMLDetailsElement
+    expect(disclosure.open).toBe(false)
+    expect(within(disclosure).getAllByRole('listitem').map(item => item.textContent)).toEqual(hints)
+    expect(screen.getAllByText(t.chat.mailIncomplete('Familie', 1))).toHaveLength(1)
+    // Named lines cover every unreadable calendar, so the general line stays out.
+    expect(screen.queryByText(t.calendarSettings.unavailable)).toBeNull()
+    // The write default is explained on new-appointment cards and in settings, not here.
+    expect(screen.queryByText(t.calendarSettings.noDefault)).toBeNull()
+    expect(screen.queryByRole('link', { name: t.calendarSettings.title })).toBeNull()
+    // The Due today tooltip still carries the caveats.
+    expect(screen.getByRole('button', { name: new RegExp(t.quickActions.dueToday.title) })).toBeTruthy()
     cleanup()
   }
 })
 
-test('all mail accounts unreachable or unavailable write default show dedicated states', async () => {
+test('all mail accounts unreachable show a dedicated state while an unusable write default stays off the start page', async () => {
   setup({
     accounts: [{ id: 'a', display_name: 'Arbeit', email_address: 'a@example.org', provider: 'imap', connection: 'imap', action_capabilities: mailCapabilities(), color_index: 0, unread: 0, state: 'error', error_code: 'provider_error', last_sync_at: null }],
     calendars: [{ id: 'cal-ro', name: 'Verein', provider: 'ics', capabilities: ['read'], is_active: true, chat_access: 'read_only', stale: false, incomplete: false, last_success_at: new Date().toISOString() }],
@@ -204,7 +217,7 @@ test('all mail accounts unreachable or unavailable write default show dedicated 
   })
 
   expect(await screen.findByText(de.chat.allAccountsUnreachable('Arbeit', 1))).toBeTruthy()
-  expect(screen.getByText(de.calendarSettings.defaultUnavailable('Verein', de.calendarSettings.reason.read_only))).toBeTruthy()
+  expect(screen.queryByText(de.calendarSettings.defaultUnavailable('Verein', de.calendarSettings.reason.read_only))).toBeNull()
 })
 
 test('revoking mail grant on settings change clears stale new-chat task account and invalid chatAccount focus', async () => {

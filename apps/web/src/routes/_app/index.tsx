@@ -1,8 +1,8 @@
 import { oldSource } from '../../calendar/state'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, Link, redirect, useNavigate, useSearch } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { calendarSettingsQuery, chatCalendarSourcesQuery, chatMailReferenceQuery, MessageNotFoundError, modelsQuery, skillsQuery, summaryQuery } from '../../api/queries'
+import { chatCalendarSourcesQuery, chatMailReferenceQuery, MessageNotFoundError, modelsQuery, skillsQuery, summaryQuery } from '../../api/queries'
 import { CalendarReference, readableCalendar } from '../../chat/CalendarContext'
 import { ChatComposer } from '../../chat/Conversation'
 import { ModelMenu } from '../../chat/ModelMenu'
@@ -36,7 +36,6 @@ function Greeting() {
   const tasks = useTaskScope()
   const summary = useQuery(summaryQuery(true))
   const calendars = useQuery(chatCalendarSourcesQuery())
-  const calendarSettings = useQuery({ ...calendarSettingsQuery(), enabled: !about })
   const reference = useQuery(chatMailReferenceQuery(about ?? '', summary.data?.mail_scope_version))
   const [started, setStarted] = useState(false)
   const [voiceActive, setVoiceActive] = useState(false)
@@ -111,9 +110,19 @@ function Greeting() {
   const unreadableCalendars = unavailableCalendars.filter(source => source.chat_access === 'unreadable')
   const incompleteCalendars = readable.filter(source => source.stale || source.incomplete || oldSource(source) || Boolean(source.last_error))
   const erroredReadableCalendars = readable.filter(source => Boolean(source.last_error))
-  const defaultId = calendarSettings.data?.default_source_id ?? null
-  const defaultSource = defaultId ? calendars.data?.find(source => source.id === defaultId) : undefined
-  const hasWritableCalendar = calendars.data?.some(source => source.chat_access === 'writable') ?? false
+  const coveredCalendars = pausedCalendars.length + disconnectedCalendars.length + unreadableCalendars.length
+  // Info-level source states share one quiet disclosure; danger notices stay visible on their own.
+  const sourceHints = about ? [] : [
+    ...(incompleteAccounts.length ? [texts.chat.mailIncomplete(incompleteAccounts.map(accountLabel).join(', '), incompleteAccounts.length)] : []),
+    ...(calendars.isSuccess && !calendars.data.length ? [texts.calendarSettings.empty] : []),
+    // The general line only covers unreadable calendars no named line below explains.
+    ...(unavailableCalendars.length > coveredCalendars ? [texts.calendarSettings.unavailable] : []),
+    ...(pausedCalendars.length ? [texts.calendarSettings.pausedNames(pausedCalendars.map(source => source.name).join(', '))] : []),
+    ...(unreadableCalendars.length ? [texts.calendarSettings.unreadableNames(unreadableCalendars.map(source => source.name).join(', '))] : []),
+    ...(incompleteCalendars.length ? [texts.calendarSettings.incomplete] : []),
+    ...(erroredReadableCalendars.length ? [texts.calendarSettings.refreshFailed(erroredReadableCalendars.map(source => source.name).join(', '))] : []),
+    ...((data || calendars.isSuccess) && effectiveTaskScope.source === 'none' ? [texts.taskChat.excludedHint] : []),
+  ]
   const hasDueCaveats = unreachableAccounts.length > 0 || incompleteAccounts.length > 0 || unavailableCalendars.length > 0 || incompleteCalendars.length > 0
   const turnError = started && state.phase === 'error' && !state.conversationId
   const resetFocus = () => { void navigate({ to: '/', search: { about, calendarAbout } }) }
@@ -130,7 +139,6 @@ function Greeting() {
         ? <><Notice tone="info">{texts.chatAccounts.empty}</Notice><ActionButton variant="primary" onClick={() => { void navigate({ to: '/settings/chat' }) }}>{texts.chatAccounts.section}</ActionButton></>
         : <p className="le-hint">{texts.chat.stand(data.unread_total, data.accounts.length, data.last_sync_at ? formatTime(new Date(data.last_sync_at), undefined, locale) : undefined)}</p>)}
       {!about && unreachableAccounts.length > 0 && <Notice tone="danger" action={{ label: texts.shell.accounts, onClick: () => { void navigate({ to: '/accounts' }) } }}>{allAccountsUnreachable ? texts.chat.allAccountsUnreachable(unreachableAccounts.map(accountLabel).join(', '), unreachableAccounts.length) : texts.errors.accountUnavailable(unreachableAccounts.map(accountLabel).join(', '))}</Notice>}
-      {!about && incompleteAccounts.length > 0 && <p className="le-hint">{texts.chat.mailIncomplete(incompleteAccounts.map(accountLabel).join(', '), incompleteAccounts.length)}</p>}
       {started && busy && <div className="le-working" role="status">{texts.status.thinking}</div>}
       {!about && (data || calendars.isSuccess) && <div className="le-chat-quick-actions">
         {!!effectiveAccounts.length && <>
@@ -141,23 +149,11 @@ function Greeting() {
         {dueSources.length > 0 && <QuickAction icon="clock" title={texts.quickActions.dueToday.title} sub={dueSources.join(' · ')} tip={texts.quickActions.dueTodayTip(dueSources.join(' · '), hasDueCaveats, effectiveTaskScope.source === 'none')} onClick={() => quickSend(texts.quickActions.dueToday.prompt)} />}
       </div>}
       {!about && calendars.isError && <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void calendars.refetch() } }}>{texts.calendar.error}</Notice>}
-      {!about && calendars.isSuccess && !calendars.data.length && <p className="le-hint">{texts.calendarSettings.empty}</p>}
-      {!about && unavailableCalendars.length > 0 && <p className="le-hint">{texts.calendarSettings.unavailable}</p>}
-      {!about && pausedCalendars.length > 0 && <p className="le-hint">{texts.calendarSettings.pausedNames(pausedCalendars.map(source => source.name).join(', '))}</p>}
       {!about && disconnectedCalendars.length > 0 && <Notice tone="danger" action={{ label: texts.calendar.manage, onClick: () => { void navigate({ to: '/accounts' }) } }}>{texts.calendarSettings.unreachable(disconnectedCalendars.map(source => source.name).join(', '))}</Notice>}
-      {!about && unreadableCalendars.length > 0 && <p className="le-hint">{texts.calendarSettings.unreadableNames(unreadableCalendars.map(source => source.name).join(', '))}</p>}
-      {!about && incompleteCalendars.length > 0 && <p className="le-hint">{texts.calendarSettings.incomplete}</p>}
-      {!about && erroredReadableCalendars.length > 0 && <p className="le-hint">{texts.calendarSettings.refreshFailed(erroredReadableCalendars.map(source => source.name).join(', '))}</p>}
-      {!about && calendars.isSuccess && calendars.data.length > 0 && calendarSettings.isSuccess && (
-        !defaultId
-          ? <p className="le-hint">{hasWritableCalendar ? <>{texts.calendarSettings.noDefault} <Link className="le-link" to="/settings/calendar">{texts.calendarSettings.title}</Link></> : texts.calendarSettings.noWritable}</p>
-          : !defaultSource
-            ? <p className="le-hint">{texts.calendarSettings.missing} <Link className="le-link" to="/settings/calendar">{texts.calendarSettings.title}</Link></p>
-            : defaultSource.chat_access !== 'writable'
-              ? <p className="le-hint">{texts.calendarSettings.defaultUnavailable(defaultSource.name, texts.calendarSettings.reason[defaultSource.chat_access ?? 'unreadable'])} <Link className="le-link" to="/settings/calendar">{texts.calendarSettings.title}</Link></p>
-              : null
-      )}
-      {!about && (data || calendars.isSuccess) && effectiveTaskScope.source === 'none' && <p className="le-hint">{texts.taskChat.excludedHint}</p>}
+      {sourceHints.length > 0 && <details className="le-chat-source-status">
+        <summary>{texts.chat.sourceStatus(sourceHints.length)}</summary>
+        <ul>{sourceHints.map(hint => <li key={hint}>{hint}</li>)}</ul>
+      </details>}
     </div></div>}
     {(about || data || calendars.data?.some(source => source.is_active) || calendarAbout) && <div className="le-chat-composer">
       {calendarAbout && <div className="le-chat-reference"><CalendarReference occurrenceId={calendarAbout} /><IconButton icon="x" label={texts.calendar.removeReference} onClick={() => { void navigate({ to: '/', search: { about } }) }} /></div>}

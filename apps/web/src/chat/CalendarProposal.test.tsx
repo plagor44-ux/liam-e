@@ -1,9 +1,11 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import * as sdk from '../api/generated/sdk.gen'
 import type { ChatMessageOut } from '../api/generated/types.gen'
 import { CalendarProposal } from './CalendarProposal'
+import { de } from '../i18n/de'
 const message = { created_at: '2026-11-20T09:00:00Z', extras: {}, stopped: false, tool_name: '', id: 'proposal', conversation_id: 'conversation', role: 'assistant', content: '', proposal_status: 'pending', proposal: { kind: 'calendar', reason: 'Zeit anpassen', items: [], calendar: { action: 'update', source_id: 's', timezone: 'Europe/Berlin', before: { source_id: 's', title: 'Vorheriger Termin', start_date: '2026-11-20', end_date: '2026-11-21' }, after: { title: 'Neuer Titel', start_date: '2026-11-21', end_date: '2026-11-22', location: 'Raum' } } } } as ChatMessageOut
 afterEach(() => { cleanup(); mock.restore() })
 function mount(value = message) {
@@ -67,4 +69,47 @@ test('a confirm that never reached the server returns to the open card after a c
   expect(screen.queryByRole('button', { name: 'Prüfen' })).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(check).toHaveBeenCalledTimes(1)
+})
+
+const create = { ...message, proposal: { ...message.proposal!, calendar: { action: 'create', source_id: 's', timezone: 'Europe/Berlin', before: null, after: { title: 'Neuer Termin', start_local: '2026-11-21T10:00', end_local: '2026-11-21T11:00' } } } } as ChatMessageOut
+const planning = { id: 's', name: 'Planung', is_active: true, chat_access: 'writable', capabilities: ['read', 'write'] }
+async function mountCreate(defaultId: string | null, sources: object[] = [planning], value = create) {
+  spyOn(sdk, 'calendarSourcesList').mockResolvedValue({ data: sources } as never)
+  const settings = spyOn(sdk, 'calendarSettingsGet').mockResolvedValue({ data: { version: 1, default_source_id: defaultId } } as never)
+  settings.mockClear()
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const root = createRootRoute({ component: () => <QueryClientProvider client={client}><CalendarProposal message={value} /></QueryClientProvider> })
+  const router = createRouter({ routeTree: root.addChildren([createRoute({ getParentRoute: () => root, path: '/settings/calendar' })]), history: createMemoryHistory({ initialEntries: ['/'] }) })
+  render(<RouterProvider router={router} />)
+  await screen.findByText(value.proposal_status === 'pending' ? 'Planung' : de.calendar.cardDone[value.proposal!.calendar!.action])
+  return settings
+}
+test('a new appointment explains a missing or unusable default calendar and links to its setting', async () => {
+  await mountCreate(null)
+  expect(await screen.findByText(de.calendarSettings.noDefault, { exact: false })).toBeTruthy()
+  expect(screen.getByRole('link', { name: de.calendarSettings.title }).getAttribute('href')).toBe('/settings/calendar')
+  cleanup()
+  await mountCreate('club', [planning, { id: 'club', name: 'Verein', is_active: true, chat_access: 'read_only', capabilities: ['read'] }])
+  expect(await screen.findByText(de.calendarSettings.defaultUnavailable('Verein', de.calendarSettings.reason.read_only), { exact: false })).toBeTruthy()
+  cleanup()
+  await mountCreate('gone')
+  expect(await screen.findByText(de.calendarSettings.missing, { exact: false })).toBeTruthy()
+})
+test('the default calendar hint stays away when the default is usable, is the target, or the card is not a pending new appointment', async () => {
+  const quiet = async () => {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Bestätigen' })).toBeTruthy())
+    expect(screen.queryByRole('link', { name: de.calendarSettings.title })).toBeNull()
+  }
+  await mountCreate('s')
+  await quiet()
+  cleanup()
+  await mountCreate('other', [planning, { id: 'other', name: 'Team', is_active: true, chat_access: 'writable', capabilities: ['read', 'write'] }])
+  await quiet()
+  cleanup()
+  const settings = await mountCreate(null, [planning], message)
+  await quiet()
+  expect(settings).not.toHaveBeenCalled()
+  cleanup()
+  await mountCreate(null, [planning], { ...create, proposal_status: 'done' })
+  expect(screen.queryByRole('link', { name: de.calendarSettings.title })).toBeNull()
 })

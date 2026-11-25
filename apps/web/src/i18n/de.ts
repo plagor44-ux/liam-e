@@ -525,6 +525,7 @@ export const de = {
     modelError: 'Das Modell konnte nicht geändert werden. Versuch es gleich noch mal.', modelUnknown: 'Dieses Modell gibt es nicht mehr. Wähle ein anderes.',
     stand: (unread: number, accounts: number, time?: string) => `${plural(unread, { zero: 'Keine ungelesenen Mails', one: '# ungelesene Mail', other: '# ungelesene Mails' })} in ${plural(accounts, { one: '# Konto', other: '# Konten' })}${time ? ` · Stand ${time}` : ''}`,
     allAccountsUnreachable: (names: string, count: number) => count === 1 ? `${names} ist gerade nicht erreichbar. Mailfristen lassen sich zurzeit nicht prüfen.` : `${names} sind gerade nicht erreichbar. Mailfristen lassen sich zurzeit nicht prüfen.`,
+    sourceStatus: (count: number) => `Stand der Quellen anzeigen (${count})`,
     mailIncomplete: (names: string, count: number) => count === 1 ? `${names} wird noch abgerufen oder hat noch keinen vollständigen Stand – Mailfristen können unvollständig sein.` : `${names} werden noch abgerufen oder haben noch keinen vollständigen Stand – Mailfristen können unvollständig sein.`,
   },
   status: {

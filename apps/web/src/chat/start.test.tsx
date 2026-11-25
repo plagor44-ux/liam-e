@@ -100,12 +100,18 @@ test('Today includes readable calendars without mail and reflects a pause', asyn
   const action = await screen.findByRole('button', { name: /Heute fällig/ })
   expect(action.textContent).toContain(de.calendarSettings.events)
   expect(action.textContent).not.toContain(de.calendarSettings.deadlines)
-  expect(screen.getByText(de.calendarSettings.incomplete)).toBeTruthy()
+  const status = () => screen.getByText(/^Stand der Quellen anzeigen/).closest('details') as HTMLDetailsElement
+  await waitFor(() => expect(within(status()).getByText(de.calendarSettings.incomplete)).toBeTruthy())
   expect(screen.queryByRole('button', { name: de.calendar.addToChat })).toBeNull()
   sources.mockResolvedValue({ data: [{ ...source, is_active: false, chat_access: 'paused' }] } as never)
   await act(() => testClient.invalidateQueries({ queryKey: ['calendar', 'sources'] }))
-  expect(await screen.findByText(de.calendarSettings.unavailable)).toBeTruthy()
+  await waitFor(() => expect(within(status()).getByText(de.calendarSettings.pausedNames('Arbeit'))).toBeTruthy())
+  expect(screen.queryByText(de.calendarSettings.unavailable)).toBeNull()
   expect(screen.queryByRole('button', { name: /Heute fällig/ })).toBeNull()
+  // A calendar that is unreadable without a named reason keeps the general line.
+  sources.mockResolvedValue({ data: [{ ...source, is_active: false, chat_access: 'read_only' }] } as never)
+  await act(() => testClient.invalidateQueries({ queryKey: ['calendar', 'sources'] }))
+  await waitFor(() => expect(within(status()).getByText(de.calendarSettings.unavailable)).toBeTruthy())
 })
 
 test('priority sends its fixed prompt and central grant revision', async () => {
