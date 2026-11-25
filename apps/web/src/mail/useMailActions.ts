@@ -12,11 +12,12 @@ const systemClock: Clock = { now: () => Date.now(), setTimeout: (fn, ms) => setT
 type Removal = 'archive' | 'trash' | 'spam'
 type Kind = Removal | 'mark_read' | 'mark_unread'
 const removes = (kind: Kind | 'remove'): kind is Removal => kind === 'archive' || kind === 'trash' || kind === 'spam'
-type MailNotice = { tone: 'success' | 'danger'; text: string; wrap: boolean }
+type MailNotice = { tone: 'success' | 'danger'; text: string; wrap: boolean; retry?: () => void }
 type Change = { key: QueryKey; page: number; index: number; row: MessageListItemOut }
 type GroupItem = { actionId: string; messageId: string; changes: Change[]; previousRead?: boolean }
 export type UndoEntry = { actionId: string; messageId: string; kind: Kind; changes: Change[]; previousRead?: boolean; group?: GroupItem[]; partial?: boolean; wrap?: boolean; text: string; label: string; deadline: number; pending: boolean }
 const LIMIT = 20
+const rateLimit = z.object({ detail: z.object({ retryable: z.literal(true) }) })
 const partialFolder = z.object({ detail: z.object({ folder: z.enum(['INBOX', 'TRASH', 'ARCHIVE', 'SPAM']), reconciled: z.boolean().optional() }) })
 const inFolder = ({ key }: Change, folder: string) => {
   const filters = key[1]
@@ -63,8 +64,8 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
     setEntries(next)
     schedule(next)
   }
-  const notify = (text: string, tone: 'danger' | 'success' = 'danger', wrap = false) => {
-    setNotice({ text, tone, wrap })
+  const notify = (text: string, tone: 'danger' | 'success' = 'danger', wrap = false, retry?: () => void) => {
+    setNotice({ text, tone, wrap, retry: retry && (() => { setNotice(null); retry() }) })
     if (noticeTimer.current !== undefined) clock.clearTimeout(noticeTimer.current)
     noticeTimer.current = clock.setTimeout(() => { noticeTimer.current = undefined; setNotice(null) }, 10_000)
   }
@@ -156,7 +157,7 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       if (result.response?.status === 404) {
         update(id, 'remove')
         if (!options?.silent) notify(texts.proposalErrors.item_gone)
-      } else if (result.response?.status === 409 && (code === 'provider_partial' || code === 'provider_permission_missing')) {
+      } else if (result.response?.status === 409 && (code === 'provider_partial' || code === 'provider_permission_missing' || code === 'provider_rate_limited')) {
         const parsed = partialFolder.safeParse(result.error)
         const folder = parsed.success ? parsed.data.detail.folder : undefined
         const retained = folder && changes.filter(change => inFolder(change, folder))
@@ -166,7 +167,12 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         const partial = reconciled ? texts.inbox.providerReconciled : folder ? texts.inbox.providerPartial[folder] : texts.errors.provider_partial
         if (code === 'provider_permission_missing') notifyPermission()
         if (!options?.silent || code === 'provider_permission_missing') {
-          notify(partial, 'danger', reconciled || code === 'provider_permission_missing')
+          const limited = code === 'provider_rate_limited'
+          const canRetry = limited && rateLimit.safeParse(result.error).success
+          const reason = canRetry ? texts.errors.provider_rate_limited : texts.inbox.providerRateUnconfirmed
+          notify(limited ? `${partial} ${reason}` : partial, 'danger',
+            reconciled || limited || code === 'provider_permission_missing',
+            canRetry ? () => { void run(id, kind) } : undefined)
         }
         void client.invalidateQueries({ queryKey: ['summary'] })
         void client.invalidateQueries({ queryKey: ['message', id] })
@@ -181,7 +187,11 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
       } else if (!result.data || result.response?.status !== 200) {
         rollback()
         if (code === 'provider_permission_missing') notifyPermission()
-        else if (!options?.silent) notify(result.response?.status === 502 && code === 'provider_failed' ? texts.errors.provider_failed : texts.errors.action_uncertain)
+        else if (!options?.silent && code === 'provider_rate_limited') {
+          const canRetry = rateLimit.safeParse(result.error).success
+          notify(canRetry ? texts.errors.provider_rate_limited : texts.inbox.providerRateUnconfirmed,
+            'danger', true, canRetry ? () => { void run(id, kind) } : undefined)
+        } else if (!options?.silent) notify(result.response?.status === 502 && code === 'provider_failed' ? texts.errors.provider_failed : texts.errors.action_uncertain)
         return changes.length > 0
       } else {
         if (removal) reconcile.current = true
@@ -268,10 +278,18 @@ export function useMailActions({ clock = systemClock }: { clock?: Clock } = {}) 
         const text = [base, partlyChanged ? texts.inbox.bulkProviderPartial(partlyChanged) : '',
           reconciled ? texts.inbox.bulkProviderReconciled(reconciled) : ''].filter(Boolean).join(' ')
         if (permissionMissing) notifyPermission()
+        const limited = result.data.results.filter(row => row.error_code === 'provider_rate_limited')
+        const retryIds = limited.filter(row => row.retryable && (row.status === 'failed' || row.status === 'partial')).map(row => row.message_id)
         if (group.length) {
           setNotice(null)
           publish([...entriesRef.current, { ...group[0]!, group, partial: group.length < ids.length, wrap, kind, text, label: text, deadline: clock.now() + 10_000, pending: false }])
-        } else notify(text, 'danger', wrap)
+        }
+        if (limited.length) {
+          const throttled = limited.length > retryIds.length ? texts.inbox.providerRateUnconfirmed : texts.errors.provider_rate_limited
+          const retryText = retryIds.length ? texts.inbox.bulkProviderRetry(retryIds.length) : ''
+          notify([group.length ? '' : text, throttled, retryText].filter(Boolean).join(' '), 'danger', true,
+            retryIds.length ? () => { void runBulk(retryIds, kind) } : undefined)
+        } else if (!group.length) notify(text, 'danger', wrap)
         reconcile.current = true
         void client.invalidateQueries({ queryKey: ['summary'] })
       } catch {

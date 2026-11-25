@@ -25,7 +25,7 @@ export function ActionToast({ inline }: { inline?: boolean }) {
       lastFocus.current = null
       next?.focus({ preventScroll: true })
     }
-  }, [entries.length, permissionNotice])
+  }, [entries.length, notice, permissionNotice])
   const latest = entries.at(-1)
   if (!latest && !notice && !permissionNotice) return null
   const single = entries.length === 1 ? latest : undefined
@@ -43,7 +43,7 @@ export function ActionToast({ inline }: { inline?: boolean }) {
         }))}
       />}
     </Notice>}
-    {notice && <Notice tone={notice.tone}>
+    {notice && <Notice tone={notice.tone} action={notice.retry ? { label: texts.chat.retry, onClick: notice.retry } : undefined}>
       <span className={`le-inbox-toast-text${notice.wrap ? ' le-inbox-toast-text--wrap' : ''}`}>{notice.text}</span>
     </Notice>}
     {/* The close tooltip clears the whole toast, so it covers neither this guidance nor an undo link above it. */}

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from asyncio import sleep, timeout
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
 from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import Any
@@ -25,7 +25,7 @@ import httpx
 from db.accessors import mail_sync_state
 from utils.mistral import mistral_api_url, mistral_app_token
 
-from api.mail import action_capabilities, connector_write_results as write_result
+from api.mail import action_capabilities, connector_throttle, connector_write_results as write_result
 
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,10 @@ class LabelChangeUnconfirmed(ValueError):
         self.provider_unchanged = provider_unchanged
 
 
-async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeout: float = _TOOL_TIMEOUT_SECONDS) -> str:
+async def _call_tool(
+    connector: str, tool: str, arguments: dict[str, Any], timeout: float = _TOOL_TIMEOUT_SECONDS, *,
+    before_retry: Callable[[], Awaitable[None]] | None = None,
+) -> str:
     """Call one connector tool; returns the joined text content of the MCP-style result."""
     ref = quote(connector, safe="")
     path = f"/v1/connectors/{ref}/tools/{quote(tool, safe='')}/call"
@@ -116,10 +119,10 @@ async def _call_tool(connector: str, tool: str, arguments: dict[str, Any], timeo
         path += f"?credentials_name={quote(credential, safe='')}"
     writing = tool in WRITE_TOOLS or tool in write_result.LABEL_TOOLS
     try:
-        data = await _post(
-            path,
-            {"arguments": arguments},
-            **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {}),
+        data = await connector_throttle.tool(
+            lambda: _post(path, {"arguments": arguments},
+                          **({"timeout": timeout} if timeout != _TOOL_TIMEOUT_SECONDS else {})),
+            write=writing, before_retry=before_retry,
         )
         if writing:
             write_result.confirm(tool, arguments, data)
@@ -236,6 +239,21 @@ async def change_gmail_labels(
     absent: set[str] = set()
     folder_labels = {"INBOX", "TRASH"}
     destination_labels = folder_labels.intersection({destination}) if destination is not None else None
+
+    async def verify_retry_binding(expected_labels: set[str], changing: list[str]) -> None:
+        latest = await mail_sync_state.get_state(account.id)
+        latest_proof = latest.write_evidence() if latest else None
+        if latest is None or latest_proof is None or latest_proof[:2] != proof:
+            raise MailboxUnavailable()
+        if latest_proof[2] == "blocked":
+            raise write_result.PermissionMissing()
+        async with bound_mailbox(account, cursor=latest.connector_cursor,
+                                 generation=latest.connector_generation, observed=latest):
+            observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
+        relevant = folder_labels | {"SPAM"} | set(changing)
+        if observed is None or set(observed).intersection(relevant) != expected_labels.intersection(relevant):
+            raise LabelChangeUnconfirmed(observed)
+
     async with bound_mailbox(account, cursor=state.connector_cursor, generation=state.connector_generation, observed=state):
         initial_labels = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
         if initial_labels is None:
@@ -265,8 +283,11 @@ async def change_gmail_labels(
                     added, removed = [], ["INBOX"]
                 elif destination == "INBOX":
                     # Restore changes only folder labels. The pinned read supplies the source.
-                    added = ["INBOX"]
+                    completing_partial = current == folder_labels and folder_labels.issubset(json.loads(message.labels_json))
+                    added = [] if completing_partial else ["INBOX"]
                     removed = ["TRASH"] if live_folder == "TRASH" else []
+                    if completing_partial:
+                        undo_snapshot = [label for label in initial_labels if label != "INBOX"]
                 if live_folder not in source_folders:
                     raise LabelChangeUnconfirmed(initial_labels, provider_unchanged=True)
         if read_status is not None:
@@ -278,9 +299,14 @@ async def change_gmail_labels(
         step_has_evidence = False
         provider_changed = False
         for tool, changes, expected in (("label_message", added, present), ("unlabel_message", removed, absent)):
+            has_confirmed_step = bool(present or absent)
+            # A confirmed first write can implicitly finish the whole move. Keep the
+            # first write's receipt checks even if its requested label is already set.
+            if provider_changed and has_confirmed_step:
+                adding = tool == "label_message"
+                changes = [label for label in changes if (label in labels) != adding]
             if not changes:
                 continue
-            has_confirmed_step = bool(present or absent)
             if step_has_evidence:
                 await mail_sync_state.record_connector_write(account.id, proof, outcome="confirmed")
             current = await mail_sync_state.get_state(account.id)
@@ -297,14 +323,25 @@ async def change_gmail_labels(
                        if has_confirmed_step else nullcontext())
             labels_before = set(labels)
             has_receipt = True
+            dispatched = False
             try:
                 async with binding:
                     try:
-                        await _call_tool(provider, tool, {"messageId": uid, "labelIds": changes})
+                        await _call_tool(provider, tool, {"messageId": uid, "labelIds": changes},
+                                         before_retry=lambda: verify_retry_binding(labels_before, changes))
                     except write_result.WriteUnconfirmed:
                         has_receipt = False
+                    dispatched = True
                     expected.update(changes)
                     labels = await _confirm_label_change(provider, thread, uid, present, absent, point_only=True)
+            except connector_throttle.RateLimited as error:
+                if dispatched or provider_changed:
+                    # A step may already have taken effect. Keep confirmed intermediate
+                    # evidence and leave uncertain changes to the next sync.
+                    raise connector_throttle.RateLimited(
+                        retryable=not dispatched and error.retryable,
+                        labels=labels if provider_changed else None) from None
+                raise
             except write_result.PermissionMissing:
                 await mail_sync_state.record_connector_write(account.id, proof, outcome="blocked")
                 raise write_result.PermissionMissing(labels, provider_unchanged=not provider_changed) from None
@@ -323,7 +360,10 @@ async def change_gmail_labels(
                         if await mail_sync_state.record_connector_write(account.id, proof, outcome="unchanged"):
                             raise write_result.PermissionMissing(error.labels, provider_unchanged=error.provider_unchanged) from None
                 raise
-            except (httpx.HTTPError, TimeoutError):
+            except (httpx.HTTPError, TimeoutError) as error:
+                if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 503:
+                    raise connector_throttle.RateLimited(
+                        retryable=False, labels=labels if provider_changed else None) from None
                 if not has_confirmed_step:
                     raise
                 # Read the current state of the same live mailbox. Never repeat an uncertain write.

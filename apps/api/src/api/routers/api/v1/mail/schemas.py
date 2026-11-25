@@ -81,6 +81,16 @@ class MessageActionOut(BaseModel):
     message: MessageListItemOut
 
 
+class ProviderRateLimitDetail(BaseModel):
+    code: Literal["provider_rate_limited"]
+    message: str
+    retryable: bool
+
+
+class ProviderRateLimitOut(BaseModel):
+    detail: ProviderRateLimitDetail
+
+
 class BulkMessageActionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -99,6 +109,7 @@ class BulkMessageActionResult(BaseModel):
     message_id: str
     status: Literal["done", "not_found", "unsupported", "failed", "partial"]
     reconciled: bool = Field(default=False, exclude_if=lambda flag: not flag)
+    retryable: bool = Field(default=False, exclude_if=lambda flag: not flag)
     folder: Literal["INBOX", "TRASH", "ARCHIVE", "SPAM"] | None = None
     action_id: str | None = None
     message: MessageListItemOut | None = None

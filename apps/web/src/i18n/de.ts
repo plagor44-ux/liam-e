@@ -618,6 +618,7 @@ export const de = {
     provider_action_unsupported: 'Diese Aktion ist für dieses Gmail-Konto in Mistral Studio nicht verfügbar.',
     provider_permission_missing: 'Für diese Aktion fehlt dem Connector die Berechtigung. Melde das Konto in Mistral Studio erneut an. Pausierte Mail-Aktionen kannst du danach unter Konten wieder erlauben.',
     provider_partial: 'Der Anbieter hat nur einen Teil der Änderung ausgeführt. Prüfe den Ordner der Mail.',
+    provider_rate_limited: 'Der Mailanbieter begrenzt gerade die Anfragen. Versuch es in Kürze erneut.',
     provider_failed: 'Der Anbieter hat die Änderung nicht bestätigt. Prüfe die Mail nach dem nächsten Abruf.',
     action_uncertain: 'Das hat nicht geklappt. Lade den Posteingang neu, um zu sehen, wo die Mail jetzt liegt.',
     account_exists: 'Diese Adresse ist schon über einen anderen Weg verbunden. Entferne das Konto zuerst, wenn du die Verbindung wechseln willst.',
@@ -729,6 +730,8 @@ export const de = {
     unsupportedSelection: 'Einige Aktionen sind für die ausgewählten Mails nicht verfügbar. Wähle dafür nur Mails aus Konten aus, die die Aktion unterstützen.',
     bulkProviderPartial: (n: number) => plural(n, { one: 'Der Anbieter hat # Mail teilweise geändert. Die Liste zeigt den gemeldeten Ordner.', other: 'Der Anbieter hat # Mails teilweise geändert. Die Liste zeigt die gemeldeten Ordner.' }),
     providerReconciled: 'Die Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.',
+    providerRateUnconfirmed: 'Der Mailanbieter begrenzt gerade die Anfragen. Prüfe die betroffenen Mails nach dem nächsten Abruf.',
+    bulkProviderRetry: (n: number) => plural(n, { one: 'Du kannst # Mail in Kürze erneut versuchen.', other: 'Du kannst # Mails in Kürze erneut versuchen.' }),
     bulkProviderReconciled: (n: number) => plural(n, { one: '# Mail wurde nicht verschoben. Die Liste zeigt ihren aktuellen Ordner.', other: '# Mails wurden nicht verschoben. Die Liste zeigt ihre aktuellen Ordner.' }),
     providerPartial: {
       INBOX: 'Der Anbieter hat nur einen Teil der Änderung ausgeführt. Die Mail ist im Posteingang.',

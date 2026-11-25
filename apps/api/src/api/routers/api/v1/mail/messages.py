@@ -19,10 +19,10 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from api.errors import refuse
 from api.locales import Locale
-from api.mail import actions, connector_write_results as write_result, insights, original
+from api.mail import actions, connector_throttle, connector_write_results as write_result, insights, original
 from api.mail.headers import sender_name
 from api.mail.state import color_indexes
-from api.routers.api.v1.mail.schemas import BulkMessageActionIn, BulkMessageActionOut, BulkMessageActionResult, InsightOut, MessageActionIn, MessageActionOut, MessageDetailOut, MessageHtmlOut, MessageListItemOut, MessageOriginalOut, MessagePageOut
+from api.routers.api.v1.mail.schemas import BulkMessageActionIn, BulkMessageActionOut, BulkMessageActionResult, InsightOut, MessageActionIn, MessageActionOut, MessageDetailOut, MessageHtmlOut, MessageListItemOut, MessageOriginalOut, MessagePageOut, ProviderRateLimitOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -111,7 +111,10 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
                 action = await actions.apply_action(message_id, body.kind)
             except actions.ActionPartialError as error:
                 return BulkMessageActionResult(message_id=message_id, status="partial", folder=error.folder,
-                                               error_code=error.error_code, reconciled=error.reconciled)
+                                               error_code=error.error_code, reconciled=error.reconciled, retryable=error.retryable)
+            except connector_throttle.RateLimited as error:
+                return BulkMessageActionResult(message_id=message_id, status="failed", error_code=connector_throttle.CODE,
+                                               retryable=error.retryable)
             except write_result.PermissionMissing as error:
                 return BulkMessageActionResult(message_id=message_id, status="failed", error_code=error.code)
             except actions.ActionUnsupportedError:
@@ -145,7 +148,8 @@ async def bulk_message_action(body: BulkMessageActionIn) -> BulkMessageActionOut
     return BulkMessageActionOut(results=await asyncio.gather(*(apply(first_id) for first_id in targets.values())))
 
 
-@router.post("/{message_id}/actions", operation_id="mail_message_action", summary="Apply an undoable message action")
+@router.post("/{message_id}/actions", operation_id="mail_message_action", summary="Apply an undoable message action",
+             responses={429: {"model": ProviderRateLimitOut}})
 async def message_action(message_id: str, body: MessageActionIn) -> MessageActionOut:
     """Update one message at its provider and retain its previous state for 24-hour undo."""
     try:
@@ -158,12 +162,20 @@ async def message_action(message_id: str, body: MessageActionIn) -> MessageActio
             "message": "Der Anbieter hat nur einen Teil der Änderung ausgeführt.",
             "folder": error.folder,
         }
+        if error.retryable:
+            detail["retryable"] = True
         if error.reconciled:
             detail["reconciled"] = True
             detail["message"] = "Die Liste zeigt den aktuellen Ordner. Die Mail wurde durch diese Aktion nicht verschoben."
         raise HTTPException(status_code=409, detail=detail) from None
     except write_result.PermissionMissing as error:
         raise refuse(403, error.code, "Für diese Aktion fehlt dem Connector die Berechtigung.") from None
+    except connector_throttle.RateLimited as error:
+        raise HTTPException(status_code=429, detail={
+            "code": connector_throttle.CODE,
+            "message": "Der Mailanbieter begrenzt gerade die Anfragen.",
+            "retryable": error.retryable,
+        }) from None
     except actions.ActionFailedError:
         raise refuse(502, "provider_failed", "Der Anbieter hat die Änderung nicht bestätigt. Prüfe die Mail nach dem nächsten Abruf.") from None
     message = await message_access.get_message(message_id)

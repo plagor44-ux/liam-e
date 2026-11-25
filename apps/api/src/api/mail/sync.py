@@ -11,11 +11,12 @@ from db.accessors import mail_job
 from db.accessors import mail_message as message_access
 from db.accessors import mail_rule_run
 from db.accessors import mail_sync_state as sync_state_access
+from db.models.mail_account import MailAccount
 from db.models.mail_message import IMAP_RETIRED
 from env.mail import env as mail_env
 from utils.mistral import MistralNotConfiguredError
 
-from api.mail import connector_mailbox, connectors, netguard, providers, secrets, service, sync_connector, sync_gmail, sync_graph, sync_imap, transport
+from api.mail import connector_mailbox, connector_throttle, connectors, netguard, providers, secrets, service, sync_connector, sync_gmail, sync_graph, sync_imap, transport
 from api.mail.seed_ids import is_seed_account
 from api.mail.sync_types import BODY_VERSION, HTML_VERSION, SyncResult
 
@@ -54,6 +55,12 @@ async def sync_account(account_id: str) -> SyncResult:
     account = await account_access.get_account(account_id)
     if account is None:
         raise LookupError(f"no mail account with id {account_id}")
+    with connector_throttle.sync(account_id if account.auth_type == connectors.CONNECTOR else None):
+        return await _sync_account(account)
+
+
+async def _sync_account(account: MailAccount) -> SyncResult:
+    account_id = account.id
     is_connector = account.auth_type == connectors.CONNECTOR
     if is_seed_account(account_id):
         state = await sync_state_access.get_state(account_id)

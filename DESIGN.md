@@ -613,7 +613,10 @@ from the end; if you scroll further up it stays still and a „Zum Ende“ butto
   immediately and then show a notice for 10 seconds with a shared „Rückgängig“. Provider permission
   guidance wraps and stays visible until dismissed, alongside later action results. Its close
   button has an accessible name. Each Undo stays beside the action result and keeps its own
-  deadline. Assistant proposals continue through the confirmation card.
+  deadline. A rate-limit notice wraps and offers „Noch mal versuchen“ for actions safe to resend.
+  For a mixed bulk result the retry targets only those items. If the provider result is uncertain,
+  the notice asks the user to check after the next sync. Assistant proposals continue through
+  the confirmation card.
 
 ### 9.3 Provenance and content from mail
 

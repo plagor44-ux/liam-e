@@ -1327,7 +1327,7 @@ def test_confirmed_gmail_write_resets_unchanged_readback_streak(pg_db, monkeypat
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("intervening", ["already read", "already inbox restore step", "positive receipt"])
+@pytest.mark.parametrize("intervening", ["already read", "partial restore retry", "positive receipt"])
 def test_gmail_unchanged_streak_needs_receipt_or_requested_label_transition(pg_db, monkeypatch, intervening):
     async def run():
         provider = StudioMailbox()
@@ -1349,14 +1349,14 @@ def test_gmail_unchanged_streak_needs_receipt_or_requested_label_transition(pg_d
             state = await mail_sync_state.get_state(provider.account.id)
             assert state.write_evidence()[2] == "unchanged"
 
-            if intervening == "already inbox restore step":
+            if intervening == "partial restore retry":
                 provider.labels["sibling"].add("TRASH")
                 await mail_message.set_state(ids["sibling"], folder="TRASH", labels_json='["INBOX", "TRASH"]')
                 move = await browser.post(sibling, json={"kind": "restore"})
                 assert move.status_code == 403
                 assert move.json()["detail"]["code"] == "provider_permission_missing"
-                assert provider.writes[-2:] == [
-                    ("label_message", "sibling", ("INBOX",)), ("unlabel_message", "sibling", ("TRASH",))]
+                assert provider.writes[-1] == ("unlabel_message", "sibling", ("TRASH",))
+                assert len(provider.writes) == 2
             else:
                 if intervening == "positive receipt":
                     provider.reject = None
@@ -1925,10 +1925,7 @@ def test_gmail_reads_current_state_after_the_second_write_fails(pg_db, monkeypat
                     raise httpx.ReadTimeout("synthetic timeout", request=request)
                 raise httpx.HTTPStatusError("synthetic error", request=request,
                     response=httpx.Response(500, request=request))
-            result = await original(path, payload)
-            if tool == "label_message" and first_step_changed:
-                provider.labels["target"].discard("INBOX")
-            return result
+            return await original(path, payload)
 
         monkeypatch.setattr(connectors, "_post", dispatch)
         async with client() as browser:
@@ -2205,5 +2202,104 @@ def test_gmail_action_outcome_is_kept_in_chat_and_rule_history(pg_db, monkeypatc
                 "archive": outcome + ("_permission" if permission_missing else ""),
             }
         assert not provider.writes
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind,stage", [
+    ("trash", "proof"), ("trash", "second_write"), ("restore", "second_write"),
+    ("trash", "readback"), ("trash", "write_503"),
+])
+def test_gmail_throttling_preserves_confirmed_state_and_only_offers_safe_retry(pg_db, monkeypatch, caplog, kind, stage):
+    from api.mail import connector_throttle
+
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        if kind == "restore":
+            provider.labels["target"] = {"TRASH"}
+            await mail_message.set_state(target, folder="TRASH", labels_json='["TRASH"]')
+        initial_folder = "TRASH" if kind == "restore" else "INBOX"
+        throttle = True
+        monotonic = connector_throttle.monotonic
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            limited = ((stage == "proof" and tool == "get_thread")
+                       or (stage == "second_write" and tool == "unlabel_message")
+                       or (stage == "readback" and tool == "get_thread" and provider.writes))
+            if throttle and limited:
+                httpx.Response(429, headers={"Retry-After": "60"},
+                               request=httpx.Request("POST", "https://example.test")).raise_for_status()
+            result = await provider.dispatch(path, payload)
+            if stage == "write_503" and tool == "label_message":
+                httpx.Response(503, request=httpx.Request("POST", "https://example.test")).raise_for_status()
+            return result
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            response = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": kind})
+            assert response.json()["detail"]["code"] == "provider_rate_limited"
+            assert await mail_action.latest_open(target) is None
+            row = await mail_message.get_message(target)
+            assert row is not None
+            if stage == "second_write":
+                assert response.status_code == 409
+                assert response.json()["detail"]["retryable"] is True
+                assert row.folder == "TRASH"
+                assert set(json.loads(row.labels_json)) == provider.labels["target"] == {"INBOX", "TRASH"}
+            else:
+                assert response.status_code == 429
+                assert response.json()["detail"]["retryable"] is (stage == "proof")
+                assert row.folder == initial_folder
+            assert len(provider.writes) == (0 if stage == "proof" else 1)
+            assert f"Mail action failed action={kind} provider=connector code=provider_rate_limited" in caplog.text
+
+            if stage == "second_write":
+                throttle = False
+                monkeypatch.setattr(connector_throttle, "monotonic", lambda: monotonic() + 61)
+                retry = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": kind})
+                assert retry.status_code == 200
+                assert len(provider.writes) == 2
+                tool, _, changes = provider.writes[-1]
+                assert tool == "unlabel_message" and changes == (initial_folder,)
+                action = await mail_action.latest_open(target)
+                assert action is not None and json.loads(action.previous_json)["folder"] == initial_folder
+                destination = "TRASH" if kind == "trash" else "INBOX"
+                row = await mail_message.get_message(target)
+                assert row is not None and row.folder == destination
+                assert provider.labels["target"] == {destination}
+
+            if stage == "proof":
+                bulk = await browser.post(f"{MAIL}/messages/actions",
+                    json={"kind": "trash", "message_ids": [target, ids["sibling"]]})
+                assert bulk.status_code == 200
+                assert all(item["status"] == "failed" and item["retryable"]
+                           and item["error_code"] == "provider_rate_limited" for item in bulk.json()["results"])
+
+    asyncio.run(run())
+
+
+def test_gmail_uses_live_labels_to_skip_a_redundant_write_and_point_read(pg_db, monkeypatch):
+    async def run():
+        provider = StudioMailbox()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        calls = []
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            calls.append(tool)
+            response = await provider.dispatch(path, payload)
+            if tool == "label_message":
+                provider.labels["target"].discard("INBOX")
+            return response
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            response = await browser.post(f"{MAIL}/messages/{ids['target']}/actions", json={"kind": "trash"})
+        assert response.status_code == 200
+        assert calls == ["get_thread", "get_thread", "label_message", "get_thread"]
+        assert provider.labels["target"] == {"TRASH"}
 
     asyncio.run(run())

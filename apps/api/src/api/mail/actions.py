@@ -10,13 +10,13 @@ from db.accessors import mail_account as account_access
 from db.accessors import mail_action as action_access
 from db.accessors import mail_message as message_access
 from db.models.mail_action import MailAction
-from db.models.mail_account import gmail_studio
+from db.models.mail_account import MailAccount, gmail_studio
 from fastapi import HTTPException
 from db.models.mail_message import IMAP_RETIRED, MailMessage
 from sqlalchemy.exc import IntegrityError
 
 from api.errors import refuse
-from api.mail import action_capabilities, connector_write_results as write_result, connectors
+from api.mail import action_capabilities, connector_throttle, connector_write_results as write_result, connectors
 
 ActionKind = Literal["archive", "trash", "spam", "mark_read", "mark_unread", "restore"]
 FOLDER_ACTION_SOURCES = {
@@ -36,11 +36,12 @@ class ActionFailedError(RuntimeError):
 class ActionPartialError(ActionFailedError):
     """The action failed, but the observed folder was reconciled in the index."""
 
-    def __init__(self, folder: str, error_code: str | None = None, *, reconciled: bool = False):
+    def __init__(self, folder: str, error_code: str | None = None, *, reconciled: bool = False, retryable: bool = False):
         super().__init__("The provider folder was reconciled after an incomplete action")
         self.folder = folder
         self.error_code = error_code
         self.reconciled = reconciled
+        self.retryable = retryable
         self.outcome: Literal["reconciled", "partial"] = "reconciled" if reconciled else "partial"
 
 
@@ -113,15 +114,33 @@ async def require_bulk_support(message_ids: list[str], kind: ActionKind) -> None
                 raise
 
 
-async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
-    from api.mail import action_backends
+def _log_action_failure(account: MailAccount, kind: ActionKind, code: str) -> None:
+    provider = "connector" if account.auth_type == connectors.CONNECTOR else account.provider
+    if provider not in {"connector", "google", "microsoft", "imap"}:
+        provider = "unknown"
+    logger.warning("Mail action failed action=%s provider=%s code=%s", kind, provider, code)
 
+
+async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
     message = await message_access.get_message(message_id)
     if message is None:
         raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
     account = await account_access.get_account(message.account_id)
     if account is None:
         raise ActionUnsupportedError()
+    if gmail_studio(account):
+        async with connector_throttle.action(account.id):
+            latest = await message_access.get_message(message_id)
+            if latest is None or latest.account_id != account.id:
+                raise refuse(404, "message_not_found", "Die Mail ist nicht mehr da.")
+            return await _apply_action(latest, account, kind)
+    return await _apply_action(message, account, kind)
+
+
+async def _apply_action(message: MailMessage, account: MailAccount, kind: ActionKind) -> MailAction:
+    from api.mail import action_backends
+
+    message_id = message.id
     await action_capabilities.require_action(account, kind)
     if message.folder in {"IMAP_DELETED", IMAP_RETIRED}:
         raise ActionUnsupportedError()
@@ -137,6 +156,12 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
             updates = await backend.apply(message, kind)
         except (ActionUnsupportedError, HTTPException):
             raise
+        except connector_throttle.RateLimited as error:
+            _log_action_failure(account, kind, connector_throttle.CODE)
+            folder = await _reconcile_connector_labels(message, error.labels)
+            if folder is not None:
+                raise ActionPartialError(folder, connector_throttle.CODE, retryable=error.retryable) from None
+            raise
         except write_result.PermissionMissing as error:
             folder = await _reconcile_connector_labels(message, error.labels)
             if folder is not None:
@@ -146,10 +171,10 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
             folder = await _reconcile_connector_labels(message, error.labels)
             if folder is not None:
                 raise ActionPartialError(folder, reconciled=error.provider_unchanged) from None
-            logger.warning("%s", type(error).__name__)
+            _log_action_failure(account, kind, type(error).__name__)
             raise ActionFailedError() from None
         except Exception as error:
-            logger.warning("%s", type(error).__name__)
+            _log_action_failure(account, kind, type(error).__name__)
             raise ActionFailedError() from None
         previous.update(updates.pop("connector_previous", {}))
         action = MailAction(message_id=message.id, account_id=account.id, kind=kind, previous_json=json.dumps(previous))
@@ -165,13 +190,13 @@ async def apply_action(message_id: str, kind: ActionKind) -> MailAction:
             await message_access.set_state(message_id, **previous)
         if isinstance(error, (ActionUnsupportedError, write_result.PermissionMissing)):
             raise
-        logger.warning("%s", type(error).__name__)
+        _log_action_failure(account, kind, type(error).__name__)
         raise ActionFailedError() from None
     await _write_provider_state(message, updates, folder=changes.get("folder", message.folder))
     try:
         return await action_access.record(message_id=message.id, account_id=message.account_id, kind=kind, previous_json=json.dumps(previous))
     except Exception as error:
-        logger.warning("%s", type(error).__name__)
+        _log_action_failure(account, kind, type(error).__name__)
         raise
 
 
