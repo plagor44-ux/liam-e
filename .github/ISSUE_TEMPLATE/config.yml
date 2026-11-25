@@ -3,3 +3,6 @@ contact_links:
   - name: Report a vulnerability privately
     url: https://github.com/plagor44-ux/liam-e/security/advisories/new
     about: Never report suspected vulnerabilities in a public issue (see SECURITY.md).
+  - name: Ask a question or share an idea
+    url: https://github.com/plagor44-ux/liam-e/discussions
+    about: Questions, ideas and things you built with liam-e belong in Discussions; issues track concrete work.
