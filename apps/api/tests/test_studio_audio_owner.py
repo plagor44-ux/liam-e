@@ -113,6 +113,24 @@ def test_audio_posts_require_the_configured_browser_origin(studio_client: TestCl
     assert not outbound.calls
 
 
+@pytest.mark.parametrize("headers", [
+    HEADERS,
+    {**HEADERS, "origin": "null"},
+    {**HEADERS, "origin": "https://other.example.test"},
+    {"x-api-key": "workspace-key-test-only", "origin": ORIGIN},
+])
+def test_paid_device_inference_smoke_requires_owner_and_origin(
+    studio_client: TestClient, monkeypatch, headers: dict,
+) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(env, "audio_device_test_until", (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+    with respx.mock() as outbound:
+        response = studio_client.post("/api/v1/audio/device-test/inference", headers=headers)
+    assert response.status_code == 401
+    assert not outbound.calls
+
+
 def test_same_origin_owner_reaches_the_transcription_release_check(studio_client: TestClient) -> None:
     with respx.mock(assert_all_called=False) as outbound:
         outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))

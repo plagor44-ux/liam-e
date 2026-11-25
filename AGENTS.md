@@ -158,6 +158,7 @@ Inventory from `apps/api/openapi.json`; each row names method, path and `operati
 | Audio live test | POST | `/api/v1/audio/live/speech` | `audio_live_speech` |
 | Audio device check | GET | `/api/v1/audio/device-test` | `audio_device_test_get` |
 | Audio device check | POST | `/api/v1/audio/device-test/recording` | `audio_device_test_record` |
+| Audio device check | POST | `/api/v1/audio/device-test/inference` | `audio_device_test_inference` |
 | Audio device check | GET | `/api/v1/audio/device-test/sample` | `audio_device_test_sample` |
 | Calendar | GET | `/api/v1/calendar/connections/google/calendars` | `calendar_google_calendars_list` |
 | Calendar | POST | `/api/v1/calendar/connections/google` | `calendar_google_connect` |
@@ -1168,8 +1169,8 @@ Spam, provider folder moves and provider label changes remain unavailable.
   language; its fixed progress phrase and reply use the same voice.
   Speech attestations can set lower limits within 500 characters, 1,000,000 MP3 bytes and
   20 seconds. All audio responses use `Cache-Control: no-store`.
-  The owner-only `audio_device_test_get`, `audio_device_test_record` and
-  `audio_device_test_sample` operations expire independently and remain browser-only.
+  The owner-only `audio_device_test_get`, `audio_device_test_record`, `audio_device_test_inference`
+  and `audio_device_test_sample` operations expire independently and remain browser-only.
   Live voice is a separate test-only, owner-and-origin-bound path. Its status and speech POSTs
   remain browser-only, and the transcription WebSocket is not part of OpenAPI or the agent
   facade. `AUDIO_LIVE_TEST_ENABLED`, `AUDIO_LIVE_TEST_ORIGIN`, and `AUDIO_LIVE_TEST_UNTIL`
@@ -1193,7 +1194,12 @@ Spam, provider folder moves and provider label changes remain unavailable.
   voice turns use the conversation's model. Text turns keep the conversation model. Voice turns use
   `none` reasoning for verified Small 4 and Medium 3.5, `low` for Large 4, and omit the parameter
   for other or unresolved models. When setting the parameter, the resolved model ID is pinned.
-  They validate WebM and return a fixed test draft or bundled sample without calling an inference service.
+  The device check's recording and sample routes validate WebM and return a fixed test draft or
+  bundled sample without calling an inference service. Only the explicit, paid
+  `audio_device_test_inference` smoke calls Mistral: one at a time under the transcription lock, it
+  sends the bundled synthetic WebM/Opus recording and the fixed sample sentence with the app's
+  inference credential. It returns outcome codes, models, durations and sizes, never text or audio,
+  and never sets release attestations.
   See the [audio probe](docs/superpowers/probes/2026-11-19-audio-capabilities.md).
   Every OpenAPI import turns every operation into an MCP tool; otherwise a Studio agent could confirm proposals, perform actions or connect accounts without the owner seeing it — individual tools can be disabled in Studio after import.
   New mutating operations must deliberately be added to `MUTATING_OPERATIONS` in `apps/api/tests/test_mcp_exposure.py`, otherwise the inventory test fails.

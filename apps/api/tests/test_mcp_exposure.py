@@ -25,6 +25,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
         "audio_voice_preview",
         "audio_live_status",
         "audio_live_speech",
+        "audio_device_test_inference",
         "audio_device_test_record",
         "calendar_google_connect",
         "calendar_event_create",

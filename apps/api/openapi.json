@@ -2341,6 +2341,28 @@
         "title": "DestinationPage",
         "type": "object"
       },
+      "DeviceInferenceOut": {
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "stt": {
+            "$ref": "#/components/schemas/TranscriptionCheckOut"
+          },
+          "tts": {
+            "$ref": "#/components/schemas/SpeechCheckOut"
+          }
+        },
+        "required": [
+          "checked_at",
+          "stt",
+          "tts"
+        ],
+        "title": "DeviceInferenceOut",
+        "type": "object"
+      },
       "DeviceRecordingOut": {
         "properties": {
           "request_id": {
@@ -7233,6 +7255,62 @@
         "title": "SpeechCapabilityOut",
         "type": "object"
       },
+      "SpeechCheckOut": {
+        "properties": {
+          "audio_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Bytes"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "elapsed_ms": {
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "model",
+          "elapsed_ms"
+        ],
+        "title": "SpeechCheckOut",
+        "type": "object"
+      },
       "SpeechLimitsOut": {
         "additionalProperties": false,
         "properties": {
@@ -8326,6 +8404,73 @@
           "app_limits"
         ],
         "title": "TranscriptionCapabilityOut",
+        "type": "object"
+      },
+      "TranscriptionCheckOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "elapsed_ms": {
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "matches_sample": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matches Sample"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reported_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Model"
+          }
+        },
+        "required": [
+          "outcome",
+          "model",
+          "elapsed_ms"
+        ],
+        "title": "TranscriptionCheckOut",
         "type": "object"
       },
       "TranscriptionLimitsOut": {
@@ -9435,6 +9580,36 @@
           }
         },
         "summary": "Status"
+      }
+    },
+    "/api/v1/audio/device-test/inference": {
+      "post": {
+        "operationId": "audio_device_test_inference",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceInferenceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Owner access or browser origin could not be verified"
+          },
+          "404": {
+            "description": "The device check is closed"
+          },
+          "429": {
+            "description": "Another audio request holds the transcription slot"
+          },
+          "503": {
+            "description": "The transcription slot is unavailable"
+          }
+        },
+        "summary": "Run the synthetic speech recognition and speech synthesis smoke once"
       }
     },
     "/api/v1/audio/device-test/recording": {
