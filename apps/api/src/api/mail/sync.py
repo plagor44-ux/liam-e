@@ -98,41 +98,30 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                     first_import = not progress
                     tracked = set() if first_import else initial_deferred
 
-                    async def save_checkpoint(kept, deferred, pending_checks):
-                        nonlocal checkpoint
-                        await connector_mailbox.verify_bound_mailbox(account, binding, generation=generation, observed=previous)
-                        checkpoint = kept, deferred, pending_checks
-
-                    async def before_history(current):
-                        kept, deferred = await _refine_connector_changes(
-                            account, current, known_deferred, options, initial_deferred=tracked)
-                        pending_checks = await sync_connector.pending_label_checks(account, proof[0], kept) if proof else []
-                        await save_checkpoint(kept, deferred, pending_checks)
-
-                    async def before_optional(current):
-                        nonlocal label_jobs
+                    async def save_checkpoint(current):
+                        nonlocal checkpoint, label_jobs
                         label_jobs = await mail_job.connector_label_checks(account.id) if proof else []
-                        if not (known_deferred or current.restored_members or label_jobs):
-                            return
+                        if not progress.startswith("initial:"):
+                            if not (known_deferred or current.restored_members or label_jobs):
+                                return
+                            current = deepcopy(current)
+                        protected = sync_connector.protect_pending_label_checks(current, label_jobs, proof[0]) if proof else set()
                         kept, deferred = await _refine_connector_changes(
-                            account, deepcopy(current), known_deferred, options,
-                            initial_deferred=tracked, defer_probes=True)
-                        if proof:
-                            sync_connector.protect_pending_label_checks(kept, label_jobs, proof[0])
-                        await save_checkpoint(kept, deferred, [])
+                            account, current, known_deferred, options,
+                            initial_deferred=tracked, defer_probes=True, protected_uids=protected)
+                        await connector_mailbox.verify_bound_mailbox(account, binding, generation=generation, observed=previous)
+                        checkpoint = kept, deferred
 
                     changes, deferred = await _connector_changes(account, progress, known_deferred, options,
-                        initial_deferred=tracked, first_import=first_import, before_history=before_history,
-                        before_optional=before_optional)
+                        initial_deferred=tracked, first_import=first_import, checkpoint_delta=save_checkpoint)
                     if proof:
-                        checks = await sync_connector.pending_label_checks(
-                            account, proof[0], changes, prior_checks=checkpoint[2] if checkpoint else (),
-                            jobs=label_jobs)
+                        checks = await sync_connector.pending_label_checks(account, proof[0], changes, jobs=label_jobs)
             except (connector_throttle.RateLimited, httpx.HTTPStatusError) as error:
                 if checkpoint is None or (isinstance(error, httpx.HTTPStatusError) and error.response.status_code not in (429, 503)):
                     raise
                 # The independently verified delta does not depend on the throttled probes.
-                changes, deferred, checks = checkpoint
+                changes, deferred = checkpoint
+                checks = []
             stored_progress = connector_mailbox.encode(binding, changes.cursor)
         elif is_connector:
             progress = previous.connector_cursor or cursor
@@ -228,18 +217,19 @@ async def _check_native_returns(account, changes):
 
 async def _connector_changes(
     account, progress, deferred, options, *, initial_deferred=frozenset(), first_import=False,
-    before_history=None, before_optional=None,
+    checkpoint_delta=None,
 ):
     changes = await sync_connector.fetch_changes(account, cursor=progress, **options,
-        **({"before_history": before_history} if before_history is not None else {}))
-    if before_optional is not None and progress and not progress.startswith("initial:"):
-        await before_optional(changes)
+        **({"before_history": checkpoint_delta} if checkpoint_delta is not None else {}))
+    if checkpoint_delta is not None and progress and not progress.startswith("initial:"):
+        await checkpoint_delta(changes)
     return await _refine_connector_changes(account, changes, deferred, options,
         initial_deferred=initial_deferred, first_import=first_import)
 
 
 async def _refine_connector_changes(
     account, changes, deferred, options, *, initial_deferred, first_import=False, defer_probes=False,
+    protected_uids=frozenset(),
 ):
     pending = list(dict.fromkeys([*deferred, *changes.restored_members]))
     retry_count = 0 if defer_probes else min(5, len(pending))
@@ -260,6 +250,8 @@ async def _refine_connector_changes(
     possible = {row["provider_uid"] for row in changes.upserts} | changes.read_updates.keys() | changes.flag_updates.keys()
     # Studio's date searches omit an old message restored today. Rotate point reads through local trash.
     candidates = await message_access.trash_conflicts(account.id, possible, changes.moved_out, check_unlisted=not defer_probes)
+    if protected_uids:
+        candidates = {uid: thread for uid, thread in candidates.items() if uid not in protected_uids}
     if candidates:
         await sync_connector.confirm_trash_conflicts(account, changes, candidates)
     remaining = list(dict.fromkeys([*pending[retry_count:], *changes.deferred_threads]))

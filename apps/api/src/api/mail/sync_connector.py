@@ -97,12 +97,6 @@ async def fetch_changes(
         return current
     # A UID seen in the historical page remains ambiguous even if the overlapping delta also lists it.
     current.initial_history_uids.update(row['provider_uid'] for row in history.upserts)
-    current.history_observed_uids.update(
-        current.initial_history_uids, history.moved_out, history.unconfirmed_uids,
-        history.read_updates, history.flag_updates, history.confirmed_inbox,
-    )
-    for members in history.restored_members.values():
-        current.history_observed_uids.update(members)
     current.initial_deferred_threads.update(history.deferred_threads)
     current.initial_deferred_threads.update(history.restored_members)
     merge_observations(current, history)
@@ -212,19 +206,18 @@ def _exclude_label_observations(changes: SyncChanges, uids: set[str]) -> None:
         changes.flag_updates.pop(uid, None)
 
 
-def protect_pending_label_checks(changes: SyncChanges, jobs: Sequence[MailJob], binding: str) -> None:
+def protect_pending_label_checks(changes: SyncChanges, jobs: Sequence[MailJob], binding: str) -> set[str]:
     """Preserve current rows when publishing a checkpoint before optional point reads."""
     targets = (json.loads(job.payload_json) for job in jobs)
-    _exclude_label_observations(changes, {target["provider_uid"] for target in targets if target["binding"] == binding})
+    protected = {target["provider_uid"] for target in targets if target["binding"] == binding}
+    _exclude_label_observations(changes, protected)
+    return protected
 
 
 async def pending_label_checks(
-    account: MailAccount, binding: str, changes: SyncChanges, *,
-    prior_checks: Sequence[LabelCheck] = (), jobs: Sequence[MailJob] | None = None,
+    account: MailAccount, binding: str, changes: SyncChanges, *, jobs: Sequence[MailJob] | None = None,
 ) -> list[LabelCheck]:
-    """Read exact pending members and reuse checkpoint results unaffected by history."""
-    reusable = {job_id: labels for job_id, target, labels in prior_checks
-                if target["provider_uid"] not in changes.history_observed_uids}
+    """Read exact pending members on their verified binding."""
     checked = []
     jobs = await mail_job.connector_label_checks(account.id) if jobs is None else jobs
     for job in jobs:
@@ -233,19 +226,16 @@ async def pending_label_checks(
             checked.append((job.id, target, None))
             continue
         uid = target["provider_uid"]
-        if job.id in reusable:
-            labels = reusable[job.id]
-        else:
-            try:
-                labels = (await connectors.thread_labels(
-                    account.provider, target["thread_id"], {uid}, minimal_only=True,
-                )).get(uid)
-            except httpx.HTTPStatusError as error:
-                if error.response.status_code in (401, 403):
-                    raise
-                labels = [] if error.response.status_code == 404 else None
-            except (ValueError, httpx.TransportError):
-                labels = None
+        try:
+            labels = (await connectors.thread_labels(
+                account.provider, target["thread_id"], {uid}, minimal_only=True,
+            )).get(uid)
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code in (401, 403):
+                raise
+            labels = [] if error.response.status_code == 404 else None
+        except (ValueError, httpx.TransportError):
+            labels = None
         checked.append((job.id, target, labels))
     protect_pending_label_checks(changes, jobs, binding)
     return checked

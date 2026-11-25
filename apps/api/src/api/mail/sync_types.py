@@ -25,7 +25,6 @@ class SyncChanges:
     full_rebuild: bool = False
     initial_pending: bool = False
     initial_history_uids: set[str] = field(default_factory=set)
-    history_observed_uids: set[str] = field(default_factory=set)
     initial_deferred_threads: set[str] = field(default_factory=set)
     deferred_threads: list[str] = field(default_factory=list)
     unconfirmed_uids: set[str] = field(default_factory=set)

@@ -2612,7 +2612,7 @@ def test_sync_repairs_old_archive_when_successful_replay_loses_confirmation(pg_d
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("failure", ["history", "close_429", "close_503", "identity_mismatch", "none"])
+@pytest.mark.parametrize("failure", ["history", "close_429", "close_503", "identity_mismatch", "delivery_429", "none"])
 def test_gmail_history_preserves_new_mail_and_reuses_unaffected_checks(pg_db, monkeypatch, failure):
     from db.accessors import mail_job
     from api.mail import connector_throttle
@@ -2630,7 +2630,7 @@ def test_gmail_history_preserves_new_mail_and_reuses_unaffected_checks(pg_db, mo
         monkeypatch.setattr(connector_throttle, "monotonic", lambda: now)
         network = []
         history_started = False
-        if failure == "none":
+        if failure in ("none", "delivery_429"):
             await mail_job.queue_connector_label_check(provider.account.id, state.write_evidence()[0], ids["target"], "mixed", "target")
             provider.labels["target"] = {"STARRED"}
 
@@ -2653,6 +2653,8 @@ def test_gmail_history_preserves_new_mail_and_reuses_unaffected_checks(pg_db, mo
                     httpx.Response(404, request=request).raise_for_status()
             if tool == "get_thread" and arguments.get("threadId") == "mixed" and arguments["messageFormat"] == "MINIMAL":
                 network.append("delivery check")
+                if failure == "delivery_429" and network.count("delivery check") == 1:
+                    httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
             return await provider.dispatch(path, payload)
 
         monkeypatch.setattr(connectors, "_post", dispatch)
@@ -2672,13 +2674,17 @@ def test_gmail_history_preserves_new_mail_and_reuses_unaffected_checks(pg_db, mo
                 assert result.status == "ok"
                 state = await mail_sync_state.get_state(provider.account.id)
                 _, progress = connector_mailbox.decode(state.connector_cursor)
-                if failure == "none":
+                if failure == "none" or (failure == "delivery_429" and index == 2):
                     assert progress == str(int(date.timestamp()))
                     assert await listed(browser, "ARCHIVE") == {ids["target"]}
-                    assert network.count("delivery check") == 1
+                    assert network.count("delivery check") == index
                     assert await mail_job.connector_label_checks(provider.account.id) == []
                 else:
                     assert json.loads(progress.removeprefix("initial:")) == [str(int(date.timestamp())), "older"]
+                    if failure == "delivery_429":
+                        assert ids["target"] in await listed(browser, "INBOX")
+                        assert len(await mail_job.connector_label_checks(provider.account.id)) == 1
+                        assert network == ["anchor", "anchor", "history", "delivery check"]
                 assert state.cursor == str(int(date.timestamp()))
                 rows = await mail_message.known_uids(provider.account.id, "INBOX")
                 assert rows[delivery] in await listed(browser, "INBOX")

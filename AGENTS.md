@@ -904,8 +904,9 @@ The mutation request also queues that check if its own response may have been lo
 Sync checks a bounded batch on the verified binding, independent of the Inbox search date.
 Incomplete point reads stay queued. A verified thread 404 settles absence from the Inbox.
 Neither case replays a provider write. If initial history is throttled, sync publishes the new-mail
-page it independently verified before backfill and keeps the historical page token. In steady
-state it verifies the delta before optional deferred reads and retains their work across cooldowns.
+page it independently verified before backfill and keeps the historical page token. Both
+resumed initial import and steady-state sync verify the delta before optional delivery or
+deferred-thread reads, retaining that work across cooldowns.
 Undo identifies safely retryable tokens separately from uncertain results.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 
