@@ -197,7 +197,8 @@ NODE_PATH="$playwright_dir/node_modules" node tests/pwa_matrix.cjs
 
 Set `PWA_MATRIX_CHROMIUM` to run against an installed Chromium executable. The matrix does not
 cover Safari or iOS. Installing on an iPhone and updating from v1 to v2 remain manual acceptance
-steps on the Studio test app (#98).
+steps on the Studio test app (#98). The first acceptance is recorded in
+[PWA acceptance on iPhone of 25 November 2026](superpowers/probes/2026-11-25-pwa-acceptance.md).
 
 ## Checks
 
