@@ -1,0 +1,27 @@
+# Domain model (tables in Postgres)
+
+Part of the agent instructions: [AGENTS.md](../../AGENTS.md) links here from its index, and its rules apply here too.
+
+- `calendar_source`, `calendar_event`, `calendar_occurrence`, `calendar_sync_state` — calendar source with connection reference and permission (`is_active`), series master per source, occurrence as half-open interval or instant without duration (all-day as date with positive interval, otherwise UTC with timezone; unique per source and `external_id`) and coverage, last success and incompleteness per source.
+- `calendar_feed_config`, `calendar_feed_validation` — encrypted feed configuration and short-lived, single-use validations; no public output models.
+- `calendar_write` — one record per `write_id`: source, operation, target event, request hash, status (`running`, `done`, `failed`, `unknown`, `not_applied`), fixed error code and result event; the request text is kept only while the outcome is open. A partial unique index allows one running write per target.
+- `task_series`, `task_schedule_revision`, `task_occurrence` — task series, schedule revision and materialized due date; creation ID and occurrence key are unique.
+- `mail_account` — connected account: `provider` e.g. `google`, `microsoft`, `imap` or connector name such as `gmail`; `auth_type` is `oauth2`, `imap_password` or `mistral_connector`.
+- `mail_credential` — encrypted payload per account+kind (`oauth2_tokens` | `imap_password`), unique (`account_id`, `kind`).
+- `mail_message` — mail index with `folder`, `provider_uid`, `thread_id`, `subject`, `sender`, `sender_address`, `recipients_json`, `cc_json`, `reply_to_json` (Reply-To addresses; replies go there instead of the sender; the Gmail connector does not provide them), `snippet`, `body_text`, `body_version` (text version, 0 = before versioning), `internal_date`, read/priority flags, `labels_json`, `attachments_json`, `list_unsubscribe` and `list_unsubscribe_post`; unique (`account_id`, `folder`, `provider_uid`), full-text index `search_tsv`.
+- `mail_sync_state` — cursor, status, error and last sync per account.
+- `mail_action` — executed action with `previous_json` and `undone_at` for undo.
+- `mail_rule_run`, `mail_rule_action` — one run per rule version and mail with its local result and per-action outcomes; one provider-action claim per rule, mail and action kind across versions with the owning run, status and whether a dispatch may have happened.
+- `mail_insight` — summary (`points_json`), deadline, reply need, follow-up suggestions and model per mail.
+- `mail_job` — durable sync/insight queue with status, deduplication, attempts and lock time.
+- `chat_conversation`, `chat_message` — history; proposals in `proposal_json` with `proposal_status`, mail references/proposals/model in `extras_json`; older drafts carry `draft_json`.
+- `skill_definition`, `skill_revision` — versioned built-in and custom skills within `installation`, immutable revisions (`instructions`, `workflow_steps_json`, `allowed_tools_json`, `content_hash`) and content-free deletion tombstones.
+- `user_preference` — server-side owner `installation`, key, canonical scope (`*` global or account ID), status, revision pointer and object version; removed rows remain as content-free suppression references.
+- `preference_revision` — immutable value, key/scope at the time, source `manual` or `confirmed_candidate` and confirmation time per revision; deletion removes the value and sets `removed`.
+- `preference_candidate` — unconfirmed value with own source message, conversation, field/scope, expected target version/revision and optional card ID; status `pending|accepted|rejected|expired`. Rejected and invalidated candidates retain only content-free references.
+- `personalization_settings` — server-side singleton with independent `use_preferences` and `suggest_preferences` (both default false), version and ID and time of the last suggestion activation.
+- `preference_extraction` — content-free one-time ID per source message and extractor version; binds activation and prevents repeated model calls even after errors or restart.
+- `calendar_settings` — the owner’s default writable calendar for new chat proposals and its settings version. Clearing the default keeps calendar reads available.
+- `ui_settings` — the single cross-device interaction configuration with fixed server-side scope (`installation`, unique): `swipe_left`/`swipe_right` from allowlist `none`, `archive`, `toggle_read`, `trash`, `revision` for conditional updates and `updated_at`; initial assignment left `archive`, right `toggle_read`, plus `locale=browser`. The last browser hint, speech pace and voice model are stored separately, with pace and model revision-guarded. Language overrides are `de` or `en`.
+
+This list is not complete: `packages/py/db/src/db/models/` holds one model per table and is the authoritative set.
