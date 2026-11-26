@@ -98,7 +98,10 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                     first_import = not progress
                     tracked = set() if first_import else initial_deferred
                     label_jobs = await mail_job.connector_label_checks(account.id) if proof else []
-                    pending_labels = sync_connector.PendingLabelChecks(label_jobs, proof[0]) if proof and label_jobs else None
+                    pending_labels = None
+                    if proof and label_jobs:
+                        uncertain_uids = await mail_job.uncertain_connector_label_uids(account.id, proof[0])
+                        pending_labels = sync_connector.PendingLabelChecks(label_jobs, proof[0], uncertain_uids)
 
                     async def save_checkpoint(current):
                         nonlocal checkpoint
@@ -113,7 +116,7 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                         await connector_mailbox.verify_bound_mailbox(account, binding, generation=generation, observed=previous)
                         held = moved_out.difference(kept.moved_out)
                         if pending_labels is not None:
-                            held.difference_update(pending_labels.uids)
+                            held.difference_update(pending_labels.protected_uids)
                         checkpoint = kept, deferred, held
 
                     changes, deferred = await _connector_changes(account, progress, known_deferred, options,
@@ -260,8 +263,8 @@ async def _refine_connector_changes(
     # Studio's date searches omit an old message restored today. Rotate point reads through local trash.
     candidates = await message_access.trash_conflicts(account.id, possible, changes.moved_out, check_unlisted=not defer_probes)
     if pending_labels is not None:
-        sync_connector.exclude_label_observations(changes, pending_labels.uids)
-        candidates = {uid: thread for uid, thread in candidates.items() if uid not in pending_labels.uids}
+        sync_connector.exclude_label_observations(changes, pending_labels.protected_uids)
+        candidates = {uid: thread for uid, thread in candidates.items() if uid not in pending_labels.protected_uids}
     if candidates or pending_labels is not None:
         await sync_connector.confirm_trash_conflicts(
             account, changes, candidates, pending=pending_labels, defer_probes=defer_probes)

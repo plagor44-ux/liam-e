@@ -3225,3 +3225,84 @@ def test_large_deferred_label_batch_follows_checkpoint_transaction(pg_db, commit
         assert count == (len(deliveries) if commit_checkpoint else 0)
 
     asyncio.run(run())
+
+
+
+def test_unscheduled_uncertain_trash_ignores_stale_full_content(pg_db, monkeypatch):
+    from api.mail import connector_throttle
+    from db.accessors import mail_job
+
+    async def run():
+        provider = StudioMailbox()
+        provider.date = (datetime.now(UTC) - timedelta(days=21)).isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        account_id, target = provider.account.id, ids["target"]
+        state = await mail_sync_state.get_state(account_id)
+        binding = state.write_evidence()[0]
+        older_deliveries = [(f"older-mail-{i}", f"older-thread-{i}", f"older-uid-{i}") for i in range(6)]
+        async with get_session_maker().begin() as session:
+            await mail_job.queue_connector_label_checks(session, account_id, binding, older_deliveries, allow_full_fallback=True)
+
+        polling = False
+        omit_point_labels = True
+        now = connector_throttle.monotonic()
+        monkeypatch.setattr(connector_throttle, "monotonic", lambda: now)
+        older_reads = []
+        target_formats = []
+
+        async def dispatch(path, payload):
+            tool = urlsplit(path).path.split("/")[-2]
+            args = payload["arguments"]
+            thread, fmt = args.get("threadId"), args.get("messageFormat")
+            request = httpx.Request("POST", "https://example.test")
+            if tool == "unlabel_message":
+                await provider.dispatch(path, payload)
+                raise httpx.ReadTimeout("synthetic write response timeout", request=request)
+            if not polling and tool == "get_thread" and thread == "mixed" and len(provider.writes) == 2:
+                httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+            if polling and tool == "search_threads":
+                return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+            if polling and tool == "get_thread" and thread.startswith("older-thread-"):
+                assert fmt == "MINIMAL"
+                older_reads.append(thread)
+                uid = thread.replace("older-thread-", "older-uid-")
+                data = {"id": thread, "messages": [{"id": uid, "labelIds": ["INBOX"]}]}
+                return {"content": [{"type": "text", "text": json.dumps(data)}]}
+            response = await provider.dispatch(path, payload)
+            if polling and tool == "get_thread" and thread == "mixed":
+                target_formats.append(fmt)
+                if omit_point_labels and fmt == "MINIMAL":
+                    data = json.loads(response["content"][0]["text"])
+                    next(member for member in data["messages"] if member["id"] == "target").pop("labelIds")
+                    response["content"][0]["text"] = json.dumps(data)
+            return response
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            trash = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert trash.status_code == 409 and trash.json()["detail"]["code"] == "provider_rate_limited"
+            assert not trash.json()["detail"].get("retryable")
+            assert await listed(browser, "TRASH") == {target}
+            jobs = await mail_job.connector_label_checks(account_id)
+            assert len(jobs) == 5 and all(json.loads(job.payload_json)["message_id"] != target for job in jobs)
+
+            polling = True
+            now += 61
+            provider.replay = True
+            assert (await sync.sync_account(account_id)).status == "ok"
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await listed(browser, "TRASH") == {target}
+            assert len(older_reads) == 5 and target_formats == []
+            jobs = await mail_job.connector_label_checks(account_id)
+            assert len(jobs) == 2 and any(json.loads(job.payload_json)["message_id"] == target for job in jobs)
+
+            omit_point_labels = False
+            assert (await sync.sync_account(account_id)).status == "ok"
+            assert await listed(browser, "TRASH") == {target}
+            assert len(older_reads) == 6 and target_formats == ["MINIMAL"]
+            assert await mail_job.connector_label_checks(account_id) == []
+            assert provider.writes == [
+                ("label_message", "target", ("TRASH",)), ("unlabel_message", "target", ("INBOX",)),
+            ]
+
+    asyncio.run(run())

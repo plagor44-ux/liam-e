@@ -126,7 +126,8 @@ per thread with pending deliveries on the same verified binding. A committed fal
 queues exact reads for held-back Inbox removals with no local Trash copy so the checks survive the
 recent search window. Those deferred sync checks can use full-content labels for an exact member
 whose point read omits them. An uncertain write on the same delivery requires a point read and
-takes precedence over that fallback.
+takes precedence over that fallback. Ordinary reconciliation excludes every unresolved write on the
+verified binding, even when its point read falls outside the current five-job batch.
 Undo identifies safely retryable tokens separately from uncertain results.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 

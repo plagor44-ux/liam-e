@@ -167,18 +167,18 @@ type LabelCheck = tuple[str, dict[str, str], list[str] | None]
 class PendingLabelChecks:
     """Pending delivery checks and point-read results from one verified mailbox poll."""
 
-    def __init__(self, jobs: Sequence[MailJob], binding: str):
+    def __init__(self, jobs: Sequence[MailJob], binding: str, uncertain_uids: set[str]):
         self.targets = {job.id: json.loads(job.payload_json) for job in jobs}
         self.binding = binding
         self.by_thread: dict[str, set[str]] = {}
-        self.uids: set[str] = set()
+        self.protected_uids = uncertain_uids.copy()
         self.point_only_uids: set[str] = set()
         self.observed: dict[str, dict[str, list[str]]] = {}
         for target in self.targets.values():
             if target["binding"] == binding:
                 uid = target["provider_uid"]
                 self.by_thread.setdefault(target["thread_id"], set()).add(uid)
-                self.uids.add(uid)
+                self.protected_uids.add(uid)
                 if target.get("source") != mail_job.DEFERRED_SYNC_LABEL_CHECK:
                     self.point_only_uids.add(uid)
 

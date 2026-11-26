@@ -164,6 +164,17 @@ async def connector_label_checks(account_id: str) -> list[MailJob]:
         ).order_by(MailJob.updated_at, MailJob.id).limit(5)))
 
 
+async def uncertain_connector_label_uids(account_id: str, binding: str) -> set[str]:
+    """Protect every uncertain write on this binding, regardless of the poll's read budget."""
+    payload = cast(MailJob.payload_json, JSONB)
+    uid = payload["provider_uid"].astext
+    query = select(uid).where(MailJob.status == PENDING_LABEL_CHECK, _account(account_id),
+        payload["binding"].astext == binding,
+        payload["source"].astext.is_distinct_from(DEFERRED_SYNC_LABEL_CHECK), uid.is_not(None))
+    async with get_session_maker()() as session:
+        return set(await session.scalars(query))
+
+
 async def finish_connector_label_checks(session, completed: list[str], pending: list[str]) -> None:
     if completed:
         await session.execute(delete(MailJob).where(MailJob.id.in_(completed)))
