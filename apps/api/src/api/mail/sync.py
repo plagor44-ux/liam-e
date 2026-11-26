@@ -12,7 +12,7 @@ from db.accessors import mail_job
 from db.accessors import mail_message as message_access
 from db.accessors import mail_rule_run
 from db.accessors import mail_sync_state as sync_state_access
-from db.models.mail_account import MailAccount, gmail_studio
+from db.models.mail_account import MailAccount
 from db.models.mail_message import IMAP_RETIRED
 from env.mail import env as mail_env
 from utils.mistral import MistralNotConfiguredError
@@ -85,7 +85,8 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                        limit=mail_env.mail_sync_page_size, max_body_chars=mail_env.mail_sync_max_body_chars)
         native_moves = {}
         checks = []
-        proof = previous.write_evidence() if gmail_studio(account) else None
+        deferred_label_uids: set[str] = set()
+        proof = previous.write_evidence() if is_connector else None
         verified = is_connector and not connector_mailbox.inbox_only(account)
         if verified:
             verified_cursor = previous.connector_cursor if previous and previous.connector_verified else ""
@@ -105,11 +106,15 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                             if not (known_deferred or current.restored_members or label_jobs):
                                 return
                             current = deepcopy(current)
+                        moved_out = set(current.moved_out)
                         kept, deferred = await _refine_connector_changes(
                             account, current, known_deferred, options,
                             initial_deferred=tracked, defer_probes=True, pending_labels=pending_labels)
                         await connector_mailbox.verify_bound_mailbox(account, binding, generation=generation, observed=previous)
-                        checkpoint = kept, deferred
+                        held = moved_out.difference(kept.moved_out)
+                        if pending_labels is not None:
+                            held.difference_update(pending_labels.uids)
+                        checkpoint = kept, deferred, held
 
                     changes, deferred = await _connector_changes(account, progress, known_deferred, options,
                         initial_deferred=tracked, first_import=first_import, checkpoint_delta=save_checkpoint,
@@ -120,7 +125,7 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                 if checkpoint is None or (isinstance(error, httpx.HTTPStatusError) and error.response.status_code not in (429, 503)):
                     raise
                 # The independently verified delta does not depend on the throttled probes.
-                changes, deferred = checkpoint
+                changes, deferred, deferred_label_uids = checkpoint
                 checks = []
             stored_progress = connector_mailbox.encode(binding, changes.cursor)
         elif is_connector:
@@ -147,6 +152,9 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                 initial_import_id=import_id, suppress_import_page=suppress_import_page)
             if checks and proof:
                 await sync_connector.apply_label_checks(session, account, proof[0], checks)
+            if deferred_label_uids and proof:
+                deliveries = await message_access.inbox_only_connector_deliveries(session, account_id, deferred_label_uids)
+                await mail_job.queue_connector_label_checks(session, account_id, proof[0], deliveries)
             pending_import = (scan_active and (sync_connector.import_scan_pending(changes.cursor) or not changes.cursor)) if is_connector else changes.initial_pending
             tracked_threads = changes.initial_deferred_threads if is_connector else set()
             state.rules_initial_import = json.dumps({'id': import_id, 'threads': sorted(tracked_threads), 'scan_pending': pending_import}) if import_id and (pending_import or tracked_threads or not changes.cursor) else ''

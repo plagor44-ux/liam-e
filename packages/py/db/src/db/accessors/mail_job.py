@@ -121,15 +121,26 @@ async def queue_connector_label_check(
     account_id: str, binding: str, message_id: str, thread_id: str, provider_uid: str,
 ) -> None:
     """Persist one read-only check per delivery and binding outside the worker claim states."""
-    payload = json.dumps({"account_id": account_id, "binding": binding, "message_id": message_id,
-                          "thread_id": thread_id, "provider_uid": provider_uid})
-    key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + payload))
-    job = MailJob(id=key, kind=PENDING_LABEL_CHECK, status=PENDING_LABEL_CHECK,
-                  payload_json=payload, dedupe_key=key)
     async with get_session_maker().begin() as session:
         # A poll may have read the mailbox before the uncertain write.
         await mail_sync_state.fence_folder_change(session, account_id)
-        await session.execute(insert(MailJob).values(**job.model_dump()).on_conflict_do_nothing())
+        await queue_connector_label_checks(session, account_id, binding, [(message_id, thread_id, provider_uid)])
+
+
+async def queue_connector_label_checks(
+    session, account_id: str, binding: str, deliveries: list[tuple[str, str, str]],
+) -> None:
+    """Enqueue exact reads within the caller's fenced sync or action transaction."""
+    jobs = []
+    for message_id, thread_id, provider_uid in deliveries:
+        payload = json.dumps({"account_id": account_id, "binding": binding, "message_id": message_id,
+                              "thread_id": thread_id, "provider_uid": provider_uid})
+        key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + payload))
+        job = MailJob(id=key, kind=PENDING_LABEL_CHECK, status=PENDING_LABEL_CHECK,
+                      payload_json=payload, dedupe_key=key)
+        jobs.append(job.model_dump())
+    if jobs:
+        await session.execute(insert(MailJob).values(jobs).on_conflict_do_nothing())
 
 
 async def connector_label_checks(account_id: str) -> list[MailJob]:

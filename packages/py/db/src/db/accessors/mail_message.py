@@ -398,6 +398,21 @@ async def known_uids(account_id: str, folder: str, *, verified_only: bool = Fals
         return dict((await session.execute(query)).all())
 
 
+async def inbox_only_connector_deliveries(
+    session: AsyncSession, account_id: str, uids: set[str],
+) -> list[tuple[str, str, str]]:
+    """Find held-back deliveries that cannot be rediscovered by the Trash rotation."""
+    trash = aliased(MailMessage)
+    stmt = select(MailMessage.id, MailMessage.thread_id, MailMessage.provider_uid).where(
+        MailMessage.account_id == account_id, MailMessage.folder == "INBOX",
+        MailMessage.unverified_connector.is_(False), MailMessage.provider_uid.in_(uids),
+        MailMessage.thread_id != "",
+        ~exists(select(trash.id).where(trash.account_id == account_id, trash.folder == "TRASH",
+                                      trash.provider_uid == MailMessage.provider_uid)),
+    )
+    return [(message_id, thread_id, uid) for message_id, thread_id, uid in (await session.execute(stmt)).all()]
+
+
 async def rebuild_imap_uids(session: AsyncSession, account_id: str, candidates: set[str], generation: str) -> set[str]:
     """Keep a UID only when its mailbox generation is known to match."""
     if not candidates:

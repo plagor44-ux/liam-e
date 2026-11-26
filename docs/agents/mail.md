@@ -122,7 +122,9 @@ page it independently verified before backfill and keeps the historical page tok
 resumed initial import and steady-state sync verify the delta before optional delivery or
 deferred-thread reads, retaining that work across cooldowns. The checkpoint holds back conflicting
 Inbox and Trash observations. The normal pass alone checks those conflicts and shares one point read
-per thread with pending deliveries on the same verified binding.
+per thread with pending deliveries on the same verified binding. A committed fallback checkpoint
+queues exact reads for held-back Inbox removals with no local Trash copy so the checks survive the
+recent search window.
 Undo identifies safely retryable tokens separately from uncertain results.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 

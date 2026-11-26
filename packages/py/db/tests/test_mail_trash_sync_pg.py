@@ -3079,3 +3079,81 @@ def test_gmail_checkpoint_leaves_legacy_point_probe_to_normal_pass(pg_db, monkey
             assert provider.writes == []
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("throttle_history", [False, True], ids=["normal-poll", "history-throttled"])
+def test_gmail_checkpoint_keeps_sole_inbox_conflict_after_recent_window(pg_db, monkeypatch, throttle_history):
+    from api.mail import connector_throttle, sync_connector
+    from db.accessors import mail_job
+
+    async def run():
+        now = datetime.now(UTC)
+        before_cutoff = now - timedelta(days=14) + timedelta(minutes=1)
+        monotonic = connector_throttle.monotonic()
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now.astimezone(tz)
+
+        monkeypatch.setattr(sync_connector, "datetime", Clock)
+        monkeypatch.setattr(connector_throttle, "monotonic", lambda: monotonic)
+        provider = StudioMailbox()
+        provider.date = before_cutoff.isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        target = ids["target"]
+        account_id = provider.account.id
+        async with client() as browser:
+            url = f"{MAIL}/messages/{target}/actions"
+            for kind in ("trash", "restore"):
+                response = await browser.post(url, json={"kind": kind})
+                assert response.status_code == 200
+            assert await listed(browser, "INBOX") == set(ids.values())
+            assert await listed(browser, "TRASH") == set()
+            writes = provider.writes[:]
+
+            state = await mail_sync_state.get_state(account_id)
+            binding, watermark = connector_mailbox.decode(state.connector_cursor)
+            await mail_sync_state.save_state(account_id=account_id, cursor=watermark,
+                connector_cursor=connector_mailbox.encode(binding, "initial:" + json.dumps([watermark, "older"])))
+            outside_window = False
+            point_reads = 0
+            provider.labels["target"] = {"TRASH", "UNREAD", "STARRED"}
+
+            async def dispatch(path, payload):
+                nonlocal point_reads
+                tool = urlsplit(path).path.split("/")[-2]
+                args = payload["arguments"]
+                if tool == "search_threads":
+                    if args.get("pageToken") == "older" and throttle_history and not outside_window:
+                        request = httpx.Request("POST", "https://example.test")
+                        httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+                    if outside_window or args.get("pageToken") == "older":
+                        return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+                if tool == "get_thread" and args == {"threadId": "mixed", "messageFormat": "MINIMAL"}:
+                    point_reads += 1
+                return await provider.dispatch(path, payload)
+
+            monkeypatch.setattr(connectors, "_post", dispatch)
+            assert (await sync.sync_account(account_id)).status == "ok"
+            jobs = await mail_job.connector_label_checks(account_id)
+            if throttle_history:
+                assert point_reads == 0
+                assert await listed(browser, "INBOX") == set(ids.values())
+                assert await listed(browser, "TRASH") == set()
+                outside_window = True
+                now += timedelta(minutes=2)
+                monotonic += 120
+                assert (await sync.sync_account(account_id)).status == "ok"
+
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await listed(browser, "TRASH") == {target}
+            assert point_reads == 1
+            assert await mail_job.connector_label_checks(account_id) == []
+            assert [json.loads(job.payload_json) for job in jobs] == ([{
+                "account_id": account_id, "binding": state.write_evidence()[0],
+                "message_id": target, "thread_id": "mixed", "provider_uid": "target",
+            }] if throttle_history else [])
+            assert provider.writes == writes
+
+    asyncio.run(run())
