@@ -16,11 +16,16 @@ Outlook, iCloud, Yahoo and any other providers — and enables searching, readin
 ## Architecture
 
 ```
-apps/web  (TanStack Start, Port 3001)                   Browser UI: /, /chat/$conversationId, /mail, /accounts
+apps/web  (TanStack Start, Port 3001)                   Browser UI: chat, mail, calendar, tasks, accounts, settings
    │  typed hey-api client (src/api/generated, generated — never edit by hand)
    ▼  same-origin /api
 apps/api  (FastAPI, Port 3000, Route "/api")            Router tree = URL tree, groups with access rule
+   │  api/routers/                                      Served routers (routers/api/...)
    │  api/mail/                                         Mail, chat and worker logic
+   │  api/calendar/, api/tasks/                         Calendar index, Google writes, ICS feeds; tasks
+   │  api/preferences/, api/skills/                     Explicit, confirmed preferences; skill catalog and turn runtime
+   │  api/mcp/, api/audio/                              Agent read facade; speech and live voice
+   │  api/configure/, api/health/, api/lifespan/        App-local FastAPI hooks
    ▼
 packages/py/db   SQLModel models (drop-in in db/models/) + accessors (db/accessors/) + Alembic
 packages/py/env  Settings modules (env/<name>.py), workspace secrets via WorkspaceSecret

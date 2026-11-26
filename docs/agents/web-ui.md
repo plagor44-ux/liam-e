@@ -9,12 +9,19 @@ Part of the agent instructions: [AGENTS.md](../../AGENTS.md) links here from its
 - `/mail` — inbox with list and filters; `/mail/$messageId` — opened mail with reading pane.
 - `/accounts` — account overview, connect, sign in again and remove.
 - `/tasks` and `/tasks/$taskId` — task list, manual creation and due dates with history.
+- `/calendar` and `/calendar/$occurrenceId` — calendar with month, week, day and list views (`view` and `date` as search parameters) and an opened occurrence, shown beside the calendar on desktop and wide screens and in its place otherwise ([calendar.md](calendar.md)).
 - `/settings` and `/settings/prompts` — settings with template library; `settingsSections` is the navigation entry point for further implemented areas.
 - `/settings/prompts/new` and `/settings/prompts/$promptId` — create or edit a template in a separate view at all screen sizes.
 - `/settings/skills` — built-in and custom skills with command, version, origin and status; switch them on or off and delete custom skills after a confirmation dialog, through `skills_list`, `skill_update` and `skill_delete` with `expected_version`.
 - `/settings/preferences`, `/settings/preferences/new` and `/settings/preferences/$preferenceId` — preferences, usage toggle and separate create/edit views, including on mobile.
+- `/settings/chat` — default model for new conversations and the mail accounts the chat may use ([chat.md](chat.md#chat-mail-access-80)).
+- `/settings/calendar` — choose or clear the writable default calendar for new appointments ([calendar.md](calendar.md#calendar-in-chat)).
+- `/settings/controls` — left and right swipe actions in the mail list (`none`, `archive`, `toggle_read` or `trash`), stored in `ui_settings`.
+- `/settings/folders` and `/settings/rules` — app folders and labels, and ordered mail rules. `/settings/rules?source_mail=<message-id>` (at most 100 characters) prefills the rule editor from that mail and drops the parameter once used ([mail-filing-and-rules.md](mail-filing-and-rules.md); [DESIGN.md §9.7](../../DESIGN.md#97-templates-and-settings)).
+- `/settings/language` — app language, speech pace and voice model; see [App language](#app-language).
+- `/audio-device-test` — owner device check outside the app layout: record and transcribe, play a sample and run the paid smoke while `AUDIO_DEVICE_TEST_UNTIL` lies in the future, otherwise a closed notice ([audio.md](audio.md)).
 
-This list is not complete. The route files under `apps/web/src/routes/` are authoritative; calendar, chat, language, folder and rule settings are described in their domain notes.
+The list covers every route under `apps/web/src/routes/`; the route files stay authoritative, and the linked notes describe each area. Add an entry here with every new route.
 
 ## App language
 
