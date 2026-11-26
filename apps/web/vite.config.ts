@@ -78,6 +78,15 @@ export default defineConfig(async ({ mode }) => ({
   },
   server: {
     port: 3001,
+    // Vite's host check, which guards the dev server against DNS rebinding, accepts only localhost
+    // and IP addresses. GitHub Codespaces serves a forwarded port at
+    // `<codespace>-<port>.app.github.dev`, so the dev server also accepts that domain; the leading
+    // dot covers its subdomains.
+    allowedHosts: [".app.github.dev"],
+  },
+  // The preview server would inherit the list above; it keeps Vite's default.
+  preview: {
+    allowedHosts: [],
   },
   resolve: {
     tsconfigPaths: true,
