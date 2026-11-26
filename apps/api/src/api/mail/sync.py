@@ -251,7 +251,7 @@ async def _refine_connector_changes(
     # Studio's date searches omit an old message restored today. Rotate point reads through local trash.
     candidates = await message_access.trash_conflicts(account.id, possible, changes.moved_out, check_unlisted=not defer_probes)
     if pending_labels is not None:
-        sync_connector.protect_pending_label_checks(changes, pending_labels.uids)
+        sync_connector.exclude_label_observations(changes, pending_labels.uids)
         candidates = {uid: thread for uid, thread in candidates.items() if uid not in pending_labels.uids}
     if candidates or pending_labels is not None:
         await sync_connector.confirm_trash_conflicts(

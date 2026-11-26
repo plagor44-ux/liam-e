@@ -389,9 +389,14 @@ async def change_gmail_labels(
                 recovery_proof = recovery.write_evidence() if recovery else None
                 if recovery is None or recovery_proof is None or recovery_proof[0] != proof[0]:
                     raise MailboxUnavailable() from None
-                async with bound_mailbox(account, cursor=recovery.connector_cursor,
-                                         generation=recovery.connector_generation, observed=recovery, check_after=True):
-                    observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
+                try:
+                    async with bound_mailbox(account, cursor=recovery.connector_cursor,
+                                             generation=recovery.connector_generation, observed=recovery, check_after=True):
+                        observed = (await thread_labels(provider, thread, {uid}, minimal_only=True)).get(uid)
+                except connector_throttle.RateLimited as recovery_error:
+                    raise connector_throttle.RateLimited(
+                        retryable=not pending_confirmation and recovery_error.retryable,
+                        labels=labels if provider_changed else None) from None
                 if observed is not None:
                     pending_confirmation = False
                 requested_unchanged = observed is not None and labels_before.symmetric_difference(observed).isdisjoint(changes)

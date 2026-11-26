@@ -112,14 +112,17 @@ reports `provider_rate_limited` with a retry only when no write took effect or t
 step of a verified partial move was refused before dispatch. A partial move is reflected in the
 index without returning success or an Undo token. An unavailable confirmation leaves the last
 known state and queues an exact delivery check when no usable point read has settled the write.
+If recovery itself is throttled, sync keeps that job queued and the action preserves any confirmed
+partial state. The response offers no retry while a write is unverified.
 The mutation request also queues that check if its own response may have been lost.
 Sync checks a bounded batch on the verified binding, independent of the Inbox search date.
 Incomplete point reads stay queued. A verified thread 404 settles absence from the Inbox.
 Neither case replays a provider write. If initial history is throttled, sync publishes the new-mail
 page it independently verified before backfill and keeps the historical page token. Both
 resumed initial import and steady-state sync verify the delta before optional delivery or
-deferred-thread reads, retaining that work across cooldowns. A queued delivery check on the
-verified binding replaces the ordinary trash probe for that delivery.
+deferred-thread reads, retaining that work across cooldowns. The checkpoint holds back conflicting
+Inbox and Trash observations. The normal pass alone checks those conflicts and shares one point read
+per thread with pending deliveries on the same verified binding.
 Undo identifies safely retryable tokens separately from uncertain results.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 

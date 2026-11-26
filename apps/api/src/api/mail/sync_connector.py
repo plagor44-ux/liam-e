@@ -192,19 +192,22 @@ async def confirm_trash_conflicts(
     pending: PendingLabelChecks | None = None, defer_probes: bool = False,
 ) -> None:
     """Verify Trash conflicts and pending deliveries with one point read per thread."""
+    if defer_probes:
+        # The checkpoint may publish without a point read. Hold back conflicting rows and flags.
+        exclude_label_observations(changes, set(candidates))
+        return
     rows = {row["provider_uid"]: row for row in changes.upserts}
     by_thread: dict[str, set[str]] = {}
     uncertain = set()
     for uid, thread in candidates.items():
         by_thread.setdefault(rows.get(uid, {}).get("thread_id") or thread, set()).add(uid)
-    if pending is not None and not defer_probes:
+    if pending is not None:
         for thread in pending.by_thread:
             by_thread.setdefault(thread, set())
     for thread, trash_uids in by_thread.items():
         pending_uids = pending.by_thread.get(thread, set()) if pending is not None else set()
         latest: dict[str, list[str]] = {}
-        # Leave shared checks for the normal pass so the checkpoint can be verified first.
-        if thread and not (defer_probes and pending_uids):
+        if thread:
             latest = await _sync_thread_labels(account.provider, thread, trash_uids, pending_uids)
             if pending is not None and pending_uids:
                 pending.observed[thread] = latest
@@ -253,11 +256,10 @@ async def _sync_thread_labels(
     return point_labels or {}
 
 
-def protect_pending_label_checks(changes: SyncChanges, uids: set[str]) -> None:
+def exclude_label_observations(changes: SyncChanges, uids: set[str]) -> None:
+    """Hold back deliveries whose folder and flags require a point read."""
     if not uids:
         return
-    # A stale page cannot replace an indexed delivery or trigger rules for it while
-    # a pending point read owns its folder and flags.
     changes.upserts = [row for row in changes.upserts if row["provider_uid"] not in uids]
     changes.moved_out = [uid for uid in changes.moved_out if uid not in uids]
     changes.confirmed_inbox.difference_update(uids)

@@ -2938,3 +2938,144 @@ def test_gmail_pending_and_trash_checks_share_one_thread_read(pg_db, monkeypatch
             assert len(provider.writes) == write_count
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("removal_applied", [False, True], ids=["removal-not-applied", "removal-applied"])
+def test_gmail_trash_preserves_confirmed_labels_when_recovery_is_throttled(pg_db, monkeypatch, removal_applied):
+    from api.mail import connector_throttle
+    from db.accessors import mail_job
+
+    async def run():
+        provider = StudioMailbox()
+        provider.date = (datetime.now(UTC) - timedelta(days=21)).isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        account_id, target = provider.account.id, ids["target"]
+        removal_attempts = 0
+        recovering = True
+        now = connector_throttle.monotonic()
+        monkeypatch.setattr(connector_throttle, "monotonic", lambda: now)
+
+        async def dispatch(path, payload):
+            nonlocal removal_attempts
+            tool = urlsplit(path).path.split("/")[-2]
+            args = payload["arguments"]
+            request = httpx.Request("POST", "https://example.test")
+            if tool == "unlabel_message":
+                removal_attempts += 1
+                if removal_applied:
+                    await provider.dispatch(path, payload)
+                raise httpx.ReadTimeout("synthetic write response timeout", request=request)
+            if recovering and removal_attempts and tool == "get_thread" and args.get("threadId") == "mixed":
+                httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+            if tool == "search_threads":
+                return {"content": [{"type": "text", "text": '{"threads": []}'}]}
+            return await provider.dispatch(path, payload)
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            response = await browser.post(f"{MAIL}/messages/{target}/actions", json={"kind": "trash"})
+            assert response.status_code == 409
+            detail = response.json()["detail"]
+            assert detail["code"] == "provider_rate_limited"
+            assert detail["folder"] == "TRASH"
+            assert not detail.get("retryable")
+            assert await listed(browser, "INBOX") == {ids["sibling"]}
+            assert await listed(browser, "TRASH") == {target}
+            assert set(json.loads((await mail_message.get_message(target)).labels_json)) == {"INBOX", "TRASH"}
+            assert await mail_action.latest_open(target) is None
+            assert len(await mail_job.connector_label_checks(account_id)) == 1
+
+            recovering = False
+            now += 61
+            assert (await sync.sync_account(account_id)).status == "ok"
+            assert await mail_job.connector_label_checks(account_id) == []
+            assert set(json.loads((await mail_message.get_message(target)).labels_json)) == provider.labels["target"]
+            assert await listed(browser, "TRASH") == {target}
+            assert await mail_action.latest_open(target) is None
+            assert removal_attempts == 1
+            assert provider.writes == [("label_message", "target", ("TRASH",))] + (
+                [("unlabel_message", "target", ("INBOX",))] if removal_applied else [])
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("throttle_first_read", [False, True], ids=["one-probe", "first-probe-throttled"])
+def test_gmail_checkpoint_leaves_legacy_point_probe_to_normal_pass(pg_db, monkeypatch, throttle_first_read):
+    from api.mail import connector_throttle
+    from api.mail.sync_types import BODY_VERSION, HTML_VERSION
+    from db.accessors import mail_job
+
+    async def run():
+        provider = StudioMailbox()
+        date = datetime.now(UTC) - timedelta(days=2)
+        provider.date = date.isoformat()
+        ids = await provider.connect(monkeypatch, provider="gmail")
+        account_id = provider.account.id
+        state = await mail_sync_state.get_state(account_id)
+        assert connector_mailbox.decode(state.connector_cursor)[1].isdecimal()
+        fields = dict(account_id=account_id, provider_uid="legacy", thread_id="legacy-thread", internal_date=date,
+                      body_version=BODY_VERSION, html_version=HTML_VERSION, is_read=True, is_flagged=False)
+        inbox, trash = MailMessage(folder="INBOX", **fields), MailMessage(folder="TRASH", **fields)
+        async with get_session_maker().begin() as session:
+            await session.execute(text("SELECT set_config('liam.verified_connector', :id, true)"), {"id": account_id})
+            session.add_all([inbox, trash])
+        await mail_job.queue_connector_label_check(account_id, state.write_evidence()[0], ids["target"], "mixed", "target")
+        provider.labels["target"] = set()
+        provider.labels["new"] = {"INBOX"}
+        provider.date = (date + timedelta(hours=1)).isoformat()
+        legacy_reads = 0
+        pending_reads = 0
+        throttle = True
+        now = connector_throttle.monotonic()
+        monkeypatch.setattr(connector_throttle, "monotonic", lambda: now)
+
+        async def dispatch(path, payload):
+            nonlocal legacy_reads, pending_reads
+            tool = urlsplit(path).path.split("/")[-2]
+            args = payload["arguments"]
+            thread, fmt = args.get("threadId"), args.get("messageFormat")
+            stale = {"id": "legacy-thread", "messages": [{"id": "legacy", "date": date.isoformat(),
+                     "labelIds": ["INBOX", "UNREAD", "STARRED"]}]}
+            if tool == "get_thread" and thread == "legacy-thread":
+                if fmt == "MINIMAL":
+                    legacy_reads += 1
+                    if throttle and (throttle_first_read or legacy_reads > 1):
+                        request = httpx.Request("POST", "https://example.test")
+                        httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
+                    return {"content": [{"type": "text", "text": '{"id":"legacy-thread","messages":[{"id":"legacy","labelIds":["TRASH"]}]}'}]}
+                return {"content": [{"type": "text", "text": json.dumps(stale)}]}
+            if tool == "get_thread" and thread == "mixed" and fmt == "MINIMAL":
+                pending_reads += 1
+            result = await provider.dispatch(path, payload)
+            if tool == "search_threads":
+                page = json.loads(result["content"][0]["text"])
+                page["threads"].append(stale)
+                result["content"][0]["text"] = json.dumps(page)
+            return result
+
+        monkeypatch.setattr(connectors, "_post", dispatch)
+        async with client() as browser:
+            first = await sync.sync_account(account_id)
+            assert first.status == "ok"
+            new_id, = first.new_message_ids
+            assert new_id in await listed(browser, "INBOX")
+            assert legacy_reads == 1
+            if throttle_first_read:
+                ghost = await mail_message.get_message(inbox.id)
+                assert ghost.folder == "INBOX" and ghost.is_read and not ghost.is_flagged
+                assert await listed(browser, "TRASH") == {trash.id}
+                assert len(await mail_job.connector_label_checks(account_id)) == 1
+                assert pending_reads == 0
+                now += 61
+                throttle = False
+                assert (await sync.sync_account(account_id)).status == "ok"
+                assert legacy_reads == 2
+
+            assert await listed(browser, "INBOX") == {ids["sibling"], new_id}
+            assert await listed(browser, "TRASH") == {trash.id}
+            assert await listed(browser, "ARCHIVE") == {ids["target"]}
+            assert pending_reads == 1
+            assert await mail_job.connector_label_checks(account_id) == []
+            assert provider.writes == []
+
+    asyncio.run(run())
