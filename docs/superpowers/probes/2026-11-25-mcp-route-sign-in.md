@@ -29,8 +29,8 @@ never touches liam-e's data.
 | Probe tool | `tools/mcp_route_probe.py` | Offline by default. With `--live` it runs the matrix below against the probe app and prints one redacted line per case and a verdict. |
 | Probe app | `tools/probes/mcp_route_app/` | A standalone Starlette app, not part of the uv workspace. Unflagged `/api` routes (health, whoami, an in-memory counter and write route) and a test-only MCP stub on the flagged routes `/mcp` and `/api/mcp`. It holds no data and calls no provider or model. |
 | Manifest | `tools/probes/mcp_route_app/mistral.json` | One module with the routes `/api`, `/mcp` (`"mcp": true`) and `/api/mcp` (`"mcp": true`). No `deployment` block and no IDs. |
-| Deploy helper | `tools/probes/mcp_route_app/deploy.sh` | Exports the probe directory at a commit on `origin/main` into a temporary copy, writes the deployment block into that copy only and runs `mistral deploy --from-disk`. Also deletes the probe app. |
-| Tests | `apps/api/tests/test_probe_mcp_route.py`, `apps/api/tests/test_probe_mcp_route_app.py`, `tests/test_public_repo_hygiene.py` | Offline tests for the tool, the app, the manifest rules and the deploy helper's refusals. |
+| Deploy helper | `tools/probes/mcp_route_app/deploy.sh` | Exports the probe directory at a commit on `origin/main` into a temporary copy, writes the deployment block into that copy only and runs `mistral deploy --from-disk`. A first deploy needs `--create-app liam-e-mcp-route-probe`, checks the target workspace read-only for an app of that name and passes the name to the CLI. Refuses liam-e's apps. Also deletes the probe app. |
+| Tests | `apps/api/tests/test_probe_mcp_route.py`, `apps/api/tests/test_probe_mcp_route_app.py`, `apps/api/tests/test_probe_mcp_route_deploy.py`, `tests/test_public_repo_hygiene.py` | Offline tests for the tool, the app and the manifest rules, and the deploy helper against a fake CLI. |
 
 The MCP stub answers both protocol eras that #36 must support (owner decision D6). The handshake
 era (`2025-11-25` and older) uses `initialize`. The per-request era (`2026-07-28`) uses
@@ -64,7 +64,7 @@ cover another. All live steps need the merged offline PR first.
 | L6 | Q8: add the probe's `/mcp` route to Vibe Code with OAuth, sign in, call the probe tools, remove the entry | A second OAuth client and token for the owner | Owner |
 | L7 | Optional Q5: a second workspace member signs in through the probe | Only if such an account exists | That member |
 | L8 | Optional: import the **probe app** (never liam-e) as a Studio connector, or try Vibe Work | Exposes only the probe's three read tools | Owner |
-| L9 | Delete the probe app (`deploy.sh --delete`) and revoke any remaining grants | Removes the app; the CLI asks for its name first | Owner |
+| L9 | Delete the probe app (`deploy.sh --delete`) and revoke any remaining grants | Removes the app; on a terminal the CLI asks for its name first, and off a terminal it refuses | Owner |
 | L10 | Commit the redacted results in this file in a follow-up PR with "Closes #157" | Public repository change | Worker, owner merges |
 
 ## Live steps
@@ -78,7 +78,7 @@ names its approval. Stop at the first stop condition.
    Offline on 2026-11-25 these were `mistral v0.18.1` and `vibe 3.1.2`.
 2. Check that the CLI is logged in as the owner: `mistral login` if needed. Do not copy its output
    into this file.
-3. Run the offline gates once: `bash tools/uv.sh run --no-sync pytest apps/api/tests/test_probe_mcp_route.py apps/api/tests/test_probe_mcp_route_app.py tests/test_public_repo_hygiene.py -q`.
+3. Run the offline gates once: `bash tools/uv.sh run --no-sync pytest apps/api/tests/test_probe_mcp_route.py apps/api/tests/test_probe_mcp_route_app.py apps/api/tests/test_probe_mcp_route_deploy.py tests/test_public_repo_hygiene.py -q`.
 4. `bash tools/uv.sh run --no-sync python tools/mcp_route_probe.py` (without `--live`) prints the
    case list and sends nothing.
 
@@ -89,22 +89,41 @@ Copy `tools/probes/mcp_route_app/mistral.deployment.example.json` to
 `workspaceId` as lowercase UUIDs. Git ignores the file, and so does the image build
 (`**/mistral.deployment.json` in `.dockerignore`). Never use liam-e's `appId`: the helper refuses it.
 
+The helper refuses every `appId` that a liam-e deployment file names: `mistral.deployment.json` at
+the checkout root, the file `LIAM_E_DEPLOYMENT_FILE` names, and each file in the colon-separated
+list `MCP_ROUTE_PROBE_LIAM_E_FILES`. Name the deployment files of all of liam-e's apps there, for
+example its test and production apps. The helper stops if none of these files names an `appId`.
+
 ### 2. Deploy (L1)
 
 ```bash
-bash tools/probes/mcp_route_app/deploy.sh <merged-commit>
+bash tools/probes/mcp_route_app/deploy.sh <merged-commit> --create-app liam-e-mcp-route-probe
 ```
 
-The first run passes `--organization` and `--workspace`, so the CLI creates a new app. The CLI asks
-before it creates anything; the helper never passes `--yes`. Confirm only an app named
-`liam-e-mcp-route-probe`. Afterwards the helper writes the new `appId` into the deployment file
-without printing it.
+The CLI (`v0.18.1`) creates a new app without asking. Without `--name` it names the app after the
+directory it runs in. The confirmation therefore happens in the helper, before the CLI runs:
+
+1. While the deployment file holds no `appId`, the helper refuses to deploy unless
+   `--create-app liam-e-mcp-route-probe` is given, spelled exactly.
+2. It lists the target workspace read-only (`mistral apps list --json`) and refuses if an app named
+   `liam-e-mcp-route-probe` already exists there. If that is the probe app from an earlier run,
+   record its `appId` in the deployment file and deploy without `--create-app`.
+3. It runs `mistral deploy --from-disk --name liam-e-mcp-route-probe` with the organization and
+   workspace from the deployment file.
+4. It writes the new `appId` into the deployment file without printing it, even if the build fails
+   after the app was created. Then it lists the workspace again and fails unless the new app is the
+   only app named `liam-e-mcp-route-probe`.
+
+Later runs update the recorded app. They refuse `--create-app` and need the recorded app to be the
+only app of that name in the workspace.
 
 Record without URLs: whether the CLI accepted the manifest, whether it printed an "MCP server" line
 for `/mcp` and for `/api/mcp`, and the text of any lint warning.
 
 Stop and report if any of these happens:
 
+- the helper refuses before the CLI runs, for example because an app of the probe's name exists;
+- the listing after the deploy does not show the new app as the only app of the probe's name;
 - the CLI rejects the manifest or the `"mcp": true` flag;
 - `--from-disk` refuses the exported copy, which has no Git metadata;
 - the build fails because of the module path `"."`, the build context or the start command's
@@ -180,7 +199,9 @@ fixed text only.
 bash tools/probes/mcp_route_app/deploy.sh --delete
 ```
 
-The CLI asks for the app's name before it deletes anything. Then:
+The helper first checks that the recorded app is listed under the probe's name. The CLI then asks
+for the app's name before it deletes anything; the helper never passes `--yes`, so this step needs
+a terminal and refuses without one. Then:
 
 1. Check that `mistral apps list` no longer shows `liam-e-mcp-route-probe`, and record yes/no.
 2. Revoke any OAuth grants that remain for the probe's clients and for the Vibe entry.
@@ -253,6 +274,13 @@ has been confirmed against Studio:
 - `mistral deploy --from-disk` accepts a directory without Git metadata, and on first deploy
   writes the deployment block with the new `appId` into the copy's `mistral.json`. If it does not,
   the helper stops and asks to record the `appId` by hand.
+- A first deploy creates the app without a confirmation prompt; the CLI asks only when the plan's
+  app limit is reached. The app's name is `--name` or, without it, the deploy directory's name in
+  lowercase. `--yes` on `deploy` only lets the CLI commit and push `mistral.json` without asking.
+- `mistral apps list --json` returns the organization, the workspace and an `apps` list whose
+  entries carry `id`, `name` and `label`. The helper's pre-check and post-check read that shape.
+- What `--name` does when an app of that name already exists is unknown. The helper's pre-check
+  keeps that case from happening.
 - The runtime starts the container from `/srv` with the probe's start command (`--app-dir /srv`
   protects against another working directory). It also injects the gateway proxy URL as for liam-e
   (`__APPS_PROXY_URL` or `__SPACES_PROXY_URL`).

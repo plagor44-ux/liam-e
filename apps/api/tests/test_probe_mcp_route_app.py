@@ -1,13 +1,13 @@
 """The synthetic MCP-route probe app (#157): manifest, packaging, identity report and MCP stub.
 
 Everything here runs offline. The app is test-only and never part of liam-e's image; these tests
-keep it from drifting into a second liam-e deployment or leaking identifiers.
+keep it from drifting into a second liam-e deployment or leaking identifiers. The deploy helper's
+checks are in test_probe_mcp_route_deploy.py.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -136,60 +136,6 @@ def test_dockerfile_installs_only_hashed_wheels() -> None:
     dockerfile = (PROBE_DIR / "Dockerfile").read_text(encoding="utf-8")
     assert "--require-hashes" in dockerfile and "--no-deps" in dockerfile and "--only-binary=:all:" in dockerfile
     assert "USER 1000:1000" in dockerfile
-
-
-# --- deploy helper -----------------------------------------------------------------------------
-
-
-def run_helper(tmp_path: Path, args: list[str], probe_ids: dict | str, liam_ids: dict | None = None) -> subprocess.CompletedProcess[str]:
-    """Run deploy.sh with a fake `mistral` that records any call. Validation happens before the
-    script fetches from origin, so none of these cases touches the network."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir(exist_ok=True)
-    called = tmp_path / "mistral-called"
-    fake = bin_dir / "mistral"
-    fake.write_text(f"#!/bin/sh\necho called >> '{called}'\nexit 99\n", encoding="utf-8")
-    fake.chmod(0o755)
-    probe_file = tmp_path / "probe.json"
-    probe_file.write_text(probe_ids if isinstance(probe_ids, str) else json.dumps(probe_ids), encoding="utf-8")
-    liam_file = tmp_path / "liam.json"
-    liam_file.write_text(json.dumps(liam_ids or {}), encoding="utf-8")
-    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "MCP_ROUTE_PROBE_DEPLOYMENT_FILE": str(probe_file),
-           "LIAM_E_DEPLOYMENT_FILE": str(liam_file)}
-    result = subprocess.run(["bash", str(PROBE_DIR / "deploy.sh"), *args], cwd=ROOT, env=env, capture_output=True,
-                            text=True, check=False, timeout=30)
-    assert not called.exists(), "the helper reached the CLI although validation should have stopped it"
-    return result
-
-
-ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-WS = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-APP = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-
-
-def test_helper_rejects_the_placeholder_example(tmp_path: Path) -> None:
-    example = (PROBE_DIR / "mistral.deployment.example.json").read_text(encoding="utf-8")
-    result = run_helper(tmp_path, ["HEAD"], example)
-    assert result.returncode == 1 and "lowercase UUID" in result.stderr
-    assert "<organization-id>" not in result.stderr + result.stdout
-
-
-def test_helper_refuses_liam_e_own_app(tmp_path: Path) -> None:
-    result = run_helper(tmp_path, ["HEAD"], {"organizationId": ORG, "workspaceId": WS, "appId": APP},
-                        {"organizationId": ORG, "workspaceId": WS, "appId": APP})
-    assert result.returncode == 1 and "liam-e's own app" in result.stderr
-    assert APP not in result.stderr + result.stdout and ORG not in result.stderr + result.stdout
-
-
-def test_helper_rejects_unknown_keys_and_bad_usage(tmp_path: Path) -> None:
-    result = run_helper(tmp_path, ["HEAD"], {"organizationId": ORG, "workspaceId": WS, "secret": APP})
-    assert result.returncode == 1 and "must hold organizationId and workspaceId" in result.stderr
-    assert run_helper(tmp_path, [], {"organizationId": ORG, "workspaceId": WS}).returncode == 64
-
-
-def test_helper_delete_needs_a_recorded_app(tmp_path: Path) -> None:
-    result = run_helper(tmp_path, ["--delete"], {"organizationId": ORG, "workspaceId": WS})
-    assert result.returncode == 1 and "no appId" in result.stderr
 
 
 # --- unflagged routes and identity -------------------------------------------------------------

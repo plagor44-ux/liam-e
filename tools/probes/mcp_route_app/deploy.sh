@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Deploy or delete the synthetic MCP-route probe app (#157). Never liam-e itself.
 #
-#   bash tools/probes/mcp_route_app/deploy.sh <commit>   # create or update the probe app
-#   bash tools/probes/mcp_route_app/deploy.sh --delete   # delete it after the probe
+#   bash tools/probes/mcp_route_app/deploy.sh <commit> --create-app liam-e-mcp-route-probe   # first deploy
+#   bash tools/probes/mcp_route_app/deploy.sh <commit>                                       # update the app
+#   bash tools/probes/mcp_route_app/deploy.sh --delete                                       # delete it
 #
 # Each run needs the owner's approval for the live probe (docs/superpowers/probes/
 # 2026-11-25-mcp-route-sign-in.md). The Mistral IDs never enter the repository. They live in the
@@ -12,17 +13,28 @@
 #
 #   {"organizationId": "<organization-id>", "workspaceId": "<workspace-id>"}
 #
-# The first deploy creates the probe app; the CLI asks before it creates anything, because this
-# script never passes --yes. Afterwards the script adds the new "appId" to the file, so later runs
-# update the same app and --delete can remove it. It refuses an app ID that equals the one in
-# liam-e's own deployment file (mistral.deployment.json at the checkout root, or
-# LIAM_E_DEPLOYMENT_FILE).
+# The CLI (checked with v0.18.1) creates a new app without asking, and without --name it names the
+# app after the directory it runs in. So the confirmation happens here, before the CLI runs: a first
+# deploy needs `--create-app liam-e-mcp-route-probe`, spelled exactly, and the script passes that
+# name to the CLI as --name. Before it creates anything, it lists the target workspace read-only and
+# refuses if an app of that name already exists. Afterwards it adds the new "appId" to the file and
+# lists the workspace again, so later runs update the same app and --delete can remove it. An
+# update refuses --create-app and needs the recorded app to be the only app of that name.
+#
+# liam-e's own apps are never a target. The script refuses an app ID that any liam-e deployment file
+# names: mistral.deployment.json at the checkout root, the file LIAM_E_DEPLOYMENT_FILE names, and
+# every file in the colon-separated list MCP_ROUTE_PROBE_LIAM_E_FILES (for example the deployment
+# files of liam-e's test and production apps). It stops if none of them names an app ID, because
+# then it could not tell liam-e's apps apart.
 #
 # Steps: require the commit to be on origin/main; export the probe directory's tracked files at
 # that commit into a fresh temporary directory (no .env, no ignored files, no Git metadata); write
 # the deployment block into that copy's mistral.json only; run `mistral deploy --from-disk` there;
 # remove the copy. The script never prints the IDs. The CLI's own output may show the target and the
 # app URL; do not copy those into the probe log.
+#
+# --delete runs `mistral apps delete` without --yes: on a terminal the CLI asks for the app's name,
+# and off a terminal it refuses.
 set -euo pipefail
 
 PROBE_DIR="tools/probes/mcp_route_app"
@@ -34,29 +46,50 @@ fail() {
 }
 
 usage() {
-  echo "usage: bash $PROBE_DIR/deploy.sh <commit> | --delete" >&2
+  echo "usage: bash $PROBE_DIR/deploy.sh <commit> [--create-app $PROBE_NAME] | --delete" >&2
   exit 64
 }
 
-[ "$#" -eq 1 ] || usage
+mode=deploy
+commit=""
+create_given=0
+create_name=""
+case "${1:-}" in
+  "") usage ;;
+  --delete)
+    [ "$#" -eq 1 ] || usage
+    mode=delete
+    ;;
+  -*) usage ;;
+  *)
+    commit="$1"
+    shift
+    if [ "$#" -gt 0 ]; then
+      { [ "$#" -eq 2 ] && [ "$1" = "--create-app" ]; } || usage
+      create_given=1
+      create_name="$2"
+    fi
+    ;;
+esac
+
 root="$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 ids_file="${MCP_ROUTE_PROBE_DEPLOYMENT_FILE:-$root/$PROBE_DIR/mistral.deployment.json}"
-liam_file="${LIAM_E_DEPLOYMENT_FILE:-$root/mistral.deployment.json}"
 [ -f "$ids_file" ] || fail "no deployment file at $ids_file; copy mistral.deployment.example.json there and fill in the IDs"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 command -v mistral >/dev/null 2>&1 || fail "the mistral CLI is not on PATH"
 
-# Validate the file and print organization, workspace and app ID (empty before the first deploy).
-# Errors name the rule, never a value.
-ids="$(python3 -I - "$ids_file" "$liam_file" <<'PY'
+# Validate the file, collect liam-e's app IDs and print organization, workspace, app ID ("none"
+# before the first deploy) and the protected app IDs. Errors name the rule, never a value.
+ids="$(python3 -I - "$ids_file" "$root/mistral.deployment.json" "${LIAM_E_DEPLOYMENT_FILE:-}" "${MCP_ROUTE_PROBE_LIAM_E_FILES:-}" <<'PY'
 import json
 import re
 import sys
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 REQUIRED = ("organizationId", "workspaceId")
+ids_path, root_file, named_file, listed_files = sys.argv[1:]
 try:
-    with open(sys.argv[1], encoding="utf-8") as handle:
+    with open(ids_path, encoding="utf-8") as handle:
         data = json.load(handle)
 except (OSError, ValueError):
     sys.exit("probe deploy: the deployment file is not readable JSON")
@@ -64,60 +97,99 @@ if not isinstance(data, dict) or not set(REQUIRED) <= set(data) <= {*REQUIRED, "
     sys.exit("probe deploy: the deployment file must hold organizationId and workspaceId, and appId after the first deploy")
 if not all(isinstance(value, str) and UUID.fullmatch(value) for value in data.values()):
     sys.exit("probe deploy: each value in the deployment file must be a lowercase UUID")
-try:
-    with open(sys.argv[2], encoding="utf-8") as handle:
-        liam = json.load(handle)
-except (OSError, ValueError):
-    liam = {}
-if isinstance(liam, dict) and data.get("appId") and data.get("appId") == liam.get("appId"):
+
+
+def liam_app_id(path: str, required: bool) -> str | None:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            liam = json.load(handle)
+    except OSError:
+        if required:
+            sys.exit("probe deploy: a liam-e deployment file named in the environment is missing or unreadable")
+        return None
+    except ValueError:
+        sys.exit("probe deploy: a liam-e deployment file is not readable JSON")
+    value = liam.get("appId") if isinstance(liam, dict) else None
+    return value.lower() if isinstance(value, str) and value else None
+
+
+sources = [(root_file, False)]
+if named_file:
+    sources.append((named_file, True))
+sources += [(path, True) for path in listed_files.split(":") if path]
+protected = {value for path, required in sources if (value := liam_app_id(path, required))}
+if not protected:
+    sys.exit("probe deploy: no liam-e deployment file names an app ID, so liam-e's apps cannot be ruled out; "
+             "list liam-e's deployment files in MCP_ROUTE_PROBE_LIAM_E_FILES")
+if data.get("appId") in protected:
     sys.exit("probe deploy: the app ID is liam-e's own app; the probe never deploys to it")
 print(data["organizationId"])
 print(data["workspaceId"])
 print(data.get("appId", "none"))
+print(",".join(sorted(protected)))
 PY
 )"
-{ read -r organization; read -r workspace; read -r app_id; } <<<"$ids"
+{ read -r organization; read -r workspace; read -r app_id; read -r protected_ids; } <<<"$ids"
 [ "$app_id" != none ] || app_id=""
+
+# The explicit confirmation, checked before anything reaches the network or the CLI.
+if [ "$mode" = deploy ]; then
+  if [ -z "$app_id" ]; then
+    [ "$create_given" -eq 1 ] ||
+      fail "no appId is recorded, so this deploy would create the probe app; confirm with --create-app $PROBE_NAME"
+    [ "$create_name" = "$PROBE_NAME" ] || fail "--create-app must name exactly $PROBE_NAME; nothing was created"
+  else
+    [ "$create_given" -eq 0 ] || fail "an appId is recorded, so this deploy updates that app; leave out --create-app"
+  fi
+elif [ -z "$app_id" ]; then
+  fail "the deployment file names no appId, so there is no probe app to delete"
+fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/liam-e-probe-deploy.XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# True if `mistral apps list --json` shows an object that carries both the app ID and the probe name.
-probe_listed() {
+# Lists the target workspace read-only and checks it for the probe's name, as an app's name or
+# label. "absent": no app may carry it. "recorded": the app with the given ID must carry it, and no
+# other app may.
+check_listing() {
+  local expectation="$1" expected_app="$2"
   (cd "$work" && mistral apps list --organization "$organization" --workspace "$workspace" --json >"$work/apps.json") ||
-    fail "could not list the apps of the target workspace; run 'mistral login' and retry"
-  python3 -I - "$work/apps.json" "$app_id" "$PROBE_NAME" <<'PY'
+    fail "could not list the apps of the target workspace; check the CLI login and retry"
+  python3 -I - "$work/apps.json" "$expectation" "$expected_app" "$PROBE_NAME" "$organization" "$workspace" <<'PY'
 import json
 import sys
 
-path, app_id, name = sys.argv[1:]
+path, expectation, app_id, name, organization, workspace = sys.argv[1:]
 try:
     with open(path, encoding="utf-8") as handle:
         listing = json.load(handle)
 except ValueError:
     sys.exit("probe deploy: 'mistral apps list --json' did not return JSON")
-
-
-def match(node):
-    if isinstance(node, dict):
-        own = [v for v in node.values() if not isinstance(v, (dict, list))]
-        if app_id in own and name in own:
-            return True
-        return any(match(v) for v in node.values())
-    if isinstance(node, list):
-        return any(match(v) for v in node)
-    return False
-
-
-sys.exit(0 if match(listing) else 1)
+apps = listing.get("apps") if isinstance(listing, dict) else None
+if not isinstance(apps, list) or not all(isinstance(app, dict) for app in apps):
+    sys.exit("probe deploy: 'mistral apps list --json' did not return an app list")
+for key, expected in (("organization", organization), ("workspace", workspace)):
+    scope = listing.get(key)
+    if isinstance(scope, dict) and scope.get("id") not in (None, expected):
+        sys.exit(f"probe deploy: the app list is for another {key} than the deployment file names")
+named = [app for app in apps if name in (app.get("name"), app.get("label"))]
+if expectation == "absent":
+    if named:
+        sys.exit(f"probe deploy: an app named {name} already exists in the target workspace; if it is the "
+                 "probe app from an earlier run, record its appId in the deployment file and deploy without --create-app")
+    sys.exit(0)
+recorded = [app for app in apps if app.get("id") == app_id]
+if not recorded or recorded[0] not in named:
+    sys.exit(f"probe deploy: no app with the recorded ID and the name {name} in the target workspace")
+if any(app.get("id") != app_id for app in named):
+    sys.exit(f"probe deploy: another app in the target workspace is also named {name}; check the workspace by hand")
 PY
 }
 
-if [ "$1" = "--delete" ]; then
-  [ -n "$app_id" ] || fail "the deployment file names no appId, so there is no probe app to delete"
-  probe_listed || fail "no app with the recorded ID and the name $PROBE_NAME in the target workspace; nothing was deleted"
+if [ "$mode" = delete ]; then
+  check_listing recorded "$app_id" || fail "nothing was deleted"
   # Without --yes the CLI asks to type the app's name before it deletes anything.
   (cd "$work" && mistral apps delete "$app_id" --organization "$organization" --workspace "$workspace") ||
     fail "'mistral apps delete' did not finish; check the workspace by hand"
@@ -140,22 +212,22 @@ PY
   exit 0
 fi
 
-case "$1" in -*) usage ;; esac
 git -C "$root" fetch --quiet origin main || fail "could not fetch main from origin"
-sha="$(git -C "$root" rev-parse --verify --quiet "$1^{commit}")" || fail "unknown commit: $1"
+sha="$(git -C "$root" rev-parse --verify --quiet "$commit^{commit}")" || fail "unknown commit: $commit"
 git -C "$root" merge-base --is-ancestor "$sha" refs/remotes/origin/main ||
   fail "commit $sha is not on origin/main; push and merge it first"
 git -C "$root" cat-file -e "$sha:$PROBE_DIR/mistral.json" 2>/dev/null || fail "commit $sha has no probe app"
 
-# Tracked files of the probe directory at that commit, nothing else.
+# Tracked files of the probe directory at that commit, nothing else. The copy carries the probe's
+# name, so even a deploy without --name could not name the app after a generic directory.
 mkdir "$work/export"
 git -C "$root" archive --format=tar "$sha" "$PROBE_DIR" | tar -x -C "$work/export"
-copy="$work/app"
+copy="$work/$PROBE_NAME"
 mv "$work/export/$PROBE_DIR" "$copy"
 [ ! -e "$copy/mistral.deployment.json" ] || fail "the exported copy holds a deployment file"
 
 if [ -n "$app_id" ]; then
-  probe_listed || fail "no app with the recorded ID and the name $PROBE_NAME in the target workspace; nothing was deployed"
+  check_listing recorded "$app_id" || fail "nothing was deployed"
   python3 -I - "$copy/mistral.json" "$ids_file" <<'PY'
 import json
 import sys
@@ -178,28 +250,22 @@ with open(manifest_path, "w", encoding="utf-8") as handle:
 PY
   deploy_args=()
 else
-  echo "No appId recorded yet: this deploy creates the probe app. The CLI asks before it creates it."
-  deploy_args=(--organization "$organization" --workspace "$workspace")
+  check_listing absent "" || fail "nothing was created"
+  echo "No appId recorded yet: this deploy creates the probe app $PROBE_NAME, as confirmed with --create-app."
+  deploy_args=(--name "$PROBE_NAME" --organization "$organization" --workspace "$workspace")
 fi
 
-echo "Deploying the probe app from commit $sha."
-status=0
-(cd "$copy" && mistral deploy --from-disk "${deploy_args[@]}") || status=$?
-if [ "$status" -ne 0 ]; then
-  echo "probe deploy: 'mistral deploy --from-disk' exited with $status for commit $sha" >&2
-  exit "$status"
-fi
-
-if [ -z "$app_id" ]; then
-  # Keep the new app's ID for later runs. The CLI writes the deployment block into the copy.
-  python3 -I - "$copy/mistral.json" "$ids_file" <<'PY' || fail "deployed, but the new appId could not be recorded; add it to the deployment file by hand from 'mistral apps list'"
+# Keeps the new app's ID for later runs. The CLI writes the deployment block into the copy as soon
+# as it has created the app, even if the build fails afterwards. Prints the ID on success.
+record_new_app() {
+  python3 -I - "$copy/mistral.json" "$ids_file" "$protected_ids" <<'PY'
 import json
 import os
 import re
 import sys
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-manifest_path, ids_path = sys.argv[1:]
+manifest_path, ids_path, protected = sys.argv[1:]
 with open(manifest_path, encoding="utf-8") as handle:
     block = json.load(handle).get("deployment") or {}
 with open(ids_path, encoding="utf-8") as handle:
@@ -207,6 +273,8 @@ with open(ids_path, encoding="utf-8") as handle:
 app_id = block.get("appId")
 if not (isinstance(app_id, str) and UUID.fullmatch(app_id)):
     sys.exit("probe deploy: the CLI recorded no app ID in the copy")
+if app_id in protected.split(","):
+    sys.exit("probe deploy: the CLI reports one of liam-e's app IDs for the new app; check the workspace by hand")
 if block.get("organizationId") != data["organizationId"] or block.get("workspaceId", data["workspaceId"]) != data["workspaceId"]:
     sys.exit("probe deploy: the CLI deployed to another organization or workspace than the file names")
 data["appId"] = app_id
@@ -215,7 +283,30 @@ with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w",
     json.dump(data, handle, indent=2)
     handle.write("\n")
 os.replace(temporary, ids_path)
+print(app_id)
 PY
-  echo "Recorded the new probe app's ID in the deployment file."
+}
+
+echo "Deploying the probe app from commit $sha."
+status=0
+(cd "$copy" && mistral deploy --from-disk "${deploy_args[@]}") || status=$?
+
+if [ -z "$app_id" ]; then
+  if new_app="$(record_new_app)"; then
+    echo "Recorded the new probe app's ID in the deployment file."
+  elif [ "$status" -ne 0 ]; then
+    fail "'mistral deploy --from-disk' exited with $status and left no app ID in the copy; check 'mistral apps list' for an app named $PROBE_NAME"
+  else
+    fail "deployed, but the new appId could not be recorded; add it to the deployment file by hand from 'mistral apps list'"
+  fi
+fi
+if [ "$status" -ne 0 ]; then
+  echo "probe deploy: 'mistral deploy --from-disk' exited with $status for commit $sha" >&2
+  exit "$status"
+fi
+if [ -z "$app_id" ]; then
+  check_listing recorded "$new_app" ||
+    fail "created the app, but the listing does not show it as the only app named $PROBE_NAME; check the workspace by hand"
+  echo "Checked the listing: the new app is the only app named $PROBE_NAME."
 fi
 echo "Deployed the probe app from commit $sha."
