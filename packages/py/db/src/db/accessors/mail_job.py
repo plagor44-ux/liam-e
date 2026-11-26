@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta
+from itertools import batched
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import and_, case, cast, delete, or_, select, update
@@ -18,6 +19,8 @@ from db.models.mail_job import MailJob
 VERIFIED_INSIGHTS = "verified_insights"
 PENDING_LABEL_CHECK = "pending_label_check"
 DEFERRED_SYNC_LABEL_CHECK = "deferred_sync"
+# Keep multi-row inserts below asyncpg's 32,767-argument limit (11 arguments per job).
+_LABEL_CHECK_INSERT_BATCH = 1_000
 READY_REFRESH = "ready_insights"
 RUNNING_REFRESH = "processing_insights"
 RUNNING = ("running", RUNNING_REFRESH)
@@ -133,26 +136,25 @@ async def queue_connector_label_checks(
     allow_full_fallback: bool = False,
 ) -> None:
     """Enqueue exact reads within the caller's fenced sync or action transaction."""
-    jobs = []
-    for message_id, thread_id, provider_uid in deliveries:
-        target = {"account_id": account_id, "binding": binding, "message_id": message_id,
-                  "thread_id": thread_id, "provider_uid": provider_uid}
-        key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + json.dumps(target)))
+    for batch in batched(deliveries, _LABEL_CHECK_INSERT_BATCH):
+        jobs = []
+        for message_id, thread_id, provider_uid in batch:
+            target = {"account_id": account_id, "binding": binding, "message_id": message_id,
+                      "thread_id": thread_id, "provider_uid": provider_uid}
+            key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + json.dumps(target)))
+            if allow_full_fallback:
+                target["source"] = DEFERRED_SYNC_LABEL_CHECK
+            job = MailJob(id=key, kind=PENDING_LABEL_CHECK, status=PENDING_LABEL_CHECK,
+                          payload_json=json.dumps(target), dedupe_key=key)
+            jobs.append(job.model_dump())
+        stmt = insert(MailJob).values(jobs)
         if allow_full_fallback:
-            target["source"] = DEFERRED_SYNC_LABEL_CHECK
-        job = MailJob(id=key, kind=PENDING_LABEL_CHECK, status=PENDING_LABEL_CHECK,
-                      payload_json=json.dumps(target), dedupe_key=key)
-        jobs.append(job.model_dump())
-    if not jobs:
-        return
-    stmt = insert(MailJob).values(jobs)
-    if allow_full_fallback:
-        stmt = stmt.on_conflict_do_nothing()
-    else:
-        # An uncertain write supersedes a deferred sync read for the same delivery.
-        stmt = stmt.on_conflict_do_update(index_elements=[MailJob.id],
-            set_={"payload_json": stmt.excluded.payload_json}, where=MailJob.payload_json != stmt.excluded.payload_json)
-    await session.execute(stmt)
+            stmt = stmt.on_conflict_do_nothing()
+        else:
+            # An uncertain write supersedes a deferred sync read for the same delivery.
+            stmt = stmt.on_conflict_do_update(index_elements=[MailJob.id],
+                set_={"payload_json": stmt.excluded.payload_json}, where=MailJob.payload_json != stmt.excluded.payload_json)
+        await session.execute(stmt)
 
 
 async def connector_label_checks(account_id: str) -> list[MailJob]:

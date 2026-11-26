@@ -3188,3 +3188,40 @@ def test_gmail_checkpoint_keeps_sole_inbox_conflict_after_recent_window(pg_db, m
                 assert jobs == []
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("commit_checkpoint", [True, False], ids=["commit", "rollback"])
+def test_large_deferred_label_batch_follows_checkpoint_transaction(pg_db, commit_checkpoint):
+    from contextlib import nullcontext
+
+    from sqlalchemy import func, select
+
+    from db.accessors import mail_job
+    from db.models.mail_job import MailJob
+
+    async def run():
+        account = await service.upsert_account(
+            provider="gmail", auth_type=connectors.CONNECTOR, email_address="owner@example.test",
+        )
+        before = await mail_sync_state.save_state(account_id=account.id, cursor="1", connector_verified=True,
+            connector_cursor=connector_mailbox.encode(("named", "anchor", "proof"), "1"))
+        deliveries = [(f"mail-{i}", f"thread-{i}", f"uid-{i}") for i in range(4_000)]
+        binding = before.write_evidence()[0]
+
+        outcome = nullcontext() if commit_checkpoint else pytest.raises(RuntimeError, match="synthetic rollback")
+        with outcome:
+            async with mail_sync_state.sync_transaction(account.id, before, verified=True) as (session, state):
+                state.cursor = "2"
+                await mail_job.queue_connector_label_checks(
+                    session, account.id, binding, deliveries, allow_full_fallback=True,
+                )
+                if not commit_checkpoint:
+                    raise RuntimeError("synthetic rollback")
+
+        assert (await mail_sync_state.get_state(account.id)).cursor == ("2" if commit_checkpoint else "1")
+        async with get_session_maker()() as session:
+            count = await session.scalar(select(func.count()).select_from(MailJob).where(
+                MailJob.status == mail_job.PENDING_LABEL_CHECK))
+        assert count == (len(deliveries) if commit_checkpoint else 0)
+
+    asyncio.run(run())
