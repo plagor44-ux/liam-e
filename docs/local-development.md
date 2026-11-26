@@ -131,7 +131,7 @@ read -rs MISTRAL_API_KEY && export MISTRAL_API_KEY
 MAIL_WORKER_ENABLED=false MISTRAL_SECRETS_ENABLED=false TELEMETRY_ENABLED=false bunx nx run api:serve
 ```
 
-The chat starts without access to any mail account. Open **Settings → Chat mail accounts** (`/settings/chat`), allow sample accounts and save. The sample Outlook and IMAP accounts can be allowed; the sample Gmail account stays outside the chat because its Studio connection is not verified. Saved sample conversations keep the account selection they were created with, so start a new chat afterwards. Sample accounts still get no generated mail summaries, and sending and unsubscribing stay blocked. See [chat access](../packages/py/db/src/db/accessors/chat_settings.py) and the [chat mail access rules](../AGENTS.md#chat-mail-access-80).
+The chat starts without access to any mail account. Open **Settings → Chat mail accounts** (`/settings/chat`), allow sample accounts and save. The sample Outlook and IMAP accounts can be allowed; the sample Gmail account stays outside the chat because its Studio connection is not verified. Saved sample conversations keep the account selection they were created with, so start a new chat afterwards. Sample accounts still get no generated mail summaries, and sending and unsubscribing stay blocked. See [chat access](../packages/py/db/src/db/accessors/chat_settings.py) and the [chat mail access rules](agents/chat.md#chat-mail-access-80).
 
 ## Local audio browser test
 

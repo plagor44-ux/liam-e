@@ -160,8 +160,9 @@ privately ([SECURITY.md](SECURITY.md)), not in an issue.
 
 The repository is set up so that coding agents can contribute under the same rules as people:
 
-- [AGENTS.md](AGENTS.md) is the binding description of the architecture, the domain rules and
-  the security and publication rules.
+- [AGENTS.md](AGENTS.md) holds the architecture, commands, conventions and the security and
+  publication rules. Its index points to the domain rules in [docs/agents/](docs/agents/), which
+  agents read before working in an area. [CLAUDE.md](CLAUDE.md) only imports AGENTS.md.
 - [DESIGN.md](DESIGN.md) governs UI tokens, components and how the interface text sounds.
 - Every issue follows one of the [issue forms](.github/ISSUE_TEMPLATE/);
   `tools/issue_form.py` creates and checks issues in that shape.

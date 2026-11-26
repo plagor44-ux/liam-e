@@ -26,7 +26,7 @@ Work that is in progress or close to done.
 ## Later
 
 - **Remote MCP clients** (#54): connect other assistants through OIDC and OAuth. This needs
-  proven access control first; until then the [agent read facade](../AGENTS.md#agent-read-facade)
+  proven access control first; until then the [agent read facade](agents/agent-read-facade.md)
   rejects every request.
 
 ## Good places to start

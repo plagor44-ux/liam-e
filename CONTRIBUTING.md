@@ -57,7 +57,8 @@ request.
 
 ## Rules
 
-[AGENTS.md](AGENTS.md) holds the binding rules for architecture, conventions and security, and
+[AGENTS.md](AGENTS.md) holds the binding rules for architecture, conventions and security, the
+domain notes under [docs/agents/](docs/agents/) those for each area, and
 [DESIGN.md](DESIGN.md) those for the UI and its text. Coding agents read the same files, and the
 same rules apply to contributions written with their help; the person who opens the pull request
 is responsible for it. In brief:
@@ -76,7 +77,7 @@ is responsible for it. In brief:
   file. A secret that was committed counts as burned: it must be rotated, not just removed.
 - **Confirmation first.** The assistant never sends or changes anything without a confirmed
   proposal card. A new mutating API operation goes into `MUTATING_OPERATIONS` in
-  `apps/api/tests/test_mcp_exposure.py` and into the endpoint table in AGENTS.md.
+  `apps/api/tests/test_mcp_exposure.py`; the regenerated `apps/api/openapi.json` lists it.
 - **Generated files stay generated.** After an API change, regenerate and commit the OpenAPI
   specification and the web client (`bunx nx run api:gen-openapi`, then
   `bash tools/gen-types.sh`). A table change needs a migration generated with

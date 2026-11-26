@@ -1,5 +1,5 @@
 name: Report a bug
-description: Something behaves differently from AGENTS.md, DESIGN.md or an issue.
+description: Something behaves differently from AGENTS.md, docs/agents/, DESIGN.md or an issue.
 labels: ["bug"]
 body:
   - type: markdown
@@ -19,7 +19,7 @@ body:
     id: expected
     attributes:
       label: Expected behavior and source
-      description: What should happen instead and where it is specified (AGENTS.md, DESIGN.md, issue, spec).
+      description: What should happen instead and where it is specified (AGENTS.md, docs/agents/, DESIGN.md, issue, spec).
     validations:
       required: true
   - type: textarea

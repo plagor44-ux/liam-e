@@ -29,7 +29,7 @@ Closes #
 - [ ] Tables changed: migration generated with `bunx nx run db:revision`, not written by hand, and applied with `bunx nx run db:migrate`
 - [ ] New settings as a module under `packages/py/env/src/env/`, each name empty in `.env.example`, secrets as `WorkspaceSecret`
 - [ ] New web route: `bunx nx run web:gen-routes` run
-- [ ] New mutating operation in `MUTATING_OPERATIONS` (`apps/api/tests/test_mcp_exposure.py`) and in the AGENTS.md endpoint table
+- [ ] New mutating operation in `MUTATING_OPERATIONS` (`apps/api/tests/test_mcp_exposure.py`)
 - [ ] The agent still changes or sends only after confirmation of a proposal card
 - [ ] UI text in both the German and English catalogues, following DESIGN.md; code, comments and commits in English
 
