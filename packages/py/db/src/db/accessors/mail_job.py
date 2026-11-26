@@ -17,6 +17,7 @@ from db.models.mail_job import MailJob
 # a targeted refresh outside their protocol until a worker that knows its payload finishes.
 VERIFIED_INSIGHTS = "verified_insights"
 PENDING_LABEL_CHECK = "pending_label_check"
+DEFERRED_SYNC_LABEL_CHECK = "deferred_sync"
 READY_REFRESH = "ready_insights"
 RUNNING_REFRESH = "processing_insights"
 RUNNING = ("running", RUNNING_REFRESH)
@@ -128,19 +129,30 @@ async def queue_connector_label_check(
 
 
 async def queue_connector_label_checks(
-    session, account_id: str, binding: str, deliveries: list[tuple[str, str, str]],
+    session, account_id: str, binding: str, deliveries: list[tuple[str, str, str]], *,
+    allow_full_fallback: bool = False,
 ) -> None:
     """Enqueue exact reads within the caller's fenced sync or action transaction."""
     jobs = []
     for message_id, thread_id, provider_uid in deliveries:
-        payload = json.dumps({"account_id": account_id, "binding": binding, "message_id": message_id,
-                              "thread_id": thread_id, "provider_uid": provider_uid})
-        key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + payload))
+        target = {"account_id": account_id, "binding": binding, "message_id": message_id,
+                  "thread_id": thread_id, "provider_uid": provider_uid}
+        key = str(uuid5(NAMESPACE_URL, "connector-label-check:" + json.dumps(target)))
+        if allow_full_fallback:
+            target["source"] = DEFERRED_SYNC_LABEL_CHECK
         job = MailJob(id=key, kind=PENDING_LABEL_CHECK, status=PENDING_LABEL_CHECK,
-                      payload_json=payload, dedupe_key=key)
+                      payload_json=json.dumps(target), dedupe_key=key)
         jobs.append(job.model_dump())
-    if jobs:
-        await session.execute(insert(MailJob).values(jobs).on_conflict_do_nothing())
+    if not jobs:
+        return
+    stmt = insert(MailJob).values(jobs)
+    if allow_full_fallback:
+        stmt = stmt.on_conflict_do_nothing()
+    else:
+        # An uncertain write supersedes a deferred sync read for the same delivery.
+        stmt = stmt.on_conflict_do_update(index_elements=[MailJob.id],
+            set_={"payload_json": stmt.excluded.payload_json}, where=MailJob.payload_json != stmt.excluded.payload_json)
+    await session.execute(stmt)
 
 
 async def connector_label_checks(account_id: str) -> list[MailJob]:

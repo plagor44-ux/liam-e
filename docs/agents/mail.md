@@ -124,7 +124,9 @@ deferred-thread reads, retaining that work across cooldowns. The checkpoint hold
 Inbox and Trash observations. The normal pass alone checks those conflicts and shares one point read
 per thread with pending deliveries on the same verified binding. A committed fallback checkpoint
 queues exact reads for held-back Inbox removals with no local Trash copy so the checks survive the
-recent search window.
+recent search window. Those deferred sync checks can use full-content labels for an exact member
+whose point read omits them. An uncertain write on the same delivery requires a point read and
+takes precedence over that fallback.
 Undo identifies safely retryable tokens separately from uncertain results.
 Action failure warnings carry only a fixed action kind, provider kind and diagnostic code/class.
 

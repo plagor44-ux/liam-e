@@ -154,7 +154,8 @@ async def _sync_account(account: MailAccount) -> SyncResult:
                 await sync_connector.apply_label_checks(session, account, proof[0], checks)
             if deferred_label_uids and proof:
                 deliveries = await message_access.inbox_only_connector_deliveries(session, account_id, deferred_label_uids)
-                await mail_job.queue_connector_label_checks(session, account_id, proof[0], deliveries)
+                await mail_job.queue_connector_label_checks(
+                    session, account_id, proof[0], deliveries, allow_full_fallback=True)
             pending_import = (scan_active and (sync_connector.import_scan_pending(changes.cursor) or not changes.cursor)) if is_connector else changes.initial_pending
             tracked_threads = changes.initial_deferred_threads if is_connector else set()
             state.rules_initial_import = json.dumps({'id': import_id, 'threads': sorted(tracked_threads), 'scan_pending': pending_import}) if import_id and (pending_import or tracked_threads or not changes.cursor) else ''

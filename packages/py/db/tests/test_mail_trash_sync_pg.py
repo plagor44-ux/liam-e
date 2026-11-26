@@ -3081,12 +3081,14 @@ def test_gmail_checkpoint_leaves_legacy_point_probe_to_normal_pass(pg_db, monkey
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("throttle_history", [False, True], ids=["normal-poll", "history-throttled"])
-def test_gmail_checkpoint_keeps_sole_inbox_conflict_after_recent_window(pg_db, monkeypatch, throttle_history):
+@pytest.mark.parametrize("mode", ["normal-poll", "history-throttled", "full-fallback", "uncertain-write"])
+def test_gmail_checkpoint_keeps_sole_inbox_conflict_after_recent_window(pg_db, monkeypatch, mode):
     from api.mail import connector_throttle, sync_connector
     from db.accessors import mail_job
 
     async def run():
+        throttle_history = mode != "normal-poll"
+        omit_minimal_labels = mode in ("full-fallback", "uncertain-write")
         now = datetime.now(UTC)
         before_cutoff = now - timedelta(days=14) + timedelta(minutes=1)
         monotonic = connector_throttle.monotonic()
@@ -3117,11 +3119,12 @@ def test_gmail_checkpoint_keeps_sole_inbox_conflict_after_recent_window(pg_db, m
             await mail_sync_state.save_state(account_id=account_id, cursor=watermark,
                 connector_cursor=connector_mailbox.encode(binding, "initial:" + json.dumps([watermark, "older"])))
             outside_window = False
-            point_reads = 0
+            formats = []
+            observing = True
+            lose_write_response = False
             provider.labels["target"] = {"TRASH", "UNREAD", "STARRED"}
 
             async def dispatch(path, payload):
-                nonlocal point_reads
                 tool = urlsplit(path).path.split("/")[-2]
                 args = payload["arguments"]
                 if tool == "search_threads":
@@ -3130,30 +3133,58 @@ def test_gmail_checkpoint_keeps_sole_inbox_conflict_after_recent_window(pg_db, m
                         httpx.Response(429, headers={"Retry-After": "60"}, request=request).raise_for_status()
                     if outside_window or args.get("pageToken") == "older":
                         return {"content": [{"type": "text", "text": '{"threads": []}'}]}
-                if tool == "get_thread" and args == {"threadId": "mixed", "messageFormat": "MINIMAL"}:
-                    point_reads += 1
-                return await provider.dispatch(path, payload)
+                response = await provider.dispatch(path, payload)
+                if lose_write_response and tool == "unlabel_message":
+                    request = httpx.Request("POST", "https://example.test")
+                    raise httpx.ReadTimeout("synthetic write response timeout", request=request)
+                if observing and tool == "get_thread" and args.get("threadId") == "mixed":
+                    fmt = args["messageFormat"]
+                    if fmt == "MINIMAL" or outside_window:
+                        formats.append(fmt)
+                    if outside_window and omit_minimal_labels and fmt == "MINIMAL":
+                        thread = json.loads(response["content"][0]["text"])
+                        next(member for member in thread["messages"] if member["id"] == "target").pop("labelIds")
+                        response["content"][0]["text"] = json.dumps(thread)
+                return response
 
             monkeypatch.setattr(connectors, "_post", dispatch)
             assert (await sync.sync_account(account_id)).status == "ok"
             jobs = await mail_job.connector_label_checks(account_id)
             if throttle_history:
-                assert point_reads == 0
+                assert formats == []
                 assert await listed(browser, "INBOX") == set(ids.values())
                 assert await listed(browser, "TRASH") == set()
                 outside_window = True
                 now += timedelta(minutes=2)
                 monotonic += 120
+                if mode == "uncertain-write":
+                    observing = False
+                    lose_write_response = True
+                    response = await browser.post(url, json={"kind": "mark_read"})
+                    assert response.status_code == 502
+                    observing = True
+                    lose_write_response = False
+                    assert len(await mail_job.connector_label_checks(account_id)) == 1
                 assert (await sync.sync_account(account_id)).status == "ok"
 
-            assert await listed(browser, "INBOX") == {ids["sibling"]}
-            assert await listed(browser, "TRASH") == {target}
-            assert point_reads == 1
-            assert await mail_job.connector_label_checks(account_id) == []
-            assert [json.loads(job.payload_json) for job in jobs] == ([{
-                "account_id": account_id, "binding": state.write_evidence()[0],
-                "message_id": target, "thread_id": "mixed", "provider_uid": "target",
-            }] if throttle_history else [])
-            assert provider.writes == writes
+            if mode == "uncertain-write":
+                assert await listed(browser, "INBOX") == set(ids.values())
+                assert await listed(browser, "TRASH") == set()
+                assert formats == ["MINIMAL"]
+                assert len(await mail_job.connector_label_checks(account_id)) == 1
+                assert provider.writes == writes + [("unlabel_message", "target", ("UNREAD",))]
+            else:
+                assert await listed(browser, "INBOX") == {ids["sibling"]}
+                assert await listed(browser, "TRASH") == {target}
+                assert formats == (["MINIMAL", "FULL_CONTENT"] if omit_minimal_labels else ["MINIMAL"])
+                assert await mail_job.connector_label_checks(account_id) == []
+                assert provider.writes == writes
+            if throttle_history:
+                job, = jobs
+                payload = json.loads(job.payload_json)
+                assert (payload["binding"], payload["message_id"], payload["thread_id"], payload["provider_uid"]) == (
+                    state.write_evidence()[0], target, "mixed", "target")
+            else:
+                assert jobs == []
 
     asyncio.run(run())
