@@ -1,0 +1,18 @@
+# Layered over ../compose.yaml by devcontainer.json. Paths resolve from the repository root, the
+# directory of the first Compose file. Like the base file, this passes no secret to any service.
+services:
+  # The container Codespaces or VS Code attaches to. It joins the stack's network namespace, so
+  # localhost:3001 here is the web dev server, and forwarding that one port is all the browser
+  # needs: the UI calls `/api` on its own origin and the dev server proxies it to the API.
+  workspace:
+    build:
+      context: .devcontainer
+    network_mode: service:db
+    volumes:
+      - .:/workspaces/liam-e:cached
+    command: ["sleep", "infinity"]
+
+  db:
+    # No host ports: the editor forwards 3001 from the workspace, and the stack cannot collide with
+    # a Compose start of the same checkout on the host.
+    ports: !reset []

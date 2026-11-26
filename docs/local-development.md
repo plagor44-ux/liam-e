@@ -2,7 +2,7 @@
 
 This guide starts the main application from [`apps/api`](../apps/api) and [`apps/web`](../apps/web) with a separate test database. The synthetic sample data lets you view the inbox and saved chat histories without a mail account or Mistral access. The [minimal chat demo](../apps/chat-app/README.md) has its own entry point and is not started for this.
 
-The quickest way is [one command with Compose](#start-everything-with-compose), which needs only a container runtime. The [manual start](#prerequisites-and-installation) runs the same processes with the toolchain on your machine.
+The quickest way is [one command with Compose](#start-everything-with-compose), which needs only a container runtime. [GitHub Codespaces and VS Code Dev Containers](#codespaces-and-dev-containers) start the same stack from `.devcontainer/`. The [manual start](#prerequisites-and-installation) runs the same processes with the toolchain on your machine.
 
 ## What needs an account
 
@@ -23,16 +23,16 @@ Sample accounts never reach a provider, and their missing mail summaries are not
 docker compose up --build --watch
 ```
 
-The first start builds the images and takes several minutes. Once the `web` service reports healthy, open `http://localhost:3001/mail` for the inbox or `http://localhost:3001/` for chat. The API health check is at `http://127.0.0.1:3000/api/health`.
+The first start builds the images and takes several minutes. Once the `web` service reports healthy, open `http://localhost:3001/mail` for the inbox or `http://localhost:3001/` for chat. The API health check answers through the UI at `http://localhost:3001/api/health` and directly at `http://127.0.0.1:3000/api/health`.
 
 | Service | What it runs |
 | --- | --- |
 | `db` | PostgreSQL 16 with pgvector, the image CI uses, pinned by digest. The data stays in the volume `db-data`. |
 | `seed` | `bash tools/db.sh migrate` (Alembic `upgrade heads`) and then `api.mail.dev_seed`. It runs on every `up` and exits; a repeated seed replaces only its own rows. |
 | `api` | The `api-dev` target of [`Dockerfile.api`](../deploy/docker/Dockerfile.api) with reload, with `MAIL_WORKER_ENABLED=false`, `MISTRAL_SECRETS_ENABLED=false` and `TELEMETRY_ENABLED=false`. |
-| `web` | The `dev` target of [`Dockerfile.web`](../deploy/docker/Dockerfile.web): the Vite dev server with `VITE_API_URL=http://127.0.0.1:3000`. |
+| `web` | The `dev` target of [`Dockerfile.web`](../deploy/docker/Dockerfile.web): the Vite dev server with an empty `VITE_API_URL`. The browser calls `/api` on the UI's origin, and the dev server proxies it to the API ([proxy plugin](../apps/web/vite-plugins/fastapi-tanstack-start.ts)). |
 
-All four services share the network namespace of `db`, like the containers of a pod, and reach each other on loopback. The seed accepts only the database hosts `localhost`, `127.0.0.1` and `::1`; in this stack the database really is at `127.0.0.1`, so the check holds without any exception. PostgreSQL listens only on that loopback. The ports 3000 (API) and 3001 (UI) are published to `127.0.0.1` on your machine only. Open the UI as `localhost:3001`: the API's default `CORS_ORIGIN` allows exactly that origin, so with `127.0.0.1:3001` in the address bar the browser's API requests fail.
+All four services share the network namespace of `db`, like the containers of a pod, and reach each other on loopback. The seed accepts only the database hosts `localhost`, `127.0.0.1` and `::1`; in this stack the database really is at `127.0.0.1`, so the check holds without any exception. PostgreSQL listens only on that loopback. The ports 3000 (API) and 3001 (UI) are published to `127.0.0.1` on your machine only. The browser needs only port 3001: the UI calls the API on its own origin, so `localhost:3001` and `127.0.0.1:3001` both work and the API's `CORS_ORIGIN` plays no part. Port 3000 is there for direct API checks.
 
 The services receive no Mistral, OAuth or IMAP setting, and the root `.env` stays out of the images ([`.dockerignore`](../.dockerignore)).
 
@@ -40,7 +40,7 @@ With `--watch`, Compose copies edits under `apps/api/src`, `packages/py`, `apps/
 
 A new migration is applied on the next `up`, or right away with `docker compose run --rm seed`, which also seeds again. `Ctrl+C` stops the stack. `docker compose down` removes the containers, and `docker compose down --volumes` also deletes the database.
 
-If a port is taken, publish another host port in a `compose.override.yaml`, which Compose reads automatically and Git ignores. The example moves the UI to port 3101 and allows that origin. For another API port, also set `VITE_API_URL` of `web` to match.
+If a port is taken, publish another host port in a `compose.override.yaml`, which Compose reads automatically and Git ignores. The example moves the UI to port 3101. Inside the stack the API stays on port 3000, so the UI needs no other change.
 
 ```yaml
 services:
@@ -48,12 +48,30 @@ services:
     ports: !override
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:3101:3001"
-  api:
-    environment:
-      CORS_ORIGIN: http://localhost:3101
 ```
 
 Podman builds the API image, but not yet the web image: buildah stops at the `COPY --parents` line for vendored capability sources in `Dockerfile.web`, whose wildcard matches nothing in this repository, while BuildKit skips such a line.
+
+## Codespaces and Dev Containers
+
+[`.devcontainer/`](../.devcontainer/devcontainer.json) starts the [Compose stack](#start-everything-with-compose) in GitHub Codespaces or in VS Code with the Dev Containers extension: the same four services and sample data, plus a `workspace` container that the editor attaches to. Create a codespace on the repository's GitHub page (**Code → Codespaces**), or open the checkout in VS Code and run **Dev Containers: Reopen in Container**. A start on your own machine needs Docker with BuildKit, as above.
+
+The first start builds the images, migrates and seeds the database, and takes several minutes. Then open the forwarded port 3001, labelled “liam-e UI” in the **Ports** view, and go to `/mail` for the inbox. In a codespace the port gets its own address under `app.github.dev`. The Vite dev server accepts that domain ([`server.allowedHosts`](../apps/web/vite.config.ts)) and still blocks any other host. The UI calls `/api` on that same address and the dev server proxies it to the API. So neither `VITE_API_URL` nor `CORS_ORIGIN` needs a value, and the API and database ports stay unforwarded. Ports in a codespace are private by default, reachable only for you when signed in to GitHub; keep port 3001 that way.
+
+| Container | What it is |
+| --- | --- |
+| `db`, `seed`, `api`, `web` | The services of [`compose.yaml`](../compose.yaml), unchanged except that [`.devcontainer/compose.yaml`](../.devcontainer/compose.yaml) publishes no host ports: the editor forwards port 3001 instead. |
+| `workspace` | The [Dev Containers base image](../.devcontainer/Dockerfile) with git and the same Node.js, Bun and uv as the app images. It joins the network namespace of `db`, so `localhost:3001` inside it is the UI. On creation it installs the dependencies from the frozen lockfiles, so `bun run check` and the test suites run in its terminal. |
+
+Nothing here needs or receives a secret. The services get the fixed settings in `compose.yaml`, among them `MAIL_WORKER_ENABLED=false`, and nothing from the environment of the codespace: no Mistral, OAuth or IMAP credentials. The sample accounts never reach a provider, and new chat answers stay unavailable ([What needs an account](#what-needs-an-account)). Keep it that way: no `.env` and no credentials in the devcontainer files.
+
+The services run the code they were built from. Edits in the workspace reach them only after **Rebuild Container** from the command palette. To see UI changes at once, start a second dev server in the workspace terminal and forward its port; it proxies `/api` to the stack's API like the `web` service.
+
+```bash
+cd apps/web && bun x vite dev --port 3002
+```
+
+Closing the codespace or the VS Code window stops the stack, and every start seeds the database again.
 
 ## Prerequisites and installation
 
@@ -77,7 +95,7 @@ bun install --frozen-lockfile
 
 The [root `.env.example`](../.env.example) declares only the names of the app's own settings that are not handled by a Studio capability. The application does not load this file. The Studio CLI scaffold creates an ignored root `.env` from the `envVars` of installed capabilities. For an existing checkout, a manually created root `.env` with the necessary overrides or direct environment variables suffice. Python reads the root `.env` independently of the invocation directory. Process variables take precedence. The settings loader treats empty values as unset, so defaults in the settings modules apply. See the [settings loader](../packages/py/env/src/env/_base.py), [database](../packages/py/env/src/env/db.py) and [mail](../packages/py/env/src/env/mail.py).
 
-The UI has its own [`apps/web/.env.example`](../apps/web/.env.example) with a concrete value. In a fresh checkout it can be copied to `apps/web/.env`. Alternatively set `VITE_API_URL=http://127.0.0.1:3000` when starting the web app as below. The value specifies the API origin without `/api`, because the generated client already includes that path. Open the web app at `http://localhost:3001`, the API's default `CORS_ORIGIN`. For a different browser origin, set `CORS_ORIGIN` accordingly. `APP_NAME=liam-e` in the root `.env` sets the display name. See [web configuration](../apps/web/vite.config.ts) and [CORS setting](../packages/py/env/src/env/api.py).
+The UI has its own [`apps/web/.env.example`](../apps/web/.env.example). Its `VITE_API_URL` stays empty for every local start. The Vite dev server proxies `/api`, WebSockets included, to the API at `http://127.0.0.1:3000` ([proxy plugin](../apps/web/vite-plugins/fastapi-tanstack-start.ts)). The browser thus calls the API on the UI's own origin, and `CORS_ORIGIN` plays no part. Set `VITE_API_URL` only if the browser must call an API on another origin. Give the origin without `/api`, because the generated client already includes that path, and allow the UI's origin in the API's `CORS_ORIGIN` (default `http://localhost:3001`). `APP_NAME=liam-e` in the root `.env` sets the display name. See [web configuration](../apps/web/vite.config.ts) and [CORS setting](../packages/py/env/src/env/api.py).
 
 ## Create and migrate the database
 
@@ -113,10 +131,10 @@ Leave Mistral and provider credentials unset for this test. The API listens on `
 ```bash
 curl -fsS http://127.0.0.1:3000/api/health
 curl -fsS http://127.0.0.1:3000/api/health/ready
-VITE_API_URL=http://127.0.0.1:3000 bun run dev:web
+bun run dev:web
 ```
 
-`/api/health` responds with HTTP 200 even if a dependency is impaired. Check `status: "ok"` and `deps.database.reachable: true` in the JSON. `/api/health/ready` reports HTTP 503 when the API should not accept requests. In the test configuration Mistral may appear as `configured: false`. See [API development startup](../apps/api/src/api/dev.py) and [health routes](../apps/api/src/api/routers/api/internal/health.py).
+`/api/health` responds with HTTP 200 even if a dependency is impaired. Check `status: "ok"` and `deps.database.reachable: true` in the JSON. `/api/health/ready` reports HTTP 503 when the API should not accept requests. In the test configuration Mistral may appear as `configured: false`. Once the UI runs, both checks also answer through its proxy, for example at `http://localhost:3001/api/health`; while the API is stopped, the proxy answers 502. See [API development startup](../apps/api/src/api/dev.py) and [health routes](../apps/api/src/api/routers/api/internal/health.py).
 
 Open `http://localhost:3001/mail` for the inbox or `http://localhost:3001/` for chat. Sample accounts perform mail actions only in the index. Sync skips these accounts, sending and unsubscribing are blocked, and missing mail summaries are not generated for them afterwards. New AI answers require Mistral access. See [sync](../apps/api/src/api/mail/sync.py), [actions](../apps/api/src/api/mail/actions.py), [sending](../apps/api/src/api/mail/send.py), [unsubscribing](../apps/api/src/api/mail/newsletters.py) and [summaries](../apps/api/src/api/mail/insights.py).
 

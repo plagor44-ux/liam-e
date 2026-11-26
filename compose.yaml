@@ -9,9 +9,10 @@
 # Network: every service joins the network namespace of `db`, like the containers of one pod, so
 # they all reach each other on loopback. That is what keeps the seed's database guard intact: it
 # accepts only localhost, 127.0.0.1 and ::1, and here the database really is on 127.0.0.1.
-# Postgres listens on that loopback only. As on the manual path in the guide, the browser loads
-# the UI from localhost:3001 and calls the API at 127.0.0.1:3000, which the API's default
-# CORS_ORIGIN allows; both ports are published to the host's loopback alone.
+# Postgres listens on that loopback only. The browser needs only the UI port 3001: it calls `/api`
+# on that same origin, and the Vite dev server proxies those requests to the API on 127.0.0.1:3000
+# (apps/web/vite-plugins/fastapi-tanstack-start.ts). Port 3000 is published too, for direct API
+# checks; both ports reach the host's loopback alone. .devcontainer/ reuses this file.
 #
 # Nothing here holds a secret. The database password is a disposable value for this local
 # instance, and no Mistral, OAuth or IMAP credential is passed in: the root `.env` is neither
@@ -96,8 +97,9 @@ services:
       target: dev
     network_mode: service:db
     environment:
-      # The API origin as the browser sees it (apps/web/.env.example explains 127.0.0.1).
-      VITE_API_URL: http://127.0.0.1:3000
+      # Empty: the UI calls the API same-origin, through the dev server's `/api` proxy. No second
+      # origin, so the API's CORS_ORIGIN does not matter here, whatever host serves the UI.
+      VITE_API_URL: ""
     depends_on:
       api:
         condition: service_healthy

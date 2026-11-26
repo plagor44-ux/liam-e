@@ -49,7 +49,7 @@ its note; the rules in this file apply everywhere.
 | `jobs.py`, the worker, periodic sync and body rereads | [docs/agents/worker-and-sync.md](docs/agents/worker-and-sync.md) |
 | Behaviour of the Studio platform and its connectors | [docs/agents/studio-probes.md](docs/agents/studio-probes.md) |
 | `apps/api/src/api/audio/`, `apps/web/src/audio/`, speech and live voice | [docs/agents/audio.md](docs/agents/audio.md) |
-| Local stack, Docker Compose and seed data | [docs/local-development.md](docs/local-development.md) |
+| Local stack, Docker Compose, the devcontainer and seed data | [docs/local-development.md](docs/local-development.md) |
 | Providers, Studio setup and deployment | [docs/providers-and-operations.md](docs/providers-and-operations.md) |
 | Publishing the repository | [docs/publishing.md](docs/publishing.md) |
 

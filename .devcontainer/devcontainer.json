@@ -1,0 +1,21 @@
+// GitHub Codespaces and VS Code Dev Containers: the stack of ../compose.yaml (database, migration
+// and seed, API and web dev server) with the synthetic sample data only, plus a workspace container
+// with the repository and its toolchain. It needs no secret and passes none to the services.
+// Guide: docs/local-development.md#codespaces-and-dev-containers
+{
+  "name": "liam-e with sample data",
+  "dockerComposeFile": ["../compose.yaml", "compose.yaml"],
+  "service": "workspace",
+  "workspaceFolder": "/workspaces/liam-e",
+  "remoteUser": "vscode",
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [3001],
+  "portsAttributes": {
+    "3001": { "label": "liam-e UI", "onAutoForward": "notify" }
+  },
+  // The API (3000) and Postgres (5432) listen in the same namespace; the UI reaches the API through
+  // its own `/api` proxy, so neither port is forwarded.
+  "otherPortsAttributes": { "onAutoForward": "ignore" },
+  // The toolchain for the checks, from the frozen lockfiles as in CI.
+  "postCreateCommand": "bun install --frozen-lockfile && bash tools/uv.sh sync --all-packages --frozen"
+}

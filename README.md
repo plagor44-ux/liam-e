@@ -104,7 +104,9 @@ privately as described in [SECURITY.md](SECURITY.md).
 ## Start locally
 
 With Docker, `docker compose up --build` starts the database, sample data, API and UI in one step
-([Compose guide](docs/local-development.md#start-everything-with-compose)).
+([Compose guide](docs/local-development.md#start-everything-with-compose)). GitHub Codespaces and
+VS Code Dev Containers start the same stack from `.devcontainer/`
+([guide](docs/local-development.md#codespaces-and-dev-containers)).
 
 You need Bun 1.4.0, Node.js 24, uv (Python 3.14) and a local Postgres 16 with pgvector. The
 synthetic sample data shows the app without mail accounts or Mistral access. The
@@ -122,11 +124,11 @@ MAIL_WORKER_ENABLED=false MISTRAL_SECRETS_ENABLED=false TELEMETRY_ENABLED=false 
 In a second terminal:
 
 ```bash
-VITE_API_URL=http://127.0.0.1:3000 bun run dev:web
+bun run dev:web
 ```
 
-The UI runs at [localhost:3001](http://localhost:3001). The
-[health check](http://127.0.0.1:3000/api/health) is available directly on the API.
+The UI runs at [localhost:3001](http://localhost:3001) and reaches the API through its own `/api`
+proxy. The [health check](http://127.0.0.1:3000/api/health) is also available directly on the API.
 
 ## Deploy
 
