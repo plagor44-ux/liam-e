@@ -17,6 +17,8 @@ Part of the agent instructions: [AGENTS.md](../../AGENTS.md) links here from its
 - `/settings/chat` — default model for new conversations and the mail accounts the chat may use ([chat.md](chat.md#chat-mail-access-80)).
 - `/settings/calendar` — choose or clear the writable default calendar for new appointments ([calendar.md](calendar.md#calendar-in-chat)).
 - `/settings/controls` — left and right swipe actions in the mail list (`none`, `archive`, `toggle_read` or `trash`), stored in `ui_settings`.
+- `/settings/access` — owner outside-access switch ("Zugriff von außen", #197), stored in `agent_access` ([agent-read-facade.md](agent-read-facade.md#agent-access-switch)).
+- `/settings/mcp` — mail accounts granted to external MCP clients (read-only inbox index, #36), with tool list, data-disclosure notice and revocation steps, stored in `mcp_settings` ([mcp.md](../mcp.md)).
 - `/settings/folders` and `/settings/rules` — app folders and labels, and ordered mail rules. `/settings/rules?source_mail=<message-id>` (at most 100 characters) prefills the rule editor from that mail and drops the parameter once used ([mail-filing-and-rules.md](mail-filing-and-rules.md); [DESIGN.md §9.7](../../DESIGN.md#97-templates-and-settings)).
 - `/settings/language` — app language, speech pace and voice model; see [App language](#app-language).
 - `/audio-device-test` — owner device check outside the app layout: record and transcribe, play a sample and run the paid smoke while `AUDIO_DEVICE_TEST_UNTIL` lies in the future, otherwise a closed notice ([audio.md](audio.md)).
