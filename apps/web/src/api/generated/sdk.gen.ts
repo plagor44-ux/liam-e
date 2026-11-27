@@ -869,7 +869,7 @@ export const agentAccessGet = <ThrowOnError extends boolean = false>(options?: O
 /**
  * Disable Agent Access
  *
- * Turn outside access off at once. Idempotent; no revision and no identity check.
+ * Turn outside access off at once. No revision or identity check; always advances the revision.
  */
 export const agentAccessDisable = <ThrowOnError extends boolean = false>(options?: Options<AgentAccessDisableData, ThrowOnError>): RequestResult<AgentAccessDisableResponses, AgentAccessDisableErrors, ThrowOnError> => (options?.client ?? client).post<AgentAccessDisableResponses, AgentAccessDisableErrors, ThrowOnError>({ url: '/api/v1/settings/agent-access/disable', ...options });
 

@@ -42,9 +42,12 @@ row means off.
   applies to the next request on every app instance. A request that already passed the gate
   finishes with at most one bounded response.
 - **Who switches.** `agent_access_disable` takes no revision and makes no identity lookup, so it
-  always works. `agent_access_enable` needs the bound owner's own browser session
-  (`api/owner_access.py`, binding `AUDIO_STUDIO_OWNER`) and the current revision. All three
-  switch operations are browser-only.
+  always works. It always advances the revision, also when access is already off, so a turn-on
+  confirmed earlier (say in another tab, while its identity lookup was still running) fails with
+  409 `agent_access_conflict` instead of reopening access. `agent_access_enable` needs the bound
+  owner's own browser session (`api/owner_access.py`, binding `AUDIO_STUDIO_OWNER`) and the
+  current revision. Both changes take the same row lock. All three switch operations are
+  browser-only.
 
 The switch does not revoke anything at the gateway. Tokens and refresh grants stay valid there;
 only deleting the app ends them (#157, L9). Data an agent has already read cannot be recalled.

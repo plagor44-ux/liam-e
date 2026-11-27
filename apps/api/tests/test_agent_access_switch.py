@@ -57,10 +57,15 @@ class Store:
         self._check()
         return self.row.model_copy() if self.row else AgentAccess()
 
+    def turn_off(self) -> None:
+        """Every turn-off advances the revision; a missing row becomes revision 2, off."""
+        current = self.row or AgentAccess()
+        changed_at = CHANGED if current.enabled else current.changed_at
+        self.row = AgentAccess(enabled=False, revision=current.revision + 1, changed_at=changed_at)
+
     async def disable(self) -> AgentAccess:
         self._check()
-        if self.row and self.row.enabled:
-            self.row = AgentAccess(enabled=False, revision=self.row.revision + 1, changed_at=CHANGED)
+        self.turn_off()
         return await self.state()
 
     async def enable(self, expected_revision: int) -> AgentAccess:
@@ -151,15 +156,36 @@ def test_disable_needs_no_identity_revision_or_binding(client, store, monkeypatc
     assert first.status_code == second.status_code == 200
     assert (first.json()["enabled"], first.json()["revision"]) == (False, 5)
     assert first.json()["changed_at"] is not None
-    assert second.json()["revision"] == 5
+    assert (second.json()["enabled"], second.json()["revision"]) == (False, 6)
+    assert second.json()["changed_at"] == first.json()["changed_at"]
     assert first.headers["cache-control"] == "no-store"
 
 
-def test_disable_without_a_row_stays_off_and_creates_none(client, store):
+def test_disable_without_a_row_stays_off_and_advances_past_the_default(client, store):
     response = client.post(PATH + "/disable", headers=HEADERS)
     assert response.status_code == 200
-    assert (response.json()["enabled"], response.json()["revision"]) == (False, 1)
-    assert store.row is None
+    assert (response.json()["enabled"], response.json()["revision"], response.json()["changed_at"]) == (False, 2, None)
+    assert store.row is not None and store.row.enabled is False
+
+
+@pytest.mark.parametrize("stored", [None, AgentAccess(enabled=False, revision=3, changed_at=CHANGED)])
+def test_a_turn_off_during_the_identity_lookup_wins_over_the_pending_turn_on(client, store, stored):
+    """Review finding on #198: an off switch must still invalidate a confirmed, pending turn-on."""
+    store.row = stored
+    page = client.get(PATH, headers=HEADERS).json()
+    assert page["enabled"] is False
+
+    def turn_off_in_another_tab(request):
+        store.turn_off()
+        return httpx.Response(200, json=IDENTITY)
+
+    with respx.mock(assert_all_called=False) as outbound:
+        who = outbound.get(PROXY + "/v1/users/me").mock(side_effect=turn_off_in_another_tab)
+        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": page["revision"]})
+    assert who.call_count == 1
+    assert response.status_code == 409
+    assert _code(response) == "agent_access_conflict"
+    assert store.row.enabled is False and store.row.revision == page["revision"] + 1
 
 
 def test_the_verified_owner_turns_access_on_with_the_current_revision(client, store):

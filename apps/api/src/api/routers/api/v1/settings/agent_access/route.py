@@ -2,9 +2,11 @@
 
 Browser-only. Reading and turning access off need nothing beyond the gateway: off is the
 emergency stop, so it takes no revision, makes no identity lookup and always succeeds, even
-without an owner binding or a reachable Mistral API. Turning access on needs the bound owner's
-own browser session (:mod:`api.owner_access`: no workspace key, the bound origin, the matching
-Studio identity) and the current revision.
+without an owner binding or a reachable Mistral API. It always advances the revision, also when
+access is already off, so a turn-on confirmed earlier, for example in another tab while its
+identity lookup was still running, fails as stale instead of reopening access. Turning access on
+needs the bound owner's own browser session (:mod:`api.owner_access`: no workspace key, the
+bound origin, the matching Studio identity) and the current revision.
 
 ``verifier_configured`` reports whether a real read-access verifier is installed; until then the
 read facade keeps answering 401 even with access on. ``owner_bound`` reports whether turning on
@@ -104,7 +106,7 @@ async def get_agent_access(
 async def disable_agent_access(
     verifier: Annotated[ReadAccessVerifier, Depends(get_read_access_verifier)],
 ) -> AgentAccessOut:
-    """Turn outside access off at once. Idempotent; no revision and no identity check."""
+    """Turn outside access off at once. No revision or identity check; always advances the revision."""
     row = await agent_access.disable()
     _LOG.info("agent_access=disabled")
     return _out(row, verifier)

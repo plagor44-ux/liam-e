@@ -13626,7 +13626,7 @@
     },
     "/api/v1/settings/agent-access/disable": {
       "post": {
-        "description": "Turn outside access off at once. Idempotent; no revision and no identity check.",
+        "description": "Turn outside access off at once. No revision or identity check; always advances the revision.",
         "operationId": "agent_access_disable",
         "responses": {
           "200": {

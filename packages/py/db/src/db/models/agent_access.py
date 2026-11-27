@@ -2,8 +2,9 @@
 
 One row per installation, keyed by the fixed server-side ``OWNER_SCOPE`` like the other
 singletons. A missing row means the switch is off: the migration creates no row, and nothing
-creates one on read. ``revision`` increases with every change of ``enabled`` and guards turning
-access on against a stale page. The row stores no identity, reason or request data.
+creates one on read. ``revision`` increases with every turn-on and with every turn-off, even
+when access was already off, and guards turning access on against a stale page or a confirmation
+that a later turn-off overtook. The row stores no identity, reason or request data.
 """
 
 from datetime import datetime

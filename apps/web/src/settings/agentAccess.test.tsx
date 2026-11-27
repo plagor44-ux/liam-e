@@ -53,11 +53,12 @@ function setup({
     const custom = await respond?.(request)
     if (custom) return custom
     if (req.method === 'POST' && url.pathname.endsWith('/disable')) {
+      // Like the server: every turn-off advances the revision, so a pending turn-on goes stale.
       current = {
         ...current,
         enabled: false,
-        revision: current.enabled ? current.revision + 1 : current.revision,
-        changed_at: new Date().toISOString(),
+        revision: current.revision + 1,
+        changed_at: current.enabled ? new Date().toISOString() : current.changed_at,
       }
       return Response.json(current)
     }

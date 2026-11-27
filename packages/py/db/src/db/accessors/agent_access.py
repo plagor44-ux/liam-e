@@ -4,13 +4,16 @@ A missing row means off, and reading never creates one, so a fresh or migrated i
 starts with agent access off. There is deliberately no cache: every gated request reads the one
 row, so a change committed here applies to the next request on every app instance.
 
-Turning access off is one conditional ``UPDATE`` with no revision check: it always succeeds,
-increases the revision only when access was on, and leaves a missing row missing (already off).
-Turning access on is a compare-and-swap on ``revision`` under the row lock and fails with
-``StaleRevision`` when the caller's page is out of date.
+Turning access off is one upsert with no revision check: it always succeeds and always advances
+the revision under the row lock, even when access is already off or no row exists yet. That
+invalidates every turn-on still holding an older revision, for example one confirmed in another
+tab whose identity lookup was still running, so a completed turn-off is never undone by it.
+Turning access on is a compare-and-swap on ``revision`` under the same row lock and fails with
+``StaleRevision`` when the caller's page is out of date. ``changed_at`` records the last change
+of ``enabled``.
 """
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert
 
 from db.engine import get_session_maker
@@ -39,14 +42,26 @@ async def state() -> AgentAccess:
 
 
 async def disable() -> AgentAccess:
-    """Turn access off. Idempotent, no revision check, never creates a row."""
+    """Turn access off and advance the revision. No revision check; it always succeeds.
+
+    A missing row is created as off with revision 2, one past the implicit revision 1 a page
+    shows before any row exists, so a turn-on still expecting revision 1 fails.
+    """
+    now = utcnow()
     async with get_session_maker().begin() as session:
         await session.execute(
-            update(AgentAccess)
-            .where(AgentAccess.owner_scope == OWNER_SCOPE, AgentAccess.enabled.is_(True))
-            .values(enabled=False, revision=AgentAccess.revision + 1, changed_at=utcnow())
+            insert(AgentAccess)
+            .values(owner_scope=OWNER_SCOPE, enabled=False, revision=2, changed_at=None)
+            .on_conflict_do_update(
+                index_elements=[AgentAccess.owner_scope],
+                set_={
+                    "enabled": False,
+                    "revision": AgentAccess.revision + 1,
+                    "changed_at": case((AgentAccess.enabled.is_(True), now), else_=AgentAccess.changed_at),
+                },
+            )
         )
-        return await session.get(AgentAccess, OWNER_SCOPE, populate_existing=True) or AgentAccess()
+        return await session.get(AgentAccess, OWNER_SCOPE, populate_existing=True)
 
 
 async def enable(expected_revision: int) -> AgentAccess:

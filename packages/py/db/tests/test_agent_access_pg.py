@@ -29,15 +29,15 @@ def test_a_missing_row_is_off_and_reading_creates_none(pg_db):
     asyncio.run(run())
 
 
-def test_disable_needs_no_row_no_revision_and_is_idempotent(pg_db):
+def test_disable_needs_no_revision_stays_off_and_always_advances(pg_db):
     async def run():
         from db.accessors import agent_access
 
         first = await agent_access.disable()
         second = await agent_access.disable()
-        assert (first.enabled, first.revision) == (False, 1)
-        assert (second.enabled, second.revision) == (False, 1)
-        assert await _rows() == 0
+        assert (first.enabled, first.revision, first.changed_at) == (False, 2, None)
+        assert (second.enabled, second.revision, second.changed_at) == (False, 3, None)
+        assert await _rows() == 1
         assert await agent_access.is_enabled() is False
 
     asyncio.run(run())
@@ -58,11 +58,34 @@ def test_enable_is_a_compare_and_swap_and_disable_always_wins(pg_db):
         off = await agent_access.disable()
         assert (off.enabled, off.revision) == (False, 3) and off.changed_at >= on.changed_at
         assert await agent_access.is_enabled() is False
-        assert (await agent_access.disable()).revision == 3
+        repeated = await agent_access.disable()
+        assert (repeated.revision, repeated.changed_at) == (4, off.changed_at)
         with pytest.raises(agent_access.StaleRevision):
-            await agent_access.enable(2)
+            await agent_access.enable(3)
         assert await agent_access.is_enabled() is False
         assert await _rows() == 1
+
+    asyncio.run(run())
+
+
+def test_a_turn_on_confirmed_before_a_turn_off_cannot_reopen_access(pg_db):
+    """A page holding revision n, then a turn-off elsewhere: the late turn-on must fail."""
+    async def run():
+        from db.accessors import agent_access
+
+        # Never switched: the page shows the implicit revision 1.
+        page = await agent_access.state()
+        await agent_access.disable()
+        with pytest.raises(agent_access.StaleRevision):
+            await agent_access.enable(page.revision)
+        assert await agent_access.is_enabled() is False
+
+        # Already off with a stored row: a second turn-off still invalidates the page.
+        page = await agent_access.state()
+        await agent_access.disable()
+        with pytest.raises(agent_access.StaleRevision):
+            await agent_access.enable(page.revision)
+        assert await agent_access.is_enabled() is False
 
     asyncio.run(run())
 
@@ -80,16 +103,18 @@ def test_parallel_enables_of_one_revision_turn_on_once(pg_db):
     asyncio.run(run())
 
 
-def test_disable_succeeds_against_a_racing_enable(pg_db):
+def test_a_racing_disable_always_leaves_access_off(pg_db):
     async def run():
         from db.accessors import agent_access
 
-        await agent_access.enable(1)
-        results = await asyncio.gather(agent_access.disable(), agent_access.enable(2), return_exceptions=True)
-        assert not isinstance(results[0], Exception)
-        # Whichever ran last decides; a disable is never refused.
-        await agent_access.disable()
-        assert await agent_access.is_enabled() is False
+        for _ in range(6):
+            page = await agent_access.state()
+            off, on = await asyncio.gather(agent_access.disable(), agent_access.enable(page.revision), return_exceptions=True)
+            assert not isinstance(off, Exception) and off.enabled is False
+            assert isinstance(on, agent_access.StaleRevision) or not isinstance(on, Exception)
+            # Whichever reached the row first, the turn-off ran last or invalidated the turn-on.
+            assert await agent_access.is_enabled() is False
+        assert await _rows() == 1
 
     asyncio.run(run())
 
