@@ -16,6 +16,8 @@ import os
 import shutil
 import stat
 import subprocess
+import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -149,9 +151,35 @@ class Probe:
             self.add_app({"id": app_id, "name": name, "label": name})
 
 
+def git_above(path: Path) -> bool:
+    resolved = path.resolve()
+    return any((parent / ".git").exists() or (parent / ".git").is_symlink() for parent in (resolved, *resolved.parents))
+
+
 @pytest.fixture
-def probe(tmp_path: Path) -> Probe:
-    home, tmpdir, log, fakebin = (tmp_path / name for name in ("home", "tmp", "log", "bin"))
+def script_tmp_base(tmp_path: Path) -> Iterator[Path]:
+    """A directory for the script's TMPDIR with no `.git` above it, which deploy.sh would refuse (#190).
+
+    That is pytest's own directory unless a stray `.git` sits above it on this machine; then a fresh
+    directory in the first clean system location, removed afterwards."""
+    if not git_above(tmp_path):
+        yield tmp_path
+        return
+    for candidate in (Path("/var/tmp"), Path("/dev/shm")):
+        if candidate.is_dir() and os.access(candidate, os.W_OK) and not git_above(candidate):
+            base = Path(tempfile.mkdtemp(prefix="liam-e-probe-deploy-test.", dir=candidate))
+            try:
+                yield base
+            finally:
+                shutil.rmtree(base, ignore_errors=True)
+            return
+    pytest.skip("a .git sits above every candidate temporary directory, so deploy.sh refuses to deploy (#190)")
+
+
+@pytest.fixture
+def probe(tmp_path: Path, script_tmp_base: Path) -> Probe:
+    home, log, fakebin = (tmp_path / name for name in ("home", "log", "bin"))
+    tmpdir = script_tmp_base / "tmp"
     for path in (home, tmpdir, fakebin):
         path.mkdir()
     gitconfig = tmp_path / "gitconfig"
@@ -317,6 +345,53 @@ def test_a_failed_deploy_without_an_app_records_nothing(probe: Probe) -> None:
 
     assert result.returncode == 1 and "left no app ID" in result.stderr
     assert "appId" not in probe.recorded()
+
+
+# --- a .git above the temporary directory (#190) -----------------------------------------------
+
+
+def put_git_above_tmpdir(probe: Probe, kind: str) -> Path:
+    """Points TMPDIR into a directory whose parent holds a `.git` entry, as on 26 November."""
+    outer = probe.tmpdir.parent / "outer"
+    tmpdir = outer / "level" / "tmp"
+    tmpdir.mkdir(parents=True)
+    if kind == "file":
+        (outer / ".git").write_text("gitdir: elsewhere\n")
+    else:
+        (outer / ".git").mkdir()
+        if kind == "full":
+            (outer / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    probe.env["TMPDIR"] = str(tmpdir)
+    return tmpdir
+
+
+@pytest.mark.parametrize("kind", ["empty", "full", "file"])
+@pytest.mark.parametrize("update", [False, True])
+def test_a_git_entry_above_the_temporary_directory_stops_a_deploy(probe: Probe, kind: str, update: bool) -> None:
+    probe.env["FAKE_NEW_APP"] = NEW
+    if update:
+        probe.record(NEW)
+        probe.add_app({"id": NEW, "name": PROBE, "label": PROBE})
+    tmpdir = put_git_above_tmpdir(probe, kind)
+    result = probe.run(*([probe.head()] if update else [probe.head(), "--create-app", PROBE]))
+
+    assert result.returncode == 1
+    assert "a .git sits in a parent directory of the temporary directory" in result.stderr
+    assert "TMPDIR" in result.stderr and str(tmpdir) not in result.stderr
+    assert probe.calls() == [], "the CLI must not run, not even the read-only listing"
+    assert list(tmpdir.iterdir()) == [], "the temporary directory must be removed"
+    assert probe.recorded().get("appId") == (NEW if update else None)
+    assert_no_ids(result)
+
+
+def test_a_git_entry_above_the_temporary_directory_does_not_stop_a_delete(probe: Probe) -> None:
+    probe.prepare_delete()
+    tmpdir = put_git_above_tmpdir(probe, "empty")
+    result = probe.run("--delete")
+
+    assert result.returncode == 0, result.stderr
+    assert [call["args"] for call in probe.calls()] == [LIST_ARGS]
+    assert list(tmpdir.iterdir()) == []
 
 
 # --- updates -----------------------------------------------------------------------------------

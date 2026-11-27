@@ -586,7 +586,8 @@ Answered by the run:
 - The CLI accepted the probe manifest with both flagged routes and printed no lint notice (L1).
 - `--from-disk` deployed the exported copy and wrote the new `appId` into it; the helper recorded
   it, and the listing showed one app of the probe's name (L1). A `.git` in a parent directory of
-  the temporary copy makes the CLI fail instead (#190).
+  the temporary copy makes the CLI fail instead (#190). The helper now refuses a deploy in that
+  case before its first CLI call; set `TMPDIR` to a directory without a `.git` above it.
 - The app reached the gateway proxy: the identity lookup returned `user` (Q4).
 - The gateway forwards the caller token as `x-apps-token` and also sends `x-space-token` (Q4). It
   passes `MCP-Protocol-Version`, `Mcp-Method` and SSE through unchanged (Q9).

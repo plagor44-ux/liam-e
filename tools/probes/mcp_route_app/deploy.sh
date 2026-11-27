@@ -29,8 +29,9 @@
 # liam-e's test and production apps). It stops if none of them names an app ID, because then it
 # could not tell liam-e's apps apart.
 #
-# Steps: require the commit to be on origin/main; export the probe directory's tracked files at
-# that commit into a fresh temporary directory (no .env, no ignored files, no Git metadata); write
+# Steps: refuse a temporary directory with a .git entry in it or in any parent (#190); require the
+# commit to be on origin/main; export the probe directory's tracked files at that commit into a
+# fresh temporary directory (no .env, no ignored files, no Git metadata); write
 # the deployment block into that copy's mistral.json only; run `mistral deploy --from-disk` there;
 # remove the copy. The script never prints the IDs. The CLI's own output may show the target and the
 # app URL; do not copy those into the probe log.
@@ -180,6 +181,21 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/liam-e-probe-deploy.XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# CLI v0.18.1 takes a .git entry (directory or file, even an empty one) in any parent of the
+# directory it deploys from for the project's repository, and then fails inside `mistral deploy`
+# (#190). So a deploy stops before its first CLI call. The physical path counts, as Git sees it.
+if [ "$mode" = deploy ]; then
+  dir="$(cd "$work" && pwd -P)"
+  while :; do
+    if [ -e "$dir/.git" ] || [ -L "$dir/.git" ]; then
+      fail "a .git sits in a parent directory of the temporary directory, and the CLI would take it for the" \
+        "project's repository; set TMPDIR to a directory without a .git above it. Nothing was deployed."
+    fi
+    [ "$dir" != / ] || break
+    dir="$(dirname -- "$dir")"
+  done
+fi
 
 # Lists the target workspace read-only and checks it for the probe's name, as an app's name or
 # label. "absent": no app may carry it. "recorded": the app with the given ID must carry it, and no
