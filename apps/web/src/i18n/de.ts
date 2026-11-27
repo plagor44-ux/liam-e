@@ -409,6 +409,7 @@ export const de = {
     statusOn: 'An',
     statusOnSince: (when: string) => `An seit ${when}`,
     turnOff: 'Zugriff ausschalten',
+    turnOffTip: 'Schaltet den Zugriff sofort aus und bricht laufende Freigaben ab.',
     turnOn: 'Zugriff einschalten',
     confirmTitle: 'Zugriff von außen einschalten?',
     confirmBody: 'Assistenten mit einer gültigen Anmeldung können dann deine Daten in liam-e lesen. Was sie gelesen haben, lässt sich nicht zurückholen. Du kannst den Zugriff jederzeit wieder ausschalten.',

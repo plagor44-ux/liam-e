@@ -419,6 +419,7 @@ export const en = {
     statusOn: 'On',
     statusOnSince: when => `On since ${when}`,
     turnOff: 'Turn off access',
+    turnOffTip: 'Turns access off at once and stops any turn-on in progress.',
     turnOn: 'Turn on access',
     confirmTitle: 'Turn on outside access?',
     confirmBody: 'Assistants with a valid sign-in can then read your data in liam-e. What they read can’t be taken back. You can turn access off again at any time.',

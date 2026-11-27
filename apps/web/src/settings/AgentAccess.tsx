@@ -2,10 +2,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useId, useRef, useState } from 'react'
 import { apiErrorMessage, errorCode } from '../api/unwrap'
-import { Button, Notice } from '../ds'
+import { Button, Notice, Tooltip } from '../ds'
 import { formatListDate } from '../i18n/format'
 import { useI18n } from '../i18n/I18n'
 import {
+  AGENT_ACCESS_POLL_MS,
   AgentAccessError,
   agentAccessQuery,
   disableAgentAccess,
@@ -47,11 +48,11 @@ function mapAccessError(cause: unknown, texts: ReturnType<typeof useI18n>['texts
  * Owner-controlled switch for outside assistants. Each action applies at once without the shared
  * settings save bar: turning off needs one click with no confirmation; turning on asks first.
  */
-export function AgentAccess() {
+export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollIntervalMs?: number | false } = {}) {
   const { texts, locale } = useI18n()
   const t = texts.agentAccess
   const client = useQueryClient()
-  const query = useQuery(agentAccessQuery())
+  const query = useQuery(agentAccessQuery(pollIntervalMs))
   const [busy, setBusy] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>()
@@ -73,7 +74,9 @@ export function AgentAccess() {
   const updateCache = async (next: AgentAccessOut) => {
     const { queryKey } = agentAccessQuery()
     await client.cancelQueries({ queryKey, exact: true })
-    client.setQueryData(queryKey, next)
+    client.setQueryData<AgentAccessOut>(queryKey, cached =>
+      cached && cached.revision > next.revision ? cached : next,
+    )
   }
 
   const disable = async () => {
@@ -114,7 +117,10 @@ export function AgentAccess() {
       <div className="le-access-actions">
         {state.enabled
           ? <Button variant="primary" disabled={busy} onClick={() => { void disable() }}>{t.turnOff}</Button>
-          : <Button variant="primary" disabled={busy || !state.owner_bound} aria-describedby={!state.owner_bound ? unboundId : undefined} onClick={() => setConfirmOpen(true)}>{t.turnOn}</Button>}
+          : <>
+              <Tooltip content={t.turnOffTip}><Button variant="secondary" disabled={busy} onClick={() => { void disable() }}>{t.turnOff}</Button></Tooltip>
+              <Button variant="primary" disabled={busy || !state.owner_bound} aria-describedby={!state.owner_bound ? unboundId : undefined} onClick={() => setConfirmOpen(true)}>{t.turnOn}</Button>
+            </>}
       </div>
     </div>
     {!state.enabled && !state.owner_bound && <Notice tone="info" live={false}><span id={unboundId}>{t.errorUnbound}</span></Notice>}

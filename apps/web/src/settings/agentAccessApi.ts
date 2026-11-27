@@ -6,6 +6,9 @@ import { ApiError } from '../api/unwrap'
 
 export type { AgentAccessOut }
 
+// Poll while the settings section is visible so changes made on another device surface promptly.
+export const AGENT_ACCESS_POLL_MS = 15_000
+
 export class AgentAccessError extends ApiError {
   readonly status?: number
 
@@ -23,9 +26,12 @@ async function callAccess<T>(
   throw new AgentAccessError(result.response?.status, result.error)
 }
 
-export const agentAccessQuery = () => queryOptions({
+export const agentAccessQuery = (pollIntervalMs: number | false = AGENT_ACCESS_POLL_MS) => queryOptions({
   queryKey: ['agent-access'],
+  refetchOnMount: 'always',
   refetchOnWindowFocus: 'always',
+  refetchInterval: pollIntervalMs,
+  refetchIntervalInBackground: false,
   queryFn: ({ signal }) => callAccess(agentAccessGet({ signal })),
 })
 

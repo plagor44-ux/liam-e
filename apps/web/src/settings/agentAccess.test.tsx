@@ -11,6 +11,7 @@ import { formatListDate } from '../i18n/format'
 import { I18nProvider } from '../i18n/I18n'
 import { settingsSections } from '../prompts/Settings'
 import { AgentAccess } from './AgentAccess'
+import { AGENT_ACCESS_POLL_MS, agentAccessQuery } from './agentAccessApi'
 import { SettingsSaveBar, SettingsSaveProvider } from './SettingsSave'
 
 const original = globalThis.fetch
@@ -32,10 +33,14 @@ function setup({
   initial = defaultState(),
   respond,
   locale = 'de',
+  pollIntervalMs = AGENT_ACCESS_POLL_MS,
+  seedCache,
 }: {
   initial?: AgentAccessOut
   respond?: (request: RecordedRequest) => Response | Promise<Response> | undefined
   locale?: 'de' | 'en'
+  pollIntervalMs?: number | false
+  seedCache?: AgentAccessOut
 } = {}) {
   requests = []
   let current = { ...initial }
@@ -74,12 +79,15 @@ function setup({
     return Response.json(current)
   }) as typeof fetch
 
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: seedCache ? 60_000 : 0 } },
+  })
+  if (seedCache) client.setQueryData(agentAccessQuery().queryKey, seedCache)
   render(
     <I18nProvider locale={locale}>
       <QueryClientProvider client={client}>
         <SettingsSaveProvider>
-          <AgentAccess />
+          <AgentAccess pollIntervalMs={pollIntervalMs} />
           <SettingsSaveBar />
         </SettingsSaveProvider>
       </QueryClientProvider>
@@ -106,15 +114,69 @@ test('settingsSections lists /settings/access directly after /settings/controls'
   expect(enSections[controlsIndex + 1]).toEqual({ to: '/settings/access', label: en.agentAccess.section })
 })
 
-test('shows "Aus" by default with explanation, limits note, and no save bar', async () => {
+test('shows "Aus" by default with explanation, limits note, always-reachable off button, and no save bar', async () => {
   setup()
   expect(await screen.findByText(de.agentAccess.statusOff)).toBeTruthy()
   expect(screen.getByText(de.agentAccess.description)).toBeTruthy()
   expect(screen.getByText(de.agentAccess.limits)).toBeTruthy()
-  expect(screen.getByRole('button', { name: de.agentAccess.turnOn })).toBeTruthy()
+  const turnOn = screen.getByRole('button', { name: de.agentAccess.turnOn })
+  const turnOff = screen.getByRole('button', { name: de.agentAccess.turnOff })
+  expect(turnOn.className).toContain('le-btn--primary')
+  expect(turnOff.className).toContain('le-btn--secondary')
   // Negative cases: no connection notice while off, no shared save bar.
   expect(screen.queryByText(de.agentAccess.noConnection)).toBeNull()
   expect(screen.queryByText(de.settingsUi.unsaved)).toBeNull()
+})
+
+test('off action stays reachable and works in the off state without confirmation, advancing revision', async () => {
+  setup({ initial: defaultState({ enabled: false, revision: 3 }) })
+  const turnOff = await screen.findByRole('button', { name: de.agentAccess.turnOff })
+  expect((turnOff as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(turnOff)
+
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(await screen.findByText(de.agentAccess.turnedOff)).toBeTruthy()
+  expect(screen.getByText(de.agentAccess.statusOff)).toBeTruthy()
+  expect(requests.filter(r => r.method === 'POST')).toEqual([
+    { method: 'POST', path: '/api/v1/settings/agent-access/disable', body: undefined },
+  ])
+
+  // A subsequent turn-on sends the advanced revision returned by disable.
+  fireEvent.click(screen.getByRole('button', { name: de.agentAccess.turnOn }))
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: de.agentAccess.turnOn }))
+  expect(await screen.findByText(de.agentAccess.turnedOn)).toBeTruthy()
+  expect(requests.filter(r => r.method === 'POST').at(-1)).toEqual({
+    method: 'POST',
+    path: '/api/v1/settings/agent-access/enable',
+    body: { expected_revision: 4 },
+  })
+})
+
+test('query refetches on mount and polls while visible so another device turning access on is shown', async () => {
+  const defaults = agentAccessQuery()
+  expect(defaults.refetchOnMount).toBe('always')
+  expect(defaults.refetchOnWindowFocus).toBe('always')
+  expect(defaults.refetchInterval).toBe(AGENT_ACCESS_POLL_MS)
+  expect(defaults.refetchIntervalInBackground).toBe(false)
+
+  // Poll picks up a server flip from off to on without user interaction.
+  const changedAt = new Date().toISOString()
+  const expectedWhen = formatListDate(new Date(changedAt), new Date(), undefined, 'de')
+  const { setState } = setup({ initial: defaultState({ enabled: false, revision: 1 }), pollIntervalMs: 25 })
+  expect(await screen.findByText(de.agentAccess.statusOff)).toBeTruthy()
+  setState(defaultState({ enabled: true, revision: 2, changed_at: changedAt, verifier_configured: false }))
+  expect(await screen.findByText(de.agentAccess.statusOnSince(expectedWhen))).toBeTruthy()
+  expect(screen.getByRole('button', { name: de.agentAccess.turnOff }).className).toContain('le-btn--primary')
+  expect(screen.queryByRole('button', { name: de.agentAccess.turnOn })).toBeNull()
+
+  // Mounting over stale cached "Aus" data immediately refetches the server's "An" state.
+  cleanup()
+  setup({
+    initial: defaultState({ enabled: true, revision: 5, changed_at: changedAt }),
+    seedCache: defaultState({ enabled: false, revision: 4 }),
+    pollIntervalMs: false,
+  })
+  expect(await screen.findByText(de.agentAccess.statusOnSince(expectedWhen))).toBeTruthy()
 })
 
 test('shows loading placeholder and unavailable error with retry on GET failure', async () => {
@@ -238,7 +300,8 @@ test('maps 409 conflict, 409 owner_unbound, 403 owner error, and 503 unavailable
   expect((await screen.findByRole('alert')).textContent).toContain(de.agentAccess.errorConflict)
   setState(defaultState({ enabled: true, revision: 5, changed_at: new Date().toISOString() }))
   fireEvent.click(screen.getByRole('button', { name: de.settingsUi.reload }))
-  expect(await screen.findByRole('button', { name: de.agentAccess.turnOff })).toBeTruthy()
+  await waitFor(() => expect(screen.queryByRole('button', { name: de.agentAccess.turnOn })).toBeNull())
+  expect(screen.getByRole('button', { name: de.agentAccess.turnOff }).className).toContain('le-btn--primary')
 
   // 409 agent_access_owner_unbound
   cleanup()
@@ -277,10 +340,12 @@ test('maps 409 conflict, 409 owner_unbound, 403 owner error, and 503 unavailable
   expect((await screen.findByRole('alert')).textContent).toContain(de.agentAccess.errorUnavailable)
 })
 
-test('when owner_bound is false and switch is off, disables turn-on with explanation', async () => {
+test('when owner_bound is false and switch is off, disables turn-on with explanation while keeping turn-off enabled', async () => {
   setup({ initial: defaultState({ enabled: false, owner_bound: false }) })
   const turnOn = await screen.findByRole('button', { name: de.agentAccess.turnOn })
+  const turnOff = screen.getByRole('button', { name: de.agentAccess.turnOff })
   expect((turnOn as HTMLButtonElement).disabled).toBe(true)
+  expect((turnOff as HTMLButtonElement).disabled).toBe(false)
   expect(screen.getByText(de.agentAccess.errorUnbound)).toBeTruthy()
 })
 
