@@ -2199,6 +2199,34 @@ export type ManualStep = {
 };
 
 /**
+ * McpSettingsOut
+ */
+export type McpSettingsOut = {
+    /**
+     * Account Ids
+     */
+    account_ids: Array<string>;
+    /**
+     * Version
+     */
+    version: number;
+};
+
+/**
+ * McpSettingsUpdate
+ */
+export type McpSettingsUpdate = {
+    /**
+     * Account Ids
+     */
+    account_ids: Array<string>;
+    /**
+     * Expected Version
+     */
+    expected_version: number;
+};
+
+/**
  * MessageActionIn
  */
 export type MessageActionIn = {
@@ -8166,6 +8194,47 @@ export type ChatModelSettingsUpdateResponses = {
 };
 
 export type ChatModelSettingsUpdateResponse = ChatModelSettingsUpdateResponses[keyof ChatModelSettingsUpdateResponses];
+
+export type McpSettingsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/mcp';
+};
+
+export type McpSettingsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: McpSettingsOut;
+};
+
+export type McpSettingsGetResponse = McpSettingsGetResponses[keyof McpSettingsGetResponses];
+
+export type McpSettingsUpdateData = {
+    body: McpSettingsUpdate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/mcp';
+};
+
+export type McpSettingsUpdateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type McpSettingsUpdateError = McpSettingsUpdateErrors[keyof McpSettingsUpdateErrors];
+
+export type McpSettingsUpdateResponses = {
+    /**
+     * Successful Response
+     */
+    200: McpSettingsOut;
+};
+
+export type McpSettingsUpdateResponse = McpSettingsUpdateResponses[keyof McpSettingsUpdateResponses];
 
 export type SettingsUiGetData = {
     body?: never;

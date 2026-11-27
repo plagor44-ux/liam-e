@@ -3959,6 +3959,51 @@
         "title": "ManualStep",
         "type": "object"
       },
+      "McpSettingsOut": {
+        "properties": {
+          "account_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Ids",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_ids",
+          "version"
+        ],
+        "title": "McpSettingsOut",
+        "type": "object"
+      },
+      "McpSettingsUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "account_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Account Ids",
+            "type": "array"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version",
+          "account_ids"
+        ],
+        "title": "McpSettingsUpdate",
+        "type": "object"
+      },
       "MessageActionIn": {
         "properties": {
           "kind": {
@@ -13847,6 +13892,60 @@
           }
         },
         "summary": "Update Chat Model Settings"
+      }
+    },
+    "/api/v1/settings/mcp": {
+      "get": {
+        "operationId": "mcp_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Mcp Settings"
+      },
+      "patch": {
+        "operationId": "mcp_settings_update",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Mcp Settings"
       }
     },
     "/api/v1/settings/ui": {

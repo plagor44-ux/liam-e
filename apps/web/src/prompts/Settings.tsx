@@ -12,6 +12,7 @@ export const settingsSections = (texts: Catalogue) => [
   { to: '/settings/calendar', label: texts.calendarSettings.title },
   { to: '/settings/controls', label: texts.settingsUi.section },
   { to: '/settings/access', label: texts.agentAccess.section },
+  { to: '/settings/mcp', label: texts.mcpAccounts.section },
   { to: '/settings/preferences', label: texts.preferences.title },
   { to: '/settings/skills', label: texts.skillSettings.section },
   { to: '/settings/folders', label: texts.mailFiling.folders },

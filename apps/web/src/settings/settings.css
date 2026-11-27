@@ -39,3 +39,9 @@
 .le-access-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .le-access-placeholder { height: var(--control-height-lg); background: var(--surface-soft); border-radius: var(--radius-sm); }
 @media (pointer: coarse) { .le-access-actions .le-btn { min-height: var(--control-height-lg); } }
+
+.le-mcp-details { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--surface-soft); min-width: 0; }
+.le-mcp-details h3 { margin: 0; font-size: var(--font-size-body); }
+.le-mcp-details p { margin: 0; color: var(--ink-muted); }
+.le-mcp-tools { display: grid; gap: var(--space-2); margin: 0; padding-left: var(--space-5); color: var(--ink-muted); }
+.le-mcp-tools li { overflow-wrap: anywhere; }

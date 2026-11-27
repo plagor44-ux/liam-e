@@ -30,6 +30,7 @@ import { Route as AppSettingsChatIndexRouteImport } from './routes/_app/settings
 import { Route as AppSettingsControlsIndexRouteImport } from './routes/_app/settings/controls/index'
 import { Route as AppSettingsFoldersIndexRouteImport } from './routes/_app/settings/folders/index'
 import { Route as AppSettingsLanguageIndexRouteImport } from './routes/_app/settings/language/index'
+import { Route as AppSettingsMcpIndexRouteImport } from './routes/_app/settings/mcp/index'
 import { Route as AppSettingsPreferencesIndexRouteImport } from './routes/_app/settings/preferences/index'
 import { Route as AppSettingsPreferencesPreferenceIdRouteImport } from './routes/_app/settings/preferences/$preferenceId'
 import { Route as AppSettingsPreferencesNewRouteImport } from './routes/_app/settings/preferences/new'
@@ -146,6 +147,11 @@ const AppSettingsLanguageIndexRoute =
     path: '/language/',
     getParentRoute: () => AppSettingsRoute,
   } as any)
+const AppSettingsMcpIndexRoute = AppSettingsMcpIndexRouteImport.update({
+  id: '/mcp/',
+  path: '/mcp/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsPreferencesIndexRoute =
   AppSettingsPreferencesIndexRouteImport.update({
     id: '/preferences/',
@@ -216,6 +222,7 @@ export interface FileRoutesByFullPath {
   '/settings/controls/': typeof AppSettingsControlsIndexRoute
   '/settings/folders/': typeof AppSettingsFoldersIndexRoute
   '/settings/language/': typeof AppSettingsLanguageIndexRoute
+  '/settings/mcp/': typeof AppSettingsMcpIndexRoute
   '/settings/preferences/': typeof AppSettingsPreferencesIndexRoute
   '/settings/prompts/': typeof AppSettingsPromptsIndexRoute
   '/settings/rules/': typeof AppSettingsRulesIndexRoute
@@ -243,6 +250,7 @@ export interface FileRoutesByTo {
   '/settings/controls': typeof AppSettingsControlsIndexRoute
   '/settings/folders': typeof AppSettingsFoldersIndexRoute
   '/settings/language': typeof AppSettingsLanguageIndexRoute
+  '/settings/mcp': typeof AppSettingsMcpIndexRoute
   '/settings/preferences': typeof AppSettingsPreferencesIndexRoute
   '/settings/prompts': typeof AppSettingsPromptsIndexRoute
   '/settings/rules': typeof AppSettingsRulesIndexRoute
@@ -275,6 +283,7 @@ export interface FileRoutesById {
   '/_app/settings/controls/': typeof AppSettingsControlsIndexRoute
   '/_app/settings/folders/': typeof AppSettingsFoldersIndexRoute
   '/_app/settings/language/': typeof AppSettingsLanguageIndexRoute
+  '/_app/settings/mcp/': typeof AppSettingsMcpIndexRoute
   '/_app/settings/preferences/': typeof AppSettingsPreferencesIndexRoute
   '/_app/settings/prompts/': typeof AppSettingsPromptsIndexRoute
   '/_app/settings/rules/': typeof AppSettingsRulesIndexRoute
@@ -307,6 +316,7 @@ export interface FileRouteTypes {
     | '/settings/controls/'
     | '/settings/folders/'
     | '/settings/language/'
+    | '/settings/mcp/'
     | '/settings/preferences/'
     | '/settings/prompts/'
     | '/settings/rules/'
@@ -334,6 +344,7 @@ export interface FileRouteTypes {
     | '/settings/controls'
     | '/settings/folders'
     | '/settings/language'
+    | '/settings/mcp'
     | '/settings/preferences'
     | '/settings/prompts'
     | '/settings/rules'
@@ -365,6 +376,7 @@ export interface FileRouteTypes {
     | '/_app/settings/controls/'
     | '/_app/settings/folders/'
     | '/_app/settings/language/'
+    | '/_app/settings/mcp/'
     | '/_app/settings/preferences/'
     | '/_app/settings/prompts/'
     | '/_app/settings/rules/'
@@ -525,6 +537,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsLanguageIndexRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/mcp/': {
+      id: '/_app/settings/mcp/'
+      path: '/mcp'
+      fullPath: '/settings/mcp/'
+      preLoaderRoute: typeof AppSettingsMcpIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/preferences/': {
       id: '/_app/settings/preferences/'
       path: '/preferences'
@@ -623,6 +642,7 @@ interface AppSettingsRouteChildren {
   AppSettingsControlsIndexRoute: typeof AppSettingsControlsIndexRoute
   AppSettingsFoldersIndexRoute: typeof AppSettingsFoldersIndexRoute
   AppSettingsLanguageIndexRoute: typeof AppSettingsLanguageIndexRoute
+  AppSettingsMcpIndexRoute: typeof AppSettingsMcpIndexRoute
   AppSettingsPreferencesIndexRoute: typeof AppSettingsPreferencesIndexRoute
   AppSettingsPromptsIndexRoute: typeof AppSettingsPromptsIndexRoute
   AppSettingsRulesIndexRoute: typeof AppSettingsRulesIndexRoute
@@ -642,6 +662,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsControlsIndexRoute: AppSettingsControlsIndexRoute,
   AppSettingsFoldersIndexRoute: AppSettingsFoldersIndexRoute,
   AppSettingsLanguageIndexRoute: AppSettingsLanguageIndexRoute,
+  AppSettingsMcpIndexRoute: AppSettingsMcpIndexRoute,
   AppSettingsPreferencesIndexRoute: AppSettingsPreferencesIndexRoute,
   AppSettingsPromptsIndexRoute: AppSettingsPromptsIndexRoute,
   AppSettingsRulesIndexRoute: AppSettingsRulesIndexRoute,
