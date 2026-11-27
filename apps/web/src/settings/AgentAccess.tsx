@@ -54,7 +54,7 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
   const client = useQueryClient()
   const query = useQuery(agentAccessQuery(pollIntervalMs))
   const [busy, setBusy] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmRevision, setConfirmRevision] = useState<number | null>(null)
   const [outcome, setOutcome] = useState<Outcome>()
   const lock = useRef(false)
   const unboundId = useId()
@@ -94,16 +94,16 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
   }
 
   const enable = async () => {
-    if (lock.current) return
+    if (lock.current || confirmRevision === null) return
     lock.current = true; setBusy(true); setOutcome(undefined)
     try {
-      const next = await enableAgentAccess(state.revision)
+      const next = await enableAgentAccess(confirmRevision)
       await updateCache(next)
       setOutcome({ tone: 'success', text: t.turnedOn })
     } catch (cause) {
       setOutcome(mapAccessError(cause, texts))
     } finally {
-      setConfirmOpen(false); lock.current = false; setBusy(false)
+      setConfirmRevision(null); lock.current = false; setBusy(false)
     }
   }
 
@@ -119,7 +119,7 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
           ? <Button variant="primary" disabled={busy} onClick={() => { void disable() }}>{t.turnOff}</Button>
           : <>
               <Tooltip content={t.turnOffTip}><Button variant="secondary" disabled={busy} onClick={() => { void disable() }}>{t.turnOff}</Button></Tooltip>
-              <Button variant="primary" disabled={busy || !state.owner_bound} aria-describedby={!state.owner_bound ? unboundId : undefined} onClick={() => setConfirmOpen(true)}>{t.turnOn}</Button>
+              <Button variant="primary" disabled={busy || !state.owner_bound} aria-describedby={!state.owner_bound ? unboundId : undefined} onClick={() => setConfirmRevision(state.revision)}>{t.turnOn}</Button>
             </>}
       </div>
     </div>
@@ -127,10 +127,10 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
     {state.enabled && !state.verifier_configured && <Notice tone="info" live={false}>{t.noConnection}</Notice>}
     {outcome && <Notice tone={outcome.tone} action={outcome.reload ? { label: texts.settingsUi.reload, onClick: () => { setOutcome(undefined); void query.refetch() } } : undefined}>{outcome.text}</Notice>}
     <p className="le-access-limits">{t.limits}</p>
-    {confirmOpen && <PreferenceDialog title={t.confirmTitle} close={() => { if (!busy) setConfirmOpen(false) }}>
+    {confirmRevision !== null && <PreferenceDialog title={t.confirmTitle} close={() => { if (!busy) setConfirmRevision(null) }}>
       <p>{t.confirmBody}</p>
       <div className="le-dialog-actions">
-        <Button variant="secondary" disabled={busy} onClick={() => setConfirmOpen(false)}>{t.confirmCancel}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => setConfirmRevision(null)}>{t.confirmCancel}</Button>
         <Button variant="primary" disabled={busy} onClick={() => { void enable() }}>{t.turnOn}</Button>
       </div>
     </PreferenceDialog>}

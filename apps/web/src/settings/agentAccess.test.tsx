@@ -68,6 +68,9 @@ function setup({
       return Response.json(current)
     }
     if (req.method === 'POST' && url.pathname.endsWith('/enable')) {
+      if ((request.body as { expected_revision: number }).expected_revision !== current.revision) {
+        return refused(409, 'agent_access_conflict')
+      }
       current = {
         ...current,
         enabled: true,
@@ -274,7 +277,7 @@ test('turning on opens confirmation dialog; "Abbrechen" and Escape send nothing 
 })
 
 test('confirming turn-on sends expected_revision, updates status, and shows notice', async () => {
-  setup({ initial: defaultState({ enabled: false, revision: 4 }) })
+  setup({ initial: defaultState({ enabled: false, revision: 1 }) })
   fireEvent.click(await screen.findByRole('button', { name: de.agentAccess.turnOn }))
   const dialog = await screen.findByRole('dialog', { name: de.agentAccess.confirmTitle })
   fireEvent.click(within(dialog).getByRole('button', { name: de.agentAccess.turnOn }))
@@ -283,7 +286,46 @@ test('confirming turn-on sends expected_revision, updates status, and shows noti
   expect(await screen.findByText(de.agentAccess.turnedOn)).toBeTruthy()
   expect(screen.getByRole('button', { name: de.agentAccess.turnOff })).toBeTruthy()
   expect(requests.filter(r => r.method === 'POST')).toEqual([
-    { method: 'POST', path: '/api/v1/settings/agent-access/enable', body: { expected_revision: 4 } },
+    { method: 'POST', path: '/api/v1/settings/agent-access/enable', body: { expected_revision: 1 } },
+  ])
+})
+
+test('an open confirmation keeps its revision after a background refetch and conflicts without retrying', async () => {
+  const { client, setState } = setup({ pollIntervalMs: false })
+  fireEvent.click(await screen.findByRole('button', { name: de.agentAccess.turnOn }))
+  const dialog = await screen.findByRole('dialog', { name: de.agentAccess.confirmTitle })
+  setState(defaultState({ revision: 2 }))
+  // Deterministically run the same query refetch used by polling and focus changes.
+  await act(async () => { await client.refetchQueries({ queryKey: agentAccessQuery().queryKey }); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(client.getQueryData<AgentAccessOut>(agentAccessQuery().queryKey)?.revision).toBe(2)
+  fireEvent.click(within(dialog).getByRole('button', { name: de.agentAccess.turnOn }))
+  expect((await screen.findByRole('alert')).textContent).toContain(de.agentAccess.errorConflict)
+  expect(screen.getByText(de.agentAccess.statusOff)).toBeTruthy()
+  expect(client.getQueryData<AgentAccessOut>(agentAccessQuery().queryKey)?.enabled).toBe(false)
+  expect(requests.filter(r => r.method === 'POST')).toEqual([
+    { method: 'POST', path: '/api/v1/settings/agent-access/enable', body: { expected_revision: 1 } },
+  ])
+
+  fireEvent.click(screen.getByRole('button', { name: de.settingsUi.reload }))
+  await act(async () => { await client.refetchQueries({ queryKey: agentAccessQuery().queryKey }); await new Promise(resolve => setTimeout(resolve, 0)) })
+  fireEvent.click(screen.getByRole('button', { name: de.agentAccess.turnOn }))
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: de.agentAccess.turnOn }))
+  expect(await screen.findByText(de.agentAccess.turnedOn)).toBeTruthy()
+  expect(requests.filter(r => r.method === 'POST').at(-1)?.body).toEqual({ expected_revision: 2 })
+})
+
+test('cancel and reopen captures the current revision instead of the discarded dialog revision', async () => {
+  const { client, setState } = setup({ pollIntervalMs: false })
+  fireEvent.click(await screen.findByRole('button', { name: de.agentAccess.turnOn }))
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: de.agentAccess.confirmCancel }))
+  expect(requests.some(r => r.method === 'POST')).toBe(false)
+  setState(defaultState({ revision: 2 }))
+  await act(async () => { await client.refetchQueries({ queryKey: agentAccessQuery().queryKey }); await new Promise(resolve => setTimeout(resolve, 0)) })
+  fireEvent.click(screen.getByRole('button', { name: de.agentAccess.turnOn }))
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: de.agentAccess.turnOn }))
+  expect(await screen.findByText(de.agentAccess.turnedOn)).toBeTruthy()
+  expect(requests.filter(r => r.method === 'POST')).toEqual([
+    { method: 'POST', path: '/api/v1/settings/agent-access/enable', body: { expected_revision: 2 } },
   ])
 })
 
