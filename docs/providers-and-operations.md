@@ -181,3 +181,17 @@ sandboxed_release_preflight() (
 Pass your sandbox launcher and its arguments to `sandboxed_release_preflight`. Run the
 launcher in the foreground. If it overrides its working directory or filters the environment,
 configure it to use the current checkout and forward the exported `TMPDIR` to the sandbox.
+
+On Linux, Codex in `workspace-write` mode can mount the host `/tmp` as a separate writable
+root even with the private `TMPDIR` above. This can leave an empty `/tmp/.git` on the host
+if the sandbox helper is interrupted. Exclude that writable root when launching Codex.
+[Codex configuration reference](https://developers.openai.com/codex/config-reference/),
+[upstream sandbox report](https://github.com/openai/codex/issues/31599).
+
+```bash
+sandboxed_release_preflight codex --sandbox workspace-write \
+  -c sandbox_workspace_write.exclude_slash_tmp=true
+```
+
+Keep the private `TMPDIR` writable and omit the host `/tmp` from any additional writable
+roots. With another launcher, give the sandbox its own private `/tmp` mount.
