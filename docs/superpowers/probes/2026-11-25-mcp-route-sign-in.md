@@ -411,8 +411,9 @@ verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional
   blocked. The open question is no longer route scoping but an emergency stop. There is still no
   way to revoke one grant. The only cut-off proven so far is deleting the whole app (L9, see
   "Result of the kill-switch test"). For liam-e's production app that would delete the app itself,
-  so it is not a usable kill switch. A revocation on Mistral's side or a kill switch inside the
-  app remains open.
+  so it is not a usable kill switch. A revocation on Mistral's side remains open. The app-side
+  switch "Zugriff von außen" (#197) refuses agent requests inside liam-e and is a precondition for
+  exposure, but it leaves the tokens valid at the gateway.
 
 ### Revocation: what was checked
 
