@@ -1,10 +1,11 @@
 # Studio MCP-route sign-in (#157, prepared 2026-11-25)
 
-Status: **OPEN. The live run is not approved.** This file is the runbook and the result skeleton for
-#157 (parent #36). The offline part is in the repository: the probe tool, the synthetic probe app
-and their tests. Nothing has been deployed and nobody has signed in. The owner decided on
-25 November 2026 that the live run needs a **separate, explicit approval** after the offline part
-is merged. Until then every result cell below stays empty.
+Status: **INCOMPLETE (live run of 26 and 27 November 2026).** This file is the runbook and the
+result record for #157 (parent #36). The sign-in through the flagged route works once the client
+sends the resource that Studio's metadata names. The gateway keeps the token away from the app's
+unflagged routes, and the Mistral API rejects it. The owner found no way to revoke it, so the
+revocation check could not run. L6 (Vibe Code), L7, L8 and L9 have not run. "Result of the run"
+below has the verdict; the steps are kept as they were run.
 
 ## Why this probe exists
 
@@ -64,8 +65,8 @@ cover another. All live steps need the merged offline PR first.
 | L6 | Q8: add the probe's `/mcp` route to Vibe Code with OAuth, sign in, call the probe tools, remove the entry | A second OAuth client and token for the owner | Owner |
 | L7 | Optional Q5: a second workspace member signs in through the probe | Only if such an account exists | That member |
 | L8 | Optional: import the **probe app** (never liam-e) as a Studio connector, or try Vibe Work | Exposes only the probe's three read tools | Owner |
-| L9 | Delete the probe app (`deploy.sh --delete`) and revoke any remaining grants | Removes the app; on a terminal the CLI asks for its name first, and off a terminal it refuses | Owner |
-| L10 | Commit the redacted results in this file in a follow-up PR with "Closes #157" | Public repository change | Worker, owner merges |
+| L9 | Delete the probe app (`deploy.sh --delete`). No way to revoke the probe's grants is known (Q6). | Removes the app; on a terminal the CLI asks for its name first, and off a terminal it refuses | Owner |
+| L10 | Commit the redacted results in this file in a follow-up PR | Public repository change | Worker, owner merges |
 
 ## Live steps
 
@@ -163,7 +164,9 @@ Leave out `--q3-mistral-api` or `--revocation-step` if L4 or L5 is not approved.
   anywhere.
 - At the revocation pause, the owner revokes the probe's grant wherever Studio or the Mistral
   console offers that, and records where it was. If no such place exists, record "none found" and
-  press Enter. The next call then shows whether the token still works.
+  press Enter. The next call then shows whether the token still works. The tool cannot tell
+  "nothing revoked" from "revoked, still works" and reports `revocation_not_effective` in both
+  cases; "Result of the run" explains how the run of 27 November reads it.
 
 The tool prints one line per case and ends with `verdict: GO-CANDIDATE`, `INCOMPLETE` or `BLOCKED`
 plus fixed reasons. The lines hold statuses, fixed codes, field names, booleans, scope names and
@@ -196,8 +199,8 @@ unset MCP_ROUTE_PROBE_URL
 It tests the main candidate from the first two attempts (see "Findings before the third attempt"):
 the authorization server may look up the app by the `resource` parameter and fail after consent.
 
-- The attempt registers one more client. It needs the owner's go like every attempt, and step 8
-  revokes the grants of all probe clients.
+- The attempt registers one more client. It needs the owner's go like every attempt. Step 8 cleans
+  up after all probe clients.
 - If the metadata names no https resource, the tool stops with `stop: no_advertised_resource`
   before it registers a client.
 - Without the flag nothing changes; the `q1.sign_in` line then shows `resource_sent=route`.
@@ -253,14 +256,16 @@ for the app's name before it deletes anything; the helper never passes `--yes`, 
 a terminal and refuses without one. Then:
 
 1. Check that `mistral apps list` no longer shows `liam-e-mcp-route-probe`, and record yes/no.
-2. Revoke any OAuth grants that remain for the probe's clients and for the Vibe entry.
+2. Look for a way to revoke the OAuth grants of the three probe clients and of the Vibe entry. The
+   run of 27 November found none (Q6). Record where it was, or "none found" again.
 3. Unset `MCP_ROUTE_PROBE_URL`.
 4. Keep the deployment file: it now holds no `appId`.
 
 ### 9. Record (L10)
 
 Fill in the tables below. Change the status line to GO, INCOMPLETE or BLOCKED with the date of the
-run. Run `tests/test_public_repo_hygiene.py` before committing. The follow-up PR says "Closes #157".
+run. Run `tests/test_public_repo_hygiene.py` before committing. A PR that records a complete run
+says "Closes #157"; a partial record, like the one of 27 November, says "Refs #157".
 
 ## Findings before the third attempt
 
@@ -280,24 +285,130 @@ run is complete.
   `stop: no_token`. After the owner's consent in the second attempt, a "Not Found" page appeared on
   a Mistral address, not on the loopback address. The authorization server therefore did not send
   the browser back to the probe at all. The main candidate is that it looks up the app by the
-  `resource` parameter and finds nothing for `<app>/mcp`. Step 4a tests this.
+  `resource` parameter and finds nothing for `<app>/mcp`. The third attempt (step 4a) bore this
+  out: with the metadata's value the sign-in completed (see "Result of the run").
+
+## Result of the run (26 and 27 November 2026)
+
+### Attempts
+
+| Attempt | Time (Europe/Berlin) | `resource` sent | Outcome |
+| --- | --- | --- | --- |
+| 1 | 26 November, 23:32 to 23:37 | the route URL `<app>/mcp` | `Q1 sign-in: timeout`, `stop: no_token` |
+| 2 | 27 November, 05:47 to 05:52 | the route URL `<app>/mcp` | after consent a "Not Found" page on a Mistral address; `Q1 sign-in: timeout`, `stop: no_token` |
+| 3 | 27 November, 06:42 to 06:48 | the metadata's resource (`--resource-from-metadata`) | callback and code exchange succeeded; the matrix ran with L4 and L5 |
+
+The cause of the first two failures was the `resource` parameter. Studio's protected-resource
+metadata names the app's origin, not the route (`resource_relation=origin` on `/mcp` and
+`/api/mcp`, not `other_host`), which RFC 9728, Section 3.3, does not allow. The authorization
+server completed the sign-in only when the request carried that origin value. Attempt 3 also ran
+the wider callback of #189, but its callback arrived as a plain `GET` on the exact path, which the
+earlier callback accepted too. The resource was therefore the change that mattered. Each attempt
+registered one client, so three probe clients exist.
+
+### Verdict
+
+**INCOMPLETE.** The tool's automated verdict is `INCOMPLETE` with the reason
+`revocation_not_checked` once the inapplicable revocation line is set aside (see "Automated
+verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional and did not run.
+
+- **Route scoping.** The gateway rejects the MCP token on the app's unflagged API routes: write,
+  whoami and health all return 403 `insufficient_scope`, and the write had no effect. The
+  Mistral API rejects the token too (401). The token is scoped to the app's origin, not to one
+  route: it works on every flagged route (`"mcp": true`), here both `/mcp` and `/api/mcp`. No
+  result of this run is bound to a single route.
+- **Revocation.** The owner found no way to revoke the probe's access in the UI. The
+  authorization server's metadata names no revocation endpoint (`revocation_endpoint=no`), and
+  the public documentation describes none (see "Revocation: what was checked"). The refresh grant
+  stayed live. The refresh token's lifetime is unknown. The three probe clients and their grant on
+  the server side remain until L9, and whether L9 ends the grant is not documented.
+- **Automated verdict.** The tool printed `verdict: BLOCKED reasons=revocation_not_effective`.
+  That reason does not apply, because nothing was revoked. The tool cannot tell "revoked, still
+  works" from "nothing to revoke": after the pause it always treats a working call or refresh as a
+  failed revocation. By the time Enter was pressed, both access tokens were past their lifetime
+  (`expires_in` at most five minutes), so their `401 invalid_token` shows expiry. The refresh grant
+  still returned 200, which shows that the grant was live, not that a revocation failed. Without
+  the revocation step the verdict is `INCOMPLETE revocation_not_checked`, and every other automated
+  condition holds: `S256`, write rejected and without effect, unflagged reads rejected, Mistral API
+  rejected, identity `user`.
+- **Consequence for liam-e.** Exposing the agent read facade in production (#36, #54) stays
+  blocked. The open question is no longer route scoping but an emergency stop. That could be a
+  revocation on Mistral's side, deleting the app as a kill switch (its effect on grants is not
+  documented), or a kill switch inside the app.
+
+### Revocation: what was checked
+
+Live, 27 November 2026:
+
+- The authorization server's metadata names no revocation endpoint (`revocation_endpoint=no`).
+- The owner looked for a way to revoke the probe's access and found none. Owner searched in: <to
+  be added>.
+
+Public Mistral documentation, read on 27 November 2026 without signing in. Each point is "checked,
+not documented":
+
+1. No user-facing page for connected or authorized applications in Studio, the console or Le Chat.
+   Checked: the help centre (only an article on single sign-on), the Studio pages on apps (overview
+   and deploy), connector management, MCP connectors in Le Chat, and the announcement of more
+   control over connectors (June 2026). The connector pages cover the opposite direction, with
+   Mistral as the OAuth client.
+2. No revocation endpoint (RFC 7009) and no client management (RFC 7592). The app gateway's
+   authorization server and its discovery metadata are not described publicly at all. The MCP
+   page of the documentation covers only the workspace MCP server, with an API key as bearer and
+   no OAuth or dynamic client registration.
+3. Not documented: what deleting an app does to tokens and grants already issued (the deploy page,
+   the CLI reference for `mistral apps delete`, managed apps), and the lifetime of the gateway's
+   access and refresh tokens. Inference only, unverified: tokens probably stop working once the
+   gateway no longer routes to a deleted app; whether grants survive is unknown.
+4. No changelog entry (up to about 22 October 2026) and no note about the gap. Not searched: GitHub
+   issue trackers and Discord.
+
+### Headers the app receives
+
+Both the MCP token (Q4, Q7) and the owner's browser session (step 3) reach the app as
+`x-apps-token`. Neither brings an `Authorization`, `x-api-key` or cookie header to the app. With
+both, the gateway also forwards:
+
+- `x-space-token`;
+- the identity headers `x-user-id`, `x-user-email`, `x-user-name`, `x-user-given-name` and
+  `x-user-family-name`, the last three also with an `-encoded` variant;
+- forwarding headers (`x-forwarded-*`, `x-request-id`), CDN headers and routing headers of the
+  hosting platform.
+
+Only the names were recorded. Their values, and what `x-space-token` means, were not examined. The
+two kinds of request differ only in headers that the client sets itself. MCP requests carry
+`mcp-method`, `mcp-name`, `mcp-protocol-version` and content headers; the browser carries
+`sec-fetch-*`, `sec-ch-ua*`, `accept-language`, `priority` and `upgrade-insecure-requests`. So no
+header name that the gateway sets distinguishes MCP traffic from a browser session.
+
+### Not checked
+
+- Any revocation, whether the grant ends on its own, and the refresh token's lifetime.
+- L6 (Vibe Code, second half of Q8), L7 (Q5), L8 and L9.
+- The values and meaning of the forwarded headers, including whether `x-space-token` works as a
+  credential.
+- Whether the browser's 405 on `GET /mcp` and `GET /api/mcp` in step 3 came from the gateway or
+  from the stub. With the token, the stub answers 405 with `Allow` (Q9).
+- Whether Mistral APIs other than `GET /v1/models` accept the token.
+- Whether the authorization server accepts any `resource` other than the metadata's value. Only
+  the route URL and that value were tried.
 
 ## Result matrix
 
-Fill in after the live run. "Executed" means the probe or the owner observed it in this run;
-"assumed" marks anything inferred.
+Filled in from the run of 26 and 27 November 2026. "Executed" means the probe or the owner observed
+it in this run; "assumed" marks anything inferred.
 
 | # | Question | Probe lines | GO needs | Result | Executed or assumed |
 | --- | --- | --- | --- | --- | --- |
-| Q1 | Discovery: 401 with `resource_metadata` on a flagged route; PRM and authorization server metadata (`code_challenge_methods_supported`, `registration_endpoint`, `client_id_metadata_document_supported`, scopes) | `q1.challenge`, `q1.prm`, `q1.as`, `q1.register`, `q1.sign_in`, `q1.token` | `S256` present | | |
-| Q2 | Route binding: does the flagged-route token reach the unflagged write route? | `q2.baseline`, `q2.write`, `q2.whoami`, `q2.health`, `q2.before`, `q2.after`, `q2.effect` | rejected by the gateway, counter unchanged | | |
-| Q3 | Resource binding: is the token accepted outside the flagged route or the app? | `q7.tools`, `q7.whoami`, `q3.mistral_api` | documented; acceptance outside the app is BLOCKED | | |
-| Q4 | Identity: token header, user rather than API key, owner fingerprint, MCP traffic distinguishable from a browser session | `q4.whoami`, browser reading, step 5 | owner verifiable | | |
-| Q5 | Can another workspace member obtain a token? | step 7 | documented | | |
-| Q6 | Expiry, refresh and revocation: where the owner revokes, and whether the next call fails | `q1.token` (`expires_in` bucket), `q6.refresh`, `q6.refreshed_call`, `q6.revoked`, `q6.revoked_original`, `q6.revoked_refresh` | revocation blocks the next call | | |
-| Q7 | Prefix overlap: flagged `/api/mcp` under unflagged `/api`, and which rule wins | `q7.challenge`, `q7.prm`, `q7.tools`, `q7.whoami`, browser reading | documented; decides the #36 endpoint path | | |
-| Q8 | Clients: the probe's own client and Vibe Code with OAuth (version); connector and Vibe Work optional | `q8.tools`, `q8.initialize`, `q8.initialized`, `q8.handshake_tools`, step 6 | Vibe Code reaches the stub | | |
-| Q9 | Pass-through of `MCP-Protocol-Version`, JSON and SSE answers, 405 for GET | `q9.discover`, `q9.sse`, `q9.mismatch`, `q9.unsupported`, `q9.get` | no interference | | |
+| Q1 | Discovery: 401 with `resource_metadata` on a flagged route; PRM and authorization server metadata (`code_challenge_methods_supported`, `registration_endpoint`, `client_id_metadata_document_supported`, scopes) | `q1.challenge`, `q1.prm`, `q1.as`, `q1.register`, `q1.sign_in`, `q1.token` | `S256` present | 401 with `bearer[resource_metadata]` on both flagged routes. The metadata comes from the challenge on the app's host; `resource_relation=origin`, an RFC 9728 mismatch. Authorization server: `S256` yes, `plain` no, registration yes, CIMD no, refresh grant yes, auth method `none` yes, no revocation endpoint, scopes `openid email profile`. Registration 201 without a secret, redirect URI echoed. Sign-in only with the metadata's resource (attempt 3): callback `GET`, exact path, `code` and `state` in the query, no `iss`. Code exchange 200, `expires_in` at most 5 minutes, refresh token issued. | executed |
+| Q2 | Route binding: does the flagged-route token reach the unflagged write route? | `q2.baseline`, `q2.write`, `q2.whoami`, `q2.health`, `q2.before`, `q2.after`, `q2.effect` | rejected by the gateway, counter unchanged | Without a credential `/api/health` answers 401 `session_expired`. With the MCP token, write, whoami and health answer 403 `insufficient_scope` with a bearer challenge. Counter unchanged in the same instance (`write_took_effect=no`). Meets the GO condition. | executed |
+| Q3 | Resource binding: is the token accepted outside the flagged route or the app? | `q7.tools`, `q7.whoami`, `q3.mistral_api` | documented; acceptance outside the app is BLOCKED | The `/mcp` token also works on the second flagged route `/api/mcp` (`tools/list` and whoami 200): it is bound to the app's origin, not the route. The Mistral API (`GET /v1/models`) rejects it with 401. Not accepted outside the app. | executed |
+| Q4 | Identity: token header, user rather than API key, owner fingerprint, MCP traffic distinguishable from a browser session | `q4.whoami`, browser reading, step 5 | owner verifiable | Token header `x-apps-token`; no `Authorization`, `x-api-key` or cookie; identity `user`. Same instance, user and workspace fingerprints as the browser reading; Q4 and Q7 match. No header name set by the gateway distinguishes MCP traffic from the browser session (see "Headers the app receives"). | executed |
+| Q5 | Can another workspace member obtain a token? | step 7 | documented | Not run (L7 optional, not approved). | not run |
+| Q6 | Expiry, refresh and revocation: where the owner revokes, and whether the next call fails | `q1.token` (`expires_in` bucket), `q6.refresh`, `q6.refreshed_call`, `q6.revoked`, `q6.revoked_original`, `q6.revoked_refresh` | revocation blocks the next call | Access token at most 5 minutes; refresh 200 and refreshed call 200. No revocation path found by the owner, no revocation endpoint, none documented. After the pause: both access tokens 401 `invalid_token` (expired), refresh 200, so the grant is still live and nothing was revoked. Open. | executed; revocation not performed |
+| Q7 | Prefix overlap: flagged `/api/mcp` under unflagged `/api`, and which rule wins | `q7.challenge`, `q7.prm`, `q7.tools`, `q7.whoami`, browser reading | documented; decides the #36 endpoint path | `/api/mcp` under the unflagged `/api` gets the flagged-route treatment: 401 bearer challenge, its own metadata (`resource_relation=origin`), and it accepts the `/mcp` token; whoami reports `route=/api/mcp`. In the browser both flagged routes answered `GET` with 405; who answered is open. | executed; source of the browser's 405 open |
+| Q8 | Clients: the probe's own client and Vibe Code with OAuth (version); connector and Vibe Work optional | `q8.tools`, `q8.initialize`, `q8.initialized`, `q8.handshake_tools`, step 6 | Vibe Code reaches the stub | The probe's own client: `tools/list` 200 with the 3 expected tools, in both eras (`initialize` 200 with `2025-11-25`, `notifications/initialized` 202, `tools/list` 200). Vibe Code not run (L6). | probe client executed; Vibe Code not run |
+| Q9 | Pass-through of `MCP-Protocol-Version`, JSON and SSE answers, 405 for GET | `q9.discover`, `q9.sse`, `q9.mismatch`, `q9.unsupported`, `q9.get` | no interference | `server/discover` 200 (per-request era supported). `MCP-Protocol-Version` `2026-07-28` and `Mcp-Method` arrive at the app. SSE answer 200 as `text/event-stream`. Header mismatch 400 `-32020`, unsupported version 400 `-32022`, `GET /mcp` 405 with `Allow`. No interference. | executed |
 
 ### Verdict rules
 
@@ -317,11 +428,11 @@ A GO is a probe result, not a released capability: #36 starts only after it.
 
 | Part | Version or state |
 | --- | --- |
-| Mistral CLI | |
-| Vibe Code | |
-| Probe commit | |
-| Probe app visibility | |
-| Date and time of the run (Europe/Berlin) | |
+| Mistral CLI | `v0.18.1` |
+| Vibe Code | not run (L6) |
+| Probe commit | app deployed from `ee43cd09` (#188); attempts 1 and 2 ran the tool from `ee43cd09`, attempt 3 from `a6eaf857` (#189). The probe app did not change between the two. |
+| Probe app visibility | workspace |
+| Date and time of the run (Europe/Berlin) | L1 on 26 November 2026, 23:22 to 23:23; sign-in attempts as listed under "Attempts"; matrix with L4 and L5 on 27 November 2026, 06:42:50 to 06:48:45 |
 
 ### Probe output
 
@@ -330,13 +441,55 @@ Paste the tool's stdout lines here after redaction. Replace the values of `insta
 "fingerprint matches" results from step 5 below the block.
 
 ```text
-(not run)
+Q2 baseline GET /api/health, no credential: 401 content=json error=session_expired headers=set-cookie
+Q1 challenge /mcp, no credential: 401 content=json error=unauthorized challenge=bearer[resource_metadata] headers=www-authenticate
+Q1 resource metadata /mcp: 200 source=challenge same_host=yes fields=authorization_servers,bearer_methods_supported,resource,scopes_supported resource_relation=origin authorization_servers=1 scopes=openid+email+profile
+Q1 authorization server: 200 issuer_same_host=yes issuer_matches=yes s256=yes plain=no registration_endpoint=yes cimd=no refresh_grant=yes auth_method_none=yes revocation_endpoint=no endpoints_https=yes scopes=openid+email+profile
+Q7 challenge /api/mcp, no credential: 401 content=json error=unauthorized challenge=bearer[resource_metadata] headers=www-authenticate
+Q7 resource metadata /api/mcp: 200 source=challenge same_host=yes fields=authorization_servers,bearer_methods_supported,resource,scopes_supported resource_relation=origin authorization_servers=1 scopes=openid+email+profile
+Q1 client registration: 201 content=json headers=set-cookie client_id=yes secret_issued=no registration_redirect_echoed=yes
+Q1 sign-in: callback state_matches=yes code=yes error=- duration=<=1m method=GET path=exact source=query params=code,state resource_sent=metadata
+Q1 code exchange: 200 content=json headers=- bearer=yes expires_in=<=5m refresh_token=yes scope=openid+email+profile
+Q9 modern server/discover: 200 content=json headers=- modern_supported=yes result_type=yes
+Q8 modern tools/list: 200 content=json headers=- tools=3 expected_tools=yes
+Q4 probe_whoami on /mcp: 200 content=json headers=- instance=<redacted> route=/mcp token_header=x-apps-token authorization_header=no x_api_key_header=no cookie_header=no identity=user user_fingerprint=<redacted> workspace_fingerprint=<redacted> protocol_header=2026-07-28 mcp_method_header=yes header_names=<see "Headers the app receives">
+Q2 counter before: 200 content=json headers=- instance=<redacted> protocol_header=2026-07-28 count=0
+Q9 probe_sse: 200 content=sse headers=- instance=<redacted> protocol_header=2026-07-28 count=0
+Q9 header mismatch: 400 content=json rpc_error=-32020 headers=-
+Q9 unsupported version: 400 content=json rpc_error=-32022 headers=-
+Q9 GET /mcp: 405 content=none headers=allow
+Q8 handshake initialize: 200 content=json headers=- protocol_version=2025-11-25
+Q8 handshake notifications/initialized: 202 content=none headers=-
+Q8 handshake tools/list: 200 content=json headers=- tools=3 expected_tools=yes
+Q2 POST /api/probe/write, MCP token: 403 content=json error=insufficient_scope challenge=bearer[error] challenge_error=insufficient_scope headers=www-authenticate
+Q2 GET /api/probe/whoami, MCP token: 403 content=json error=insufficient_scope challenge=bearer[error] challenge_error=insufficient_scope headers=www-authenticate
+Q2 GET /api/health, MCP token: 403 content=json error=insufficient_scope challenge=bearer[error] challenge_error=insufficient_scope headers=www-authenticate
+Q2 counter after: 200 content=json headers=- instance=<redacted> protocol_header=2026-07-28 count=0
+Q2 write effect: compared same_instance=yes write_took_effect=no
+Q7 tools/list on /api/mcp, /mcp token: 200 content=json headers=- tools=3 expected_tools=yes
+Q7 probe_whoami on /api/mcp, /mcp token: 200 content=json headers=- instance=<redacted> route=/api/mcp token_header=x-apps-token authorization_header=no x_api_key_header=no cookie_header=no identity=user user_fingerprint=<redacted> workspace_fingerprint=<redacted> protocol_header=2026-07-28 mcp_method_header=yes header_names=<see "Headers the app receives">
+Q3 Mistral API GET /v1/models, MCP token: 401 content=json headers=set-cookie
+Q6 refresh grant: 200 content=json headers=- bearer=yes expires_in=<=5m refresh_token=yes scope=openid+email+profile
+Q6 tools/list with the refreshed token: 200 content=json headers=- tools=3 expected_tools=yes
+Q6 call after revocation: 401 content=json error=invalid_token challenge=bearer[error,resource_metadata] challenge_error=invalid_token headers=www-authenticate
+Q6 original token after revocation: 401 content=json error=invalid_token challenge=bearer[error,resource_metadata] challenge_error=invalid_token headers=www-authenticate
+Q6 refresh after revocation: 200 content=json headers=- bearer=yes expires_in=<=5m refresh_token=yes scope=openid+email+profile
+verdict: BLOCKED reasons=revocation_not_effective
 ```
+
+Attempt 3 on 27 November 2026, with `--live --q3-mistral-api --revocation-step
+--resource-from-metadata`. Two changes besides the redaction: the list of header names is replaced
+by a pointer to "Headers the app receives", and `same_instance` in the write-effect line, which
+the redaction caught by mistake, shows its recorded boolean. The `verdict` line is the tool's own;
+"Verdict" above explains why its reason does not apply.
+
+Step 5: same instance yes; user fingerprint matches yes; workspace fingerprint matches yes.
 
 ## Assumptions checked offline only
 
-These come from the installed CLI `v0.18.1` and from reading its local dev gateway. None of them
-has been confirmed against Studio:
+These come from the installed CLI `v0.18.1` and from reading its local dev gateway. Before the run
+none of them had been confirmed against Studio; "Answered by the run" below lists what the run of
+26 and 27 November settled.
 
 - The CLI's module schema and lint accept the probe manifest, including `"mcp": true`, the module
   path `"."`, the `build` block and a start command that uses `$PORT`.
@@ -356,6 +509,18 @@ has been confirmed against Studio:
 - The gateway in Studio behaves like the CLI's dev gateway for flagged routes. Whether it forwards
   the caller token as `x-apps-token` or `x-space-token`, and whether it passes `MCP-Protocol-Version`,
   `Mcp-Method` and SSE through unchanged, is exactly what Q4 and Q9 test.
+
+Answered by the run:
+
+- The CLI accepted the probe manifest with both flagged routes and printed no lint notice (L1).
+- `--from-disk` deployed the exported copy and wrote the new `appId` into it; the helper recorded
+  it, and the listing showed one app of the probe's name (L1). A `.git` in a parent directory of
+  the temporary copy makes the CLI fail instead (#190).
+- The app reached the gateway proxy: the identity lookup returned `user` (Q4).
+- The gateway forwards the caller token as `x-apps-token` and also sends `x-space-token` (Q4). It
+  passes `MCP-Protocol-Version`, `Mcp-Method` and SSE through unchanged (Q9).
+
+The other assumptions remain unconfirmed.
 
 Not tested by design: sending the probe's token to liam-e or to any other app. That would be a live
 call to liam-e, which #157 excludes. Q3 covers the platform API through `--q3-mistral-api` and the
