@@ -637,6 +637,7 @@ export const de = {
     chat_settings_invalid: 'Prüfe die Kontoverbindung und synchronisiere Studio-Postfächer vor der Freigabe.',
     mcp_settings_invalid: 'Mindestens ein gewähltes Konto ist nicht mehr verbunden oder inaktiv.',
     settings_unavailable: 'Die Einstellungen sind gerade nicht erreichbar. Versuch es gleich noch einmal.',
+    caller_identity_unavailable: 'Mistral kann deine Anmeldung gerade nicht bestätigen. Versuch es gleich noch einmal.',
     task_creation_conflict: 'Diese Erstellungskennung gehört zu einer anderen Aufgabe.',
     task_cursor_invalid: 'Die Aufgaben konnten nicht geladen werden. Öffne die Liste noch einmal.',
     task_delete_confirmation_required: 'Bestätige, dass die Aufgabe mit ihrem gesamten Verlauf endgültig gelöscht werden soll.',

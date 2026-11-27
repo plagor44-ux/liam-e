@@ -8,7 +8,8 @@ binding or a reachable Mistral API. It always advances the revision, also when
 access is already off, so a turn-on confirmed earlier, for example in another tab while its
 identity lookup was still running, fails as stale instead of reopening access. Turning access on
 needs the bound owner's own browser session (:mod:`api.owner_access`: no workspace key, the
-bound origin, the matching Studio identity) and the current revision.
+bound origin, the matching Studio identity) and the current revision. While the Users API gives no
+answer, turning on answers 503 ``caller_identity_unavailable`` like the caller gate, never a pass.
 
 ``verifier_configured`` reports whether a real read-access verifier is installed; until then the
 read facade keeps answering 401 even with access on. ``owner_bound`` reports whether turning on
@@ -19,7 +20,7 @@ from datetime import datetime
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.errors import refuse
 from api.mcp.access import DenyReadAccess, ReadAccessVerifier, get_read_access_verifier
-from api.owner_access import OwnerVerifier, owner_binding, verify_studio_owner
+from api.owner_access import OwnerCheck, OwnerVerdict, owner_binding, studio_owner_verdict
 from db.accessors import agent_access
 from db.models.agent_access import AgentAccess
 
@@ -82,8 +83,8 @@ class AgentAccessEnable(BaseModel):
     expected_revision: Annotated[int, Field(ge=1, strict=True)]
 
 
-def get_agent_access_owner_verifier() -> OwnerVerifier:
-    return verify_studio_owner
+def get_agent_access_owner_verifier() -> OwnerCheck:
+    return studio_owner_verdict
 
 
 def _out(row: AgentAccess, verifier: ReadAccessVerifier) -> AgentAccessOut:
@@ -122,13 +123,17 @@ async def disable_agent_access(
 async def enable_agent_access(
     body: AgentAccessEnable,
     request: Request,
-    verify: Annotated[OwnerVerifier, Depends(get_agent_access_owner_verifier)],
+    verify: Annotated[OwnerCheck, Depends(get_agent_access_owner_verifier)],
     verifier: Annotated[ReadAccessVerifier, Depends(get_read_access_verifier)],
 ) -> AgentAccessOut:
     """Turn outside access on, for the verified owner holding the current revision."""
     if owner_binding() is None:
         raise _refuse(409, "agent_access_owner_unbound", "No owner is bound to this app, so access cannot be turned on.")
-    if await verify(request) is not True:
+    verdict = await verify(request)
+    if verdict is OwnerVerdict.UNVERIFIED:
+        # The same answer as the caller gate's, so one code has one shape on this endpoint.
+        raise HTTPException(503, detail="caller_identity_unavailable", headers={**_NO_STORE, "Retry-After": "5"})
+    if verdict is not OwnerVerdict.OWNER:
         raise _refuse(403, "agent_access_owner_required", "Only the owner's own signed-in browser can turn access on.")
     try:
         row = await agent_access.enable(body.expected_revision)

@@ -303,13 +303,17 @@ def test_a_failed_identity_lookup_fails_closed(client, store, who, answer):
 
 @pytest.mark.parametrize("answer", _FAILED_LOOKUPS)
 def test_the_owner_check_never_accepts_a_stale_identity(client, store, who, clock, answer):
-    """The caller gate may fall back to the last answer; turning access on never does."""
+    """The caller gate may fall back to the last answer; turning access on never does. The refusal
+    names the outage like the gate does, not a wrong browser (review on #203)."""
     assert client.get(PATH, headers=HEADERS).status_code == 200
     clock[0] += identity_module.FRESH_SECONDS[identity_module.CallerKind.USER] + 1
     _fail(who, answer)
     response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
-    assert response.status_code == 403
-    assert _code(response) == "agent_access_owner_required"
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["retry-after"] == "5"
+    assert who.call_count == 2  # the first read and one failed lookup; the owner check repeats none
     assert store.row is None
 
 

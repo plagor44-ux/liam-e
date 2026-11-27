@@ -329,6 +329,21 @@ test('cancel and reopen captures the current revision instead of the discarded d
   ])
 })
 
+test('a turn-on Mistral cannot confirm names the sign-in, not the switch state (#200)', async () => {
+  setup({
+    respond: request =>
+      request.method === 'POST'
+        ? Response.json({ detail: 'caller_identity_unavailable' }, { status: 503, headers: { 'Retry-After': '5' } })
+        : undefined,
+  })
+  fireEvent.click(await screen.findByRole('button', { name: de.agentAccess.turnOn }))
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: de.agentAccess.turnOn }))
+  const alert = (await screen.findByRole('alert')).textContent
+  expect(alert).toContain(de.errors.caller_identity_unavailable)
+  expect(alert).not.toContain(de.agentAccess.errorUnavailable)
+  expect(screen.getByRole('button', { name: de.agentAccess.turnOn })).toBeTruthy()
+})
+
 test('maps 409 conflict, 409 owner_unbound, 403 owner error, and 503 unavailable to catalogue texts', async () => {
   // 409 agent_access_conflict (with reload)
   const { setState } = setup({

@@ -30,12 +30,19 @@ function formatStatus(state: AgentAccessOut, texts: ReturnType<typeof useI18n>['
   return t.statusOn
 }
 
+/** The caller gate's and the turn-on's refusal while Mistral can't confirm the sign-in (#200). */
+function identityUnconfirmed(cause: unknown): boolean {
+  const body: unknown = cause instanceof AgentAccessError ? cause.cause : undefined
+  return typeof body === 'object' && body !== null && (body as { detail?: unknown }).detail === 'caller_identity_unavailable'
+}
+
 function mapAccessError(cause: unknown, texts: ReturnType<typeof useI18n>['texts']): Outcome {
   const t = texts.agentAccess
   const status = cause instanceof AgentAccessError ? cause.status : undefined
   const code = errorCode(cause)
   if (code === 'agent_access_owner_unbound') return { tone: 'danger', text: t.errorUnbound }
   if (code === 'agent_access_conflict') return { tone: 'danger', text: t.errorConflict, reload: true }
+  if (identityUnconfirmed(cause)) return { tone: 'danger', text: texts.errors.caller_identity_unavailable }
   if (code === 'agent_access_unavailable' || status === 503) return { tone: 'danger', text: t.errorUnavailable }
   if (status === 409) return { tone: 'danger', text: t.errorConflict, reload: true }
   if (status === 403 || status === 401 || code === 'agent_access_owner_required') {

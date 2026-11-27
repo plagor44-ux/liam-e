@@ -647,6 +647,7 @@ export const en = {
     chat_settings_invalid: 'Check the account connection and sync Studio mailboxes before granting access.',
     mcp_settings_invalid: 'At least one selected account is missing or inactive.',
     settings_unavailable: 'Settings aren’t available right now. Try again in a moment.',
+    caller_identity_unavailable: 'Mistral can’t confirm your sign-in right now. Try again in a moment.',
     task_creation_conflict: 'This creation request belongs to another task.',
     task_cursor_invalid: 'The tasks couldn’t be loaded. Open the list again.',
     task_delete_confirmation_required: 'Confirm that you want to permanently delete the task and its history.',
