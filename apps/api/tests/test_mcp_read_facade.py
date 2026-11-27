@@ -3,6 +3,7 @@
 import logging
 import socket
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
@@ -15,7 +16,7 @@ from api.mcp import mail as service
 from api.mcp.access import ReadGrant, get_read_access_verifier
 from api.mcp.access_log import RedactAgentReadQuery
 from conftest import build_app
-from db.accessors import mail_account, mail_message, mail_sync_state
+from db.accessors import agent_access, mail_account, mail_message, mail_sync_state
 from db.models.mail_account import MailAccount
 from db.models.mail_message import MailMessage
 from db.models.mail_sync_state import MailSyncState
@@ -58,6 +59,7 @@ def indexed(monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Provider, model or write operation was called")
 
+    monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=True))
     monkeypatch.setattr(mail_account, "list_for_ids", accounts_for)
     monkeypatch.setattr(mail_sync_state, "list_for_accounts", states_for)
     monkeypatch.setattr(mail_message, "list_page", page)

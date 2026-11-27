@@ -14,7 +14,7 @@ from uuid import UUID
 from db.accessors import mail_account, mail_message, mail_sync_state
 from fastapi import HTTPException
 
-from api.mcp.access import ReadGrant, restrict_accounts
+from api.mcp.access import ReadGrant, ensure_agent_access, restrict_accounts
 from api.mcp.schemas import (
     AccountCount, AccountItem, AccountsResult, IndexStatus, MessageItem, ReadResult,
     SearchResult, SummaryResult,
@@ -97,6 +97,7 @@ def _decode_cursor(cursor: str, query: str, scope: list[str]) -> tuple[datetime,
 
 
 async def liam_mail_accounts(grant: ReadGrant) -> AccountsResult:
+    await ensure_agent_access()
     scope = _scope(grant, None)
     accounts = []
     for row in await mail_account.list_for_ids(scope):
@@ -117,6 +118,7 @@ async def liam_mail_accounts(grant: ReadGrant) -> AccountsResult:
 
 async def liam_mail_search(grant: ReadGrant, *, query: str = "", account_ids: list[str] | None = None,
                            cursor: str = "", limit: int = 50) -> SearchResult:
+    await ensure_agent_access()
     if not 1 <= limit <= 50 or len(query) > 1000:
         raise HTTPException(status_code=422, detail="invalid_search")
     scope = _scope(grant, account_ids)
@@ -138,6 +140,7 @@ async def liam_mail_search(grant: ReadGrant, *, query: str = "", account_ids: li
 
 
 async def liam_mail_read(grant: ReadGrant, message_id: str) -> ReadResult:
+    await ensure_agent_access()
     scope = _scope(grant, None)
     # Invalid, absent and foreign IDs all have the same response.
     try:
@@ -163,6 +166,7 @@ async def liam_mail_read(grant: ReadGrant, message_id: str) -> ReadResult:
 
 
 async def liam_mail_summary(grant: ReadGrant, *, account_ids: list[str] | None = None) -> SummaryResult:
+    await ensure_agent_access()
     scope = _scope(grant, account_ids)
     values = await mail_message.inbox_counts(scope)
     counts = [AccountCount(account_id=id, total=values.get(id, (0, 0))[0], unread=values.get(id, (0, 0))[1]) for id in scope]

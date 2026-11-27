@@ -5,10 +5,39 @@ verified implementation and pass its grant to the same services as the HTTP faca
 """
 
 from dataclasses import dataclass
+import logging
 import re
-from typing import Protocol
+from typing import Literal, Protocol
 
+from db.accessors import agent_access
 from fastapi import Depends, HTTPException, Request
+
+_LOG = logging.getLogger(__name__)
+PathGroup = Literal["agent-read", "v1-key"]
+
+
+async def ensure_agent_access(*, path_group: PathGroup = "agent-read") -> None:
+    """Fail closed unless the owner's outside-access switch is enabled.
+
+    Reads the single-row switch on every call with no process-local cache so a change applies to
+    the next request across all instances.
+    """
+    try:
+        enabled = await agent_access.is_enabled()
+    except Exception as error:
+        _LOG.warning("agent_access=unavailable path_group=%s error=%s", path_group, type(error).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="agent_access_unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from None
+    if enabled is not True:
+        _LOG.info("agent_access=refused path_group=%s", path_group)
+        raise HTTPException(
+            status_code=403,
+            detail="agent_access_disabled",
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 @dataclass(frozen=True)
@@ -32,6 +61,7 @@ def get_read_access_verifier() -> ReadAccessVerifier:
 async def require_read_access(
     request: Request, verifier: ReadAccessVerifier = Depends(get_read_access_verifier)
 ) -> ReadGrant:
+    await ensure_agent_access()
     return validate_grant(await verifier.verify(request))
 
 

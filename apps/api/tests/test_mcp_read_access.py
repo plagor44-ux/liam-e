@@ -1,5 +1,8 @@
 """The future read surface must fail closed and never expand a verified grant."""
 
+from unittest.mock import AsyncMock
+
+from db.accessors import agent_access
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
@@ -15,7 +18,8 @@ def test_inventory_is_explicit_and_unique():
     assert all(operation.method == "GET" for operation in OPERATIONS)
 
 
-def test_access_defaults_to_denial_and_selection_cannot_expand():
+def test_access_defaults_to_denial_and_selection_cannot_expand(monkeypatch):
+    monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=True))
     app = FastAPI()
 
     @app.get("/test")
