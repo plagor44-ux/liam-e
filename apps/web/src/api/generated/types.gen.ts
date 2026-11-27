@@ -5171,7 +5171,7 @@ export type LiamMailAccountsErrors = {
      */
     401: ReadError;
     /**
-     * Insufficient account scope
+     * Outside agent access disabled (agent_access_disabled) or insufficient account scope
      */
     403: ReadError;
     /**
@@ -5182,6 +5182,10 @@ export type LiamMailAccountsErrors = {
      * Invalid parameters
      */
     422: ReadError;
+    /**
+     * Outside agent access state unavailable (agent_access_unavailable)
+     */
+    503: ReadError;
 };
 
 export type LiamMailAccountsError = LiamMailAccountsErrors[keyof LiamMailAccountsErrors];
@@ -5225,7 +5229,7 @@ export type LiamMailSearchErrors = {
      */
     401: ReadError;
     /**
-     * Insufficient account scope
+     * Outside agent access disabled (agent_access_disabled) or insufficient account scope
      */
     403: ReadError;
     /**
@@ -5236,6 +5240,10 @@ export type LiamMailSearchErrors = {
      * Invalid parameters
      */
     422: ReadError;
+    /**
+     * Outside agent access state unavailable (agent_access_unavailable)
+     */
+    503: ReadError;
 };
 
 export type LiamMailSearchError = LiamMailSearchErrors[keyof LiamMailSearchErrors];
@@ -5267,7 +5275,7 @@ export type LiamMailReadErrors = {
      */
     401: ReadError;
     /**
-     * Insufficient account scope
+     * Outside agent access disabled (agent_access_disabled) or insufficient account scope
      */
     403: ReadError;
     /**
@@ -5278,6 +5286,10 @@ export type LiamMailReadErrors = {
      * Invalid parameters
      */
     422: ReadError;
+    /**
+     * Outside agent access state unavailable (agent_access_unavailable)
+     */
+    503: ReadError;
 };
 
 export type LiamMailReadError = LiamMailReadErrors[keyof LiamMailReadErrors];
@@ -5309,7 +5321,7 @@ export type LiamMailSummaryErrors = {
      */
     401: ReadError;
     /**
-     * Insufficient account scope
+     * Outside agent access disabled (agent_access_disabled) or insufficient account scope
      */
     403: ReadError;
     /**
@@ -5320,6 +5332,10 @@ export type LiamMailSummaryErrors = {
      * Invalid parameters
      */
     422: ReadError;
+    /**
+     * Outside agent access state unavailable (agent_access_unavailable)
+     */
+    503: ReadError;
 };
 
 export type LiamMailSummaryError = LiamMailSummaryErrors[keyof LiamMailSummaryErrors];

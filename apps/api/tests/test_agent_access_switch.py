@@ -49,6 +49,10 @@ class Store:
         if self.failure is not None:
             raise self.failure
 
+    async def is_enabled(self) -> bool:
+        self._check()
+        return bool(self.row and self.row.enabled)
+
     async def state(self) -> AgentAccess:
         self._check()
         return self.row.model_copy() if self.row else AgentAccess()
@@ -73,7 +77,7 @@ class Store:
 @pytest.fixture
 def store(monkeypatch) -> Store:
     fake = Store()
-    for name in ("state", "disable", "enable"):
+    for name in ("is_enabled", "state", "disable", "enable"):
         monkeypatch.setattr(agent_access, name, getattr(fake, name))
     return fake
 
@@ -184,7 +188,6 @@ def test_another_identity_cannot_turn_access_on(client, store, change):
 
 
 @pytest.mark.parametrize("headers", [
-    {**OWNER_POST, "x-api-key": "workspace-key-test-only"},
     HEADERS,
     {**HEADERS, "origin": "null"},
     {**HEADERS, "origin": "https://other.example.test"},
@@ -194,6 +197,20 @@ def test_a_workspace_key_or_foreign_origin_never_reaches_the_identity_lookup(cli
         response = client.post(PATH + "/enable", headers=headers, json={"expected_revision": 1})
     assert response.status_code == 403
     assert _code(response) == "agent_access_owner_required"
+    assert not outbound.calls
+    assert store.row is None
+
+
+def test_a_workspace_key_cannot_enable_switch_and_never_reaches_the_identity_lookup(client, store):
+    with respx.mock() as outbound:
+        response = client.post(
+            PATH + "/enable",
+            headers={**OWNER_POST, "x-api-key": "workspace-key-test-only"},
+            json={"expected_revision": 1},
+        )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "agent_access_disabled"}
+    assert response.headers["cache-control"] == "no-store"
     assert not outbound.calls
     assert store.row is None
 

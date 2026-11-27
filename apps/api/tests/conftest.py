@@ -90,6 +90,16 @@ def default_chat_model_app_default(monkeypatch):
     return setting
 
 
+@pytest.fixture(autouse=True)
+def default_agent_access_off(monkeypatch):
+    """API unit tests default to outside access off without touching a database."""
+    from unittest.mock import AsyncMock
+
+    from db.accessors import agent_access
+
+    monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=False))
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     """Run `@pytest.mark.anyio` tests on asyncio only (the app's event loop)."""

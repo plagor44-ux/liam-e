@@ -449,7 +449,7 @@
                 }
               }
             },
-            "description": "Insufficient account scope"
+            "description": "Outside agent access disabled (agent_access_disabled) or insufficient account scope"
           },
           "404": {
             "content": {
@@ -470,6 +470,16 @@
               }
             },
             "description": "Invalid parameters"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadError"
+                }
+              }
+            },
+            "description": "Outside agent access state unavailable (agent_access_unavailable)"
           }
         },
         "summary": "Accounts"
@@ -564,7 +574,7 @@
                 }
               }
             },
-            "description": "Insufficient account scope"
+            "description": "Outside agent access disabled (agent_access_disabled) or insufficient account scope"
           },
           "404": {
             "content": {
@@ -585,6 +595,16 @@
               }
             },
             "description": "Invalid parameters"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadError"
+                }
+              }
+            },
+            "description": "Outside agent access state unavailable (agent_access_unavailable)"
           }
         },
         "summary": "Search"
@@ -634,7 +654,7 @@
                 }
               }
             },
-            "description": "Insufficient account scope"
+            "description": "Outside agent access disabled (agent_access_disabled) or insufficient account scope"
           },
           "404": {
             "content": {
@@ -655,6 +675,16 @@
               }
             },
             "description": "Invalid parameters"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadError"
+                }
+              }
+            },
+            "description": "Outside agent access state unavailable (agent_access_unavailable)"
           }
         },
         "summary": "Read"
@@ -715,7 +745,7 @@
                 }
               }
             },
-            "description": "Insufficient account scope"
+            "description": "Outside agent access disabled (agent_access_disabled) or insufficient account scope"
           },
           "404": {
             "content": {
@@ -736,6 +766,16 @@
               }
             },
             "description": "Invalid parameters"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadError"
+                }
+              }
+            },
+            "description": "Outside agent access state unavailable (agent_access_unavailable)"
           }
         },
         "summary": "Summary"

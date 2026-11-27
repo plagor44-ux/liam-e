@@ -93,14 +93,17 @@ def test_identity_redirect_does_not_send_the_gateway_token_elsewhere(studio_clie
     assert who.call_count == 1
 
 
-@pytest.mark.parametrize("headers", [
-    {"Authorization": "Bearer request-token-test-only"},
-    {**HEADERS, "x-api-key": "workspace-key-test-only"},
+@pytest.mark.parametrize(("headers", "expected_status", "expected_detail"), [
+    ({"Authorization": "Bearer request-token-test-only"}, 401, "unauthorized"),
+    ({**HEADERS, "x-api-key": "workspace-key-test-only"}, 403, "agent_access_disabled"),
 ])
-def test_studio_owner_never_falls_back_to_other_credentials(studio_client: TestClient, headers: dict) -> None:
+def test_studio_owner_never_falls_back_to_other_credentials(
+    studio_client: TestClient, headers: dict, expected_status: int, expected_detail: str
+) -> None:
     with respx.mock() as outbound:
         response = studio_client.get(CAPABILITIES, headers=headers)
-    assert response.status_code == 401
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
     assert not outbound.calls
 
 
@@ -113,21 +116,22 @@ def test_audio_posts_require_the_configured_browser_origin(studio_client: TestCl
     assert not outbound.calls
 
 
-@pytest.mark.parametrize("headers", [
-    HEADERS,
-    {**HEADERS, "origin": "null"},
-    {**HEADERS, "origin": "https://other.example.test"},
-    {"x-api-key": "workspace-key-test-only", "origin": ORIGIN},
+@pytest.mark.parametrize(("headers", "expected_status", "expected_detail"), [
+    (HEADERS, 401, "unauthorized"),
+    ({**HEADERS, "origin": "null"}, 401, "unauthorized"),
+    ({**HEADERS, "origin": "https://other.example.test"}, 401, "unauthorized"),
+    ({"x-api-key": "workspace-key-test-only", "origin": ORIGIN}, 403, "agent_access_disabled"),
 ])
 def test_paid_device_inference_smoke_requires_owner_and_origin(
-    studio_client: TestClient, monkeypatch, headers: dict,
+    studio_client: TestClient, monkeypatch, headers: dict, expected_status: int, expected_detail: str
 ) -> None:
     from datetime import datetime, timedelta, timezone
 
     monkeypatch.setattr(env, "audio_device_test_until", (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
     with respx.mock() as outbound:
         response = studio_client.post("/api/v1/audio/device-test/inference", headers=headers)
-    assert response.status_code == 401
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
     assert not outbound.calls
 
 

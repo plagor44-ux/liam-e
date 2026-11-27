@@ -16,17 +16,19 @@ TTS_LIMITS = {"max_input_characters": 500, "max_response_bytes": 1_000_000, "tim
 
 
 @pytest.mark.parametrize(
-    "headers",
+    ("headers", "expected_status", "expected_detail"),
     [
-        {},
-        {"x-apps-token": "unverified-test-only", "x-api-key": "unverified-test-only"},
-        {"authorization": "Bearer unverified-test-only", "x-space-token": "unverified-test-only"},
+        ({}, 401, "unauthorized"),
+        ({"x-apps-token": "unverified-test-only", "x-api-key": "unverified-test-only"}, 403, "agent_access_disabled"),
+        ({"authorization": "Bearer unverified-test-only", "x-space-token": "unverified-test-only"}, 401, "unauthorized"),
     ],
 )
-def test_audio_capabilities_rejects_unverified_owner(client: TestClient, headers: dict[str, str]) -> None:
+def test_audio_capabilities_rejects_unverified_owner(
+    client: TestClient, headers: dict[str, str], expected_status: int, expected_detail: str
+) -> None:
     response = client.get(PATH, headers=headers, params={"owner": "true"})
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
 
 
 @pytest.fixture

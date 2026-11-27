@@ -31,9 +31,10 @@ class ReadRoute(APIRoute):
 
 router = APIRouter(route_class=ReadRoute, responses={
     401: {"model": ReadError, "description": "Missing or invalid access"},
-    403: {"model": ReadError, "description": "Insufficient account scope"},
+    403: {"model": ReadError, "description": "Outside agent access disabled (agent_access_disabled) or insufficient account scope"},
     404: {"model": ReadError, "description": "Message not found"},
     422: {"model": ReadError, "description": "Invalid parameters"},
+    503: {"model": ReadError, "description": "Outside agent access state unavailable (agent_access_unavailable)"},
 })
 logger = logging.getLogger(__name__)
 T = TypeVar("T")

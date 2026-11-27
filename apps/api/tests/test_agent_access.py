@@ -368,3 +368,136 @@ def test_refusal_log_contains_no_path_params_query_identity_or_headers(monkeypat
     rendered = "\n".join(messages)
     for value in sensitive_values:
         assert value not in rendered
+
+
+def test_v1_key_caller_policy_enforces_switch_and_read_only_inventory(monkeypatch) -> None:
+    """Case 10: x-api-key callers on /api/v1 respect the switch and read-only GET set."""
+    from db.accessors import prompt_template
+
+    switch = {"enabled": False}
+    switch_reads = 0
+
+    async def read_switch() -> bool:
+        nonlocal switch_reads
+        switch_reads += 1
+        return switch["enabled"]
+
+    async def fake_prompts():
+        return []
+
+    monkeypatch.setattr(agent_access, "is_enabled", read_switch)
+    monkeypatch.setattr(prompt_template, "list_templates", fake_prompts)
+
+    client = TestClient(build_app())
+    key_headers = {"x-api-key": "workspace-key-test-only"}
+
+    # Without x-api-key: browser calls pass unchanged and never read the switch.
+    browser_get = client.get("/api/v1/prompts")
+    assert browser_get.status_code == 200
+    assert switch_reads == 0
+
+    # Switch off: x-api-key on a read-only GET is refused with 403 agent_access_disabled.
+    logger, handler, records = _capture_access_logs()
+    try:
+        off_get = client.get("/api/v1/prompts", headers=key_headers)
+    finally:
+        logger.removeHandler(handler)
+    _assert_disabled_response(off_get)
+    assert switch_reads == 1
+    assert [record.getMessage() for record in records] == ["agent_access=refused path_group=v1-key"]
+    assert "workspace-key-test-only" not in "\n".join(record.getMessage() for record in records)
+
+    # Switch on: read-only GET passes; browser-only GET and mutations answer 403 agent_operation_refused.
+    switch["enabled"] = True
+    on_get = client.get("/api/v1/prompts", headers=key_headers)
+    assert on_get.status_code == 200
+
+    exposure_logger = logging.getLogger("api.mcp.exposure")
+    exposure_records: list[logging.LogRecord] = []
+
+    class _ExposureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            exposure_records.append(record)
+
+    exposure_handler = _ExposureHandler(logging.INFO)
+    exposure_logger.addHandler(exposure_handler)
+    try:
+        refused_calls = (
+            client.get("/api/v1/settings", headers=key_headers),
+            client.get("/api/v1/settings/agent-access", headers=key_headers),
+            client.get("/api/v1/audio/capabilities", headers=key_headers),
+            client.post("/api/v1/settings/agent-access/disable", headers=key_headers),
+            client.post("/api/v1/settings/agent-access/enable", headers=key_headers, json={"expected_revision": 1}),
+            client.post("/api/v1/prompts", headers=key_headers, json={}),
+            client.patch("/api/v1/settings/ui", headers=key_headers, json={}),
+            client.delete(f"/api/v1/prompts/{uuid4()}", headers=key_headers),
+        )
+    finally:
+        exposure_logger.removeHandler(exposure_handler)
+
+    for response in refused_calls:
+        assert response.status_code == 403
+        assert response.json() == {"detail": "agent_operation_refused"}
+        assert response.headers.get("cache-control") == "no-store"
+        assert "www-authenticate" not in response.headers
+    assert [record.getMessage() for record in exposure_records] == [
+        "agent_access=refused path_group=v1-key"
+    ] * len(refused_calls)
+    assert "workspace-key-test-only" not in "\n".join(record.getMessage() for record in exposure_records)
+
+
+@pytest.mark.anyio
+async def test_v1_key_caller_policy_fallback_when_scope_route_is_missing(monkeypatch) -> None:
+    """Case 10 (route-lookup fallback): matches read-only GETs and fails closed on unknown routes."""
+    from starlette.requests import HTTPConnection
+
+    from api.mcp.exposure import agent_caller_policy
+
+    monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=True))
+    app = build_app()
+
+    # Known read-only GET and HEAD (including parameterized paths) resolve via router fallback.
+    allowed_scope = {
+        "type": "http",
+        "app": app,
+        "method": "GET",
+        "path": "/api/v1/prompts",
+        "raw_path": b"/api/v1/prompts",
+        "query_string": b"",
+        "headers": [(b"x-api-key", b"workspace-key-test-only")],
+    }
+    await agent_caller_policy(HTTPConnection(allowed_scope))
+    await agent_caller_policy(HTTPConnection({**allowed_scope, "method": "HEAD"}))
+    await agent_caller_policy(
+        HTTPConnection({**allowed_scope, "path": f"/api/v1/prompts/{uuid4()}"})
+    )
+
+    # Browser-only GET without request.scope["route"] is refused.
+    browser_only_scope = {**allowed_scope, "path": "/api/v1/settings", "raw_path": b"/api/v1/settings"}
+    with pytest.raises(HTTPException) as exc_info:
+        await agent_caller_policy(HTTPConnection(browser_only_scope))
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "agent_operation_refused"
+
+    # Unknown path fails closed.
+    unknown_scope = {**allowed_scope, "path": "/api/v1/does-not-exist", "raw_path": b"/api/v1/does-not-exist"}
+    with pytest.raises(HTTPException) as exc_info:
+        await agent_caller_policy(HTTPConnection(unknown_scope))
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "agent_operation_refused"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_v1_live_websocket_refuses_x_api_key_handshake(monkeypatch, enabled: bool) -> None:
+    """Case 10 (WebSocket): x-api-key on /api/v1 live audio websocket refuses the handshake."""
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=enabled))
+    client = TestClient(build_app())
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(
+            "/api/v1/audio/live/transcription",
+            headers={"x-api-key": "workspace-key-test-only"},
+        ):
+            pass

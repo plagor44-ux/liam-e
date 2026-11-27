@@ -50,6 +50,18 @@ def test_gateway_redaction_drops_free_text_error_fields() -> None:
     assert outcome.error_code == "other" and "Notiz" not in outcome.line()
 
 
+def test_gateway_redaction_recognizes_agent_access_disabled_detail() -> None:
+    outcome = gateway.redact(
+        "read facade, workspace key as x-api-key",
+        403,
+        {"detail": "agent_access_disabled"},
+        ["Cache-Control"],
+    )
+    assert outcome.line() == "read facade, workspace key as x-api-key: 403 error=agent_access_disabled headers=-"
+    unknown = gateway.redact("case", 403, {"detail": PRIVATE_TEXT}, [])
+    assert unknown.error_code == "other" and "Notiz" not in unknown.line()
+
+
 def test_gateway_live_requires_https_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LIAM_E_APP_URL", raising=False)
     monkeypatch.setattr(gateway, "run_live", lambda *a, **k: pytest.fail("ran without a URL"))

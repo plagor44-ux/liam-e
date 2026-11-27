@@ -14,6 +14,7 @@ import pytest
 from fastapi import FastAPI
 from mistralai_capabilities.fastapi.openapi import HTTP_METHODS
 
+from api.mcp.exposure import BROWSER_ONLY_GET_OPERATIONS, read_only_get_operations
 from conftest import build_app
 
 # Every non-GET operation of the served app. Keep this set exact: adding an operation means
@@ -95,43 +96,6 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
     }
 )
 
-# Private preference/settings reads also stay browser-only: read-only does not mean safe
-# to expose personal values to an agent. GETs that change state: OAuth belongs to the browser; its callback
-# stores credentials and enqueues a sync. They are part of the OpenAPI, so they are named here
-# rather than left out of the read-only list silently.
-BROWSER_ONLY_GET_OPERATIONS: frozenset[str] = frozenset(
-    {
-        "audio_voices_list",
-        "mail_message_html_get",  # Browser-only untrusted markup.
-        "mail_folders_list",  # Private owner-managed folder and label names.
-        "mail_folders_page",  # The paginated inventory is also private.
-        "mail_filing_quick_actions",  # Installation usage history is browser-only.
-        "mail_rules_list",
-        "mail_rule_runs_list",
-        "audio_capabilities_get",  # Owner-only application capability.
-        "agent_access_get",  # An agent must not probe the switch that governs it (#197).
-        "audio_device_test_get",
-        "audio_device_test_sample",
-        # Provider calls expose private calendar names; never an agent discovery tool.
-        "calendar_google_calendars_list",
-        "calendar_occurrence_live",
-        "calendar_write_get",
-        "preferences_list",
-        "preference_candidates_list",  # Private candidate values and own source messages.
-        "preference_context_get",
-        "settings_get",
-        "chat_settings_get",
-        "chat_model_settings_get",
-        "calendar_settings_get",
-        "chat_mail_reference_get",
-        "mail_account_oauth_authorize",
-        "mail_account_oauth_callback",
-        "skill_tools_list",
-        "skills_list",
-        "skill_get",
-    }
-)
-
 AGENTS_MD = Path(__file__).resolve().parents[3] / "AGENTS.md"
 READ_ONLY_LIST_MARKER = "read-only operations:"
 
@@ -202,3 +166,8 @@ def test_agents_md_read_only_list_matches_get_operations(app: FastAPI) -> None:
         f"unexpected {sorted(set(listed) - _read_only_get_ids(app))}, "
         "or out of alphabetical order. Update the rule in AGENTS.md (section Security)."
     )
+
+
+def test_runtime_read_only_set_matches_openapi_inventory(app: FastAPI) -> None:
+    """The runtime x-api-key policy set uses the same single source of truth as AGENTS.md."""
+    assert read_only_get_operations(app) == _read_only_get_ids(app)

@@ -19,8 +19,10 @@ import sys
 from dataclasses import dataclass
 from typing import NoReturn
 
-# Only read routes. ``/api/agent-read`` is the read facade from #35, whose default verifier must
-# reject every request; ``/.well-known`` paths show whether OAuth discovery reaches the app.
+# Only read routes. ``/api/agent-read`` is the read facade from #35: with the owner's outside-access
+# switch off (default) a key caller gets 403 ``agent_access_disabled`` before the verifier runs, and
+# with the switch on the default verifier rejects every request with 401; ``/.well-known`` paths
+# show whether OAuth discovery reaches the app.
 CASES: tuple[tuple[str, str, str], ...] = (
     ("health, no credential", "/api/health", "none"),
     ("health, invalid bearer", "/api/health", "bearer-invalid"),
@@ -32,8 +34,17 @@ CASES: tuple[tuple[str, str, str], ...] = (
     ("oauth resource metadata, no credential", "/.well-known/oauth-protected-resource", "none"),
 )
 REPORTED_HEADERS = ("www-authenticate", "location", "set-cookie")
-# Error codes the gateway was seen to return. Anything else is reported as "other", never verbatim.
-KNOWN_ERROR_CODES = frozenset({"session_expired", "access_denied", "unauthorized", "forbidden", "not_found"})
+# Error codes the gateway or app access gate returns. Anything else is reported as "other", never verbatim.
+KNOWN_ERROR_CODES = frozenset({
+    "session_expired",
+    "access_denied",
+    "unauthorized",
+    "forbidden",
+    "not_found",
+    "agent_access_disabled",
+    "agent_access_unavailable",
+    "agent_operation_refused",
+})
 INVALID = "invalid-test-only"
 
 
@@ -65,7 +76,7 @@ def redact(label: str, status: int | str, body: object, header_names: list[str])
     """Keep the status, a fixed-looking error code and header names; drop everything else."""
     code = None
     if isinstance(body, dict):
-        for field in ("error", "code"):
+        for field in ("error", "code", "detail"):
             value = body.get(field)
             if isinstance(value, str) and value:
                 code = value if value in KNOWN_ERROR_CODES else "other"
