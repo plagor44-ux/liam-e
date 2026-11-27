@@ -172,6 +172,20 @@ test('turning off acts with one click, no dialog, and shows the notice even when
   expect(screen.queryByText(de.settingsUi.unsaved)).toBeNull()
 })
 
+test('turning on after turning off sends the revision the turn-off returned', async () => {
+  setup({ initial: defaultState({ enabled: true, revision: 6, changed_at: new Date().toISOString() }) })
+  fireEvent.click(await screen.findByRole('button', { name: de.agentAccess.turnOff }))
+  expect(await screen.findByText(de.agentAccess.turnedOff)).toBeTruthy()
+
+  fireEvent.click(await screen.findByRole('button', { name: de.agentAccess.turnOn }))
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: de.agentAccess.turnOn }))
+  expect(await screen.findByText(de.agentAccess.turnedOn)).toBeTruthy()
+  expect(requests.filter(r => r.method === 'POST')).toEqual([
+    { method: 'POST', path: '/api/v1/settings/agent-access/disable', body: undefined },
+    { method: 'POST', path: '/api/v1/settings/agent-access/enable', body: { expected_revision: 7 } },
+  ])
+})
+
 test('turning on opens confirmation dialog; "Abbrechen" and Escape send nothing and return focus', async () => {
   setup()
   const turnOn = await screen.findByRole('button', { name: de.agentAccess.turnOn })
