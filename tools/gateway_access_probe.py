@@ -7,6 +7,9 @@ It never prints the app URL, a token, a response body or a header value.
 
     LIAM_E_APP_URL=<app-url> bash tools/uv.sh run --no-sync python tools/gateway_access_probe.py --live
 
+``--workspace-key-only`` limits a run to the four cases that send the workspace key as
+``x-api-key`` (health, read facade and the two ``/api/v1`` reads), the probe for #200.
+
 The workspace key comes from the app's own credential resolution (``utils.mistral``), so nothing
 has to be pasted into the shell. The probe never calls a mutating route.
 """
@@ -91,14 +94,18 @@ def redact(label: str, status: int | str, body: object, header_names: list[str])
     return Outcome(label, status, code, names)
 
 
-def run_live(base_url: str) -> list[Outcome]:
+def select_cases(workspace_key_only: bool) -> tuple[tuple[str, str, str], ...]:
+    return tuple(case for case in CASES if case[2] == "x-api-key") if workspace_key_only else CASES
+
+
+def run_live(base_url: str, cases: tuple[tuple[str, str, str], ...] = CASES) -> list[Outcome]:
     import httpx
     from utils.mistral import mistral_app_token
 
     key = mistral_app_token()
     outcomes = []
     with httpx.Client(base_url=base_url.rstrip("/"), timeout=20, follow_redirects=False) as client:
-        for label, path, kind in CASES:
+        for label, path, kind in cases:
             try:
                 response = client.get(path, headers=headers_for(kind, key))
             except httpx.HTTPError as exc:
@@ -122,10 +129,13 @@ class _QuietParser(argparse.ArgumentParser):
 def main(argv: list[str] | None = None) -> int:
     parser = _QuietParser(description="Read-only probe of the credentials the app gateway accepts")
     parser.add_argument("--live", action="store_true", help="send the read-only requests")
+    parser.add_argument("--workspace-key-only", action="store_true",
+                        help="only the cases that send the workspace key as x-api-key (#200)")
     args = parser.parse_args(argv)
+    cases = select_cases(args.workspace_key_only)
     if not args.live:
         print("Offline. Cases that --live would send (GET only):")
-        for label, path, kind in CASES:
+        for label, path, kind in cases:
             print(f"  {label}: {path} [{kind}]")
         return 0
     base_url = os.environ.get("LIAM_E_APP_URL", "")
@@ -133,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         print("LIAM_E_APP_URL must hold the app's https URL", file=sys.stderr)
         return 2
     try:
-        outcomes = run_live(base_url)
+        outcomes = run_live(base_url, cases)
     except Exception as exc:  # noqa: BLE001 - exception texts can carry the URL or a token path
         print(f"probe_failed: {type(exc).__name__}", file=sys.stderr)
         return 1
