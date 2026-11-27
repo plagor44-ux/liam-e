@@ -16,8 +16,6 @@ import os
 import shutil
 import stat
 import subprocess
-import tempfile
-from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -158,45 +156,20 @@ class Probe:
             self.add_app({"id": app_id, "name": name, "label": name})
 
 
-def git_above(path: Path) -> bool:
-    resolved = path.resolve()
-    return any((parent / ".git").exists() or (parent / ".git").is_symlink() for parent in (resolved, *resolved.parents))
-
-
 @pytest.fixture
-def script_tmp_base(tmp_path: Path) -> Iterator[Path]:
-    """A directory for the script's TMPDIR with no `.git` above it, which deploy.sh would refuse (#190).
-
-    That is pytest's own directory unless a stray `.git` sits above it on this machine; then a fresh
-    directory in the first clean system location, removed afterwards."""
-    if not git_above(tmp_path):
-        yield tmp_path
-        return
-    for candidate in (Path("/var/tmp"), Path("/dev/shm")):
-        if candidate.is_dir() and os.access(candidate, os.W_OK) and not git_above(candidate):
-            base = Path(tempfile.mkdtemp(prefix="liam-e-probe-deploy-test.", dir=candidate))
-            try:
-                yield base
-            finally:
-                shutil.rmtree(base, ignore_errors=True)
-            return
-    pytest.skip("a .git sits above every candidate temporary directory, so deploy.sh refuses to deploy (#190)")
-
-
-@pytest.fixture
-def probe(tmp_path: Path, script_tmp_base: Path) -> Probe:
-    home, log, fakebin = (tmp_path / name for name in ("home", "log", "bin"))
-    tmpdir = script_tmp_base / "tmp"
+def probe(deploy_tmp_path: Path) -> Probe:
+    home, log, fakebin = (deploy_tmp_path / name for name in ("home", "log", "bin"))
+    tmpdir = deploy_tmp_path / "tmp"
     for path in (home, tmpdir, fakebin):
         path.mkdir()
-    gitconfig = tmp_path / "gitconfig"
+    gitconfig = deploy_tmp_path / "gitconfig"
     gitconfig.write_text("[user]\n\tname = Test\n\temail = test@example.org\n[init]\n\tdefaultBranch = main\n")
     mistral = fakebin / "mistral"
     mistral.write_text(FAKE_MISTRAL)
     mistral.chmod(mistral.stat().st_mode | stat.S_IXUSR)
 
-    ids, apps = tmp_path / "probe.json", tmp_path / "apps.json"
-    liam_test, liam_prod = tmp_path / "liam-test.json", tmp_path / "liam-prod.json"
+    ids, apps = deploy_tmp_path / "probe.json", deploy_tmp_path / "apps.json"
+    liam_test, liam_prod = deploy_tmp_path / "liam-test.json", deploy_tmp_path / "liam-prod.json"
     ids.write_text(json.dumps({"organizationId": ORG, "workspaceId": WS}))
     liam_test.write_text(json.dumps({"organizationId": ORG, "workspaceId": WS, "appId": LIAM_TEST}))
     liam_prod.write_text(json.dumps({"organizationId": ORG, "workspaceId": WS, "appId": LIAM_PROD}))
@@ -220,7 +193,7 @@ def probe(tmp_path: Path, script_tmp_base: Path) -> Probe:
         MCP_ROUTE_PROBE_DEPLOYMENT_FILE=str(ids),
         MCP_ROUTE_PROBE_LIAM_E_FILES=f"{liam_test}{os.pathsep}{liam_prod}",
     )
-    origin, work = tmp_path / "origin.git", tmp_path / "work"
+    origin, work = deploy_tmp_path / "origin.git", deploy_tmp_path / "work"
     subprocess.run(["git", "init", "--quiet", "--bare", str(origin)], env=env, check=True)
     subprocess.run(["git", "clone", "--quiet", str(origin), str(work)], env=env, check=True, capture_output=True)
     tracked = subprocess.run(["git", "ls-files", PROBE_DIR], cwd=ROOT, check=True, capture_output=True,
@@ -403,7 +376,6 @@ def test_unset_tmpdir_uses_private_xdg_cache_for_the_gitless_export(probe: Probe
     assert deploy["tmpdir"] == deploy["cwd"].parent
     assert deploy["tmpdir"].parent == cache / "liam-e"
     assert deploy["tmpmode"] == "0o700"
-    assert not git_above(deploy["cwd"])
     assert not deploy["tmpdir"].exists()
 
 

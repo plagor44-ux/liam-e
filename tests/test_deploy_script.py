@@ -94,11 +94,11 @@ class Repo:
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Repo:
-    home, tmpdir, log, fakebin = (tmp_path / name for name in ("home", "tmp", "log", "bin"))
+def repo(deploy_tmp_path: Path) -> Repo:
+    home, tmpdir, log, fakebin = (deploy_tmp_path / name for name in ("home", "tmp", "log", "bin"))
     for path in (home, tmpdir, fakebin):
         path.mkdir()
-    gitconfig = tmp_path / "gitconfig"
+    gitconfig = deploy_tmp_path / "gitconfig"
     gitconfig.write_text("[user]\n\tname = Test\n\temail = test@example.org\n[init]\n\tdefaultBranch = main\n")
     mistral = fakebin / "mistral"
     mistral.write_text(FAKE_MISTRAL)
@@ -113,7 +113,7 @@ def repo(tmp_path: Path) -> Repo:
         FAKE_MISTRAL_LOG=str(log),
         FAKE_APPS_JSON=json.dumps({"apps": [{"id": APP, "name": "liam-e"}]}),
     )
-    origin, work = tmp_path / "origin.git", tmp_path / "work"
+    origin, work = deploy_tmp_path / "origin.git", deploy_tmp_path / "work"
     subprocess.run(["git", "init", "--quiet", "--bare", str(origin)], env=env, check=True)
     subprocess.run(["git", "clone", "--quiet", str(origin), str(work)], env=env, check=True, capture_output=True)
     repo = Repo(work=work, origin=origin, tmpdir=tmpdir, log=log, env=env)
