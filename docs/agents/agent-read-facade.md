@@ -53,7 +53,9 @@ The switch does not revoke anything at the gateway. Tokens and refresh grants st
 only deleting the app ends them (#157, L9). Data an agent has already read cannot be recalled.
 Callers the app cannot tell apart from the owner's browser are not covered, so the AGENTS.md
 import rule still applies. With the switch on, the read facade and `/api/mcp` still answer 401
-until `MCP_STUDIO_OWNER` is configured for `StudioMcpReadVerifier`; the settings page says so.
+to everyone because `DenyReadAccess` stays unconditionally bound in production until a separate
+binding PR installs a caller verifier and flags `/api/mcp` in `mistral.json` after #157 is GO;
+the settings page says so.
 
 ## Native MCP transport (`/api/mcp`, #36)
 
@@ -65,9 +67,10 @@ until `MCP_STUDIO_OWNER` is configured for `StudioMcpReadVerifier`; the settings
 - **Mount (`api/mcp/transport.py`):** mounted in `api/main.py` as a single non-OpenAPI route at
   `/api/mcp` with `session_manager.run()` inside the app lifespan. Every request passes through
   `ensure_agent_access(path_group="mcp")`, explicit `TransportSecuritySettings` (Host 421, Origin
-  403; absent Origin allowed for server-side clients), a body size cap (413), the shared
-  `get_read_access_verifier()` dependency bound into a request-scoped `ContextVar`, an in-process
-  per-principal rate limit (429), and POST-only enforcement (405 `Allow: POST` for GET/DELETE).
+  403; absent Origin allowed for server-side clients; fixed-code logs without header values),
+  POST-only enforcement (405 `Allow: POST` for GET/DELETE), a body size cap (413), the shared
+  `get_read_access_verifier()` dependency bound into a request-scoped `ContextVar`, and an
+  in-process per-principal rate limit (429).
 - **Grant (`mcp_settings`):** installation-wide account list managed at `/settings/mcp`
   (`GET`/`PATCH /api/v1/settings/mcp`, browser-only GET and mutating PATCH), intersected with
   active accounts and cleaned up in the same transaction when `mail_account.delete_account` runs.

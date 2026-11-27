@@ -4,11 +4,12 @@ Every request passes through:
 1. ``ensure_agent_access(path_group="mcp")`` — the owner's outside-access switch, before any
    verifier runs;
 2. explicit ``TransportSecuritySettings`` Host (421) and Origin (403) checks;
-3. request body cap (413);
-4. ``get_read_access_verifier()`` (respecting ``app.dependency_overrides``) returning a validated
+3. stateless HTTP method enforcement (405 ``Allow: POST`` for GET/DELETE and other methods),
+   before caller verification or rate limiting;
+4. request body cap (413);
+5. ``get_read_access_verifier()`` (respecting ``app.dependency_overrides``) returning a validated
    :class:`ReadGrant`, bound into a request-scoped ContextVar;
-5. per-principal in-process rate limiting (429);
-6. stateless HTTP method enforcement (405 ``Allow: POST`` for GET/DELETE and other methods).
+6. per-principal in-process rate limiting (429).
 """
 
 from __future__ import annotations
@@ -175,11 +176,22 @@ class McpTransportApp:
         # 2. Explicit Host (421) and Origin (403) validation.
         security_error = await self._security.validate_request(request, is_post=False)
         if security_error is not None:
+            if security_error.status_code == 421:
+                _LOG.info("mcp_transport=host_rejected")
+            elif security_error.status_code == 403:
+                _LOG.info("mcp_transport=origin_rejected")
             security_error.headers.update(_NO_STORE)
             await security_error(scope, receive, send)
             return
 
-        # 3. Early Content-Length cap before identity verification (inner transport also enforces streamed cap).
+        # 3. Stateless transport accepts POST only across both protocol eras (GET/DELETE -> 405),
+        # checked before body reading, caller verification, and rate limiting.
+        if request.method != "POST":
+            response = Response(status_code=405, headers={**_NO_STORE, "Allow": "POST"})
+            await response(scope, receive, send)
+            return
+
+        # 4. Early Content-Length cap before identity verification (inner transport also enforces streamed cap).
         content_length = request.headers.get("content-length")
         if content_length is not None:
             try:
@@ -195,7 +207,7 @@ class McpTransportApp:
                 await response(scope, receive, send)
                 return
 
-        # 4. Per-request caller verification using the shared read-access verifier dependency.
+        # 5. Per-request caller verification using the shared read-access verifier dependency.
         provider = self._app.dependency_overrides.get(get_read_access_verifier, get_read_access_verifier)
         try:
             verifier = provider()
@@ -223,7 +235,7 @@ class McpTransportApp:
             await response(scope, receive, send)
             return
 
-        # 5. Per-principal in-process rate limit.
+        # 6. Per-principal in-process rate limit.
         allowed, retry_after = self._rate_limiter.check(grant.principal)
         if not allowed:
             _LOG.info("mcp_transport=rate_limited")
@@ -232,12 +244,6 @@ class McpTransportApp:
                 content={"detail": "rate_limited"},
                 headers={**_NO_STORE, "Retry-After": str(retry_after)},
             )
-            await response(scope, receive, send)
-            return
-
-        # 6. Stateless transport accepts POST only across both protocol eras (GET/DELETE -> 405).
-        if request.method != "POST":
-            response = Response(status_code=405, headers={**_NO_STORE, "Allow": "POST"})
             await response(scope, receive, send)
             return
 

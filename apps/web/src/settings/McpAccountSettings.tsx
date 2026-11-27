@@ -29,6 +29,7 @@ function McpAccountSettingsForm() {
   const [status, setStatus] = useState<'saving' | 'saved' | 'conflict' | 'invalid' | 'error'>()
   const saving = useRef(false)
   const choices = accounts.data?.filter(account => account.is_active) ?? []
+  const activeIds = new Set(choices.map(account => account.id))
   const shown = edit ?? settings.data
   const hasChange = Boolean(
     edit && (!settings.data || edit.version !== settings.data.version || !sameAccounts(edit.account_ids, settings.data.account_ids)),
@@ -38,7 +39,8 @@ function McpAccountSettingsForm() {
 
   function toggle(id: string, checked: boolean) {
     if (!shown) return
-    const ids = checked ? [...shown.account_ids, id] : shown.account_ids.filter(item => item !== id)
+    const visible = shown.account_ids.filter(item => activeIds.has(item))
+    const ids = checked ? [...visible, id] : visible.filter(item => item !== id)
     if (settings.data && shown.version === settings.data.version && sameAccounts(ids, settings.data.account_ids)) {
       setEdit(undefined)
     } else {
@@ -68,7 +70,8 @@ function McpAccountSettingsForm() {
     saving.current = true
     setStatus('saving')
     try {
-      const result = await mcpSettingsUpdate({ body: { expected_version: edit.version, account_ids: edit.account_ids } })
+      const accountIds = edit.account_ids.filter(item => activeIds.has(item))
+      const result = await mcpSettingsUpdate({ body: { expected_version: edit.version, account_ids: accountIds } })
       if (!result.data) {
         const code = errorCode(result.error)
         if (code === 'mcp_settings_invalid') setStatus('invalid')
@@ -92,6 +95,7 @@ function McpAccountSettingsForm() {
   return <section className="le-swipe" aria-labelledby="le-mcp-accounts-title">
     <h2 id="le-mcp-accounts-title" className="heading">{t.title}</h2>
     <p className="le-swipe-intro">{t.description}</p>
+    <Notice tone="info" live={false}>{t.inactiveNotice}</Notice>
     <Notice tone="info" live={false}>{t.privacyNotice}</Notice>
     {settings.isError || accounts.isError
       ? <Notice tone="danger" action={{ label: texts.settingsUi.reload, onClick: () => { void reload() } }}>{texts.settingsUi.error}</Notice>

@@ -426,8 +426,9 @@ export const de = {
   mcpAccounts: {
     section: 'MCP-Zugriff',
     title: 'Mailkonten für MCP',
-    description: 'Wähle, welche aktiven Mailkonten ein verbundener MCP-Client über den schreibgeschützten Posteingangsindex lesen darf. Standardmäßig ist kein Konto freigegeben.',
-    toolsHeading: 'Freigegebene Werkzeuge (nur Lesen)',
+    description: 'Lege vorab fest, welche aktiven Mailkonten nach einer späteren Freischaltung über den schreibgeschützten Posteingangsindex lesbar sein sollen. Standardmäßig ist kein Konto freigegeben.',
+    inactiveNotice: 'Der MCP-Zugang ist noch nicht freigeschaltet. Bis dahin lehnt liam-e jede MCP-Anfrage ab, auch wenn hier Konten gewählt sind.',
+    toolsHeading: 'Vorbereitete Werkzeuge (nur Lesen)',
     tools: [
       'liam_mail_accounts — listet nur die hier freigegebenen Konten auf.',
       'liam_mail_search — durchsucht den lokalen Posteingangsindex dieser Konten.',

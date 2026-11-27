@@ -114,9 +114,10 @@ test('settings navigation registers /settings/mcp in both languages', () => {
   expect(settingsSections(en).some(section => section.to === '/settings/mcp' && section.label === en.mcpAccounts.section)).toBe(true)
 })
 
-test('explains the four read-only tools, data leaving liam-e, and revocation', async () => {
+test('explains the four read-only tools, inactive status, data leaving liam-e, and revocation', async () => {
   renderMcpSettings({ locale: 'en' })
   await screen.findByLabelText(/Work Example/)
+  expect(screen.getByText(en.mcpAccounts.inactiveNotice)).toBeTruthy()
   expect(screen.getByText(en.mcpAccounts.privacyNotice)).toBeTruthy()
   expect(screen.getByText(en.mcpAccounts.revokeBody)).toBeTruthy()
   for (const name of ['liam_mail_accounts', 'liam_mail_search', 'liam_mail_read', 'liam_mail_summary']) {
@@ -156,4 +157,22 @@ test('version conflict surfaces reload action without losing conflict message', 
   await waitFor(() => {
     expect(screen.getByText(en.mcpAccounts.conflict)).toBeTruthy()
   })
+})
+
+test('saving drops hidden inactive account IDs so the server does not reject with 422', async () => {
+  renderMcpSettings({
+    locale: 'en',
+    initial: { account_ids: ['acc-inactive'], version: 2 },
+    accounts: [
+      accountFixture('acc-1', 'Work Example', 'work@example.org', true),
+      accountFixture('acc-inactive', 'Inactive Example', 'inactive@example.org', false),
+    ],
+  })
+  const checkbox = await screen.findByRole('checkbox', { name: /Work Example/ })
+  fireEvent.click(checkbox)
+  fireEvent.click(await screen.findByRole('button', { name: en.settingsUi.save }))
+
+  await screen.findByText(en.settingsUi.saved)
+  const patch = requests.find(r => r.method === 'PATCH' && r.path.endsWith('/settings/mcp'))
+  expect(patch?.body).toEqual({ expected_version: 2, account_ids: ['acc-1'] })
 })

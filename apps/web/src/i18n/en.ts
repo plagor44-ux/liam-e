@@ -436,8 +436,9 @@ export const en = {
   mcpAccounts: {
     section: 'MCP access',
     title: 'Mail accounts for MCP',
-    description: 'Choose which active mail accounts a connected MCP client may read through the read-only inbox index. No account is granted by default.',
-    toolsHeading: 'Exposed tools (read-only)',
+    description: 'Pre-select which active mail accounts may be read through the read-only inbox index once MCP access is enabled in a later release. No account is granted by default.',
+    inactiveNotice: 'MCP access is not enabled yet. Until a follow-up release activates it, liam-e refuses every MCP request even when accounts are selected here.',
+    toolsHeading: 'Prepared tools (read-only)',
     tools: [
       'liam_mail_accounts — lists only the accounts granted here.',
       'liam_mail_search — searches the local inbox index of these accounts.',

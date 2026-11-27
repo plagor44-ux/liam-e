@@ -56,6 +56,8 @@ class DenyReadAccess:
 
 
 def get_read_access_verifier() -> ReadAccessVerifier:
+    # Keep DenyReadAccess unconditionally bound in production until the #157 prerequisite
+    # (or an owner-approved replacement) is complete; activation is a separate follow-up PR.
     return DenyReadAccess()
 
 

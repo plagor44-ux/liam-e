@@ -255,6 +255,26 @@ def test_switch_off_and_db_failure_refuse_before_verifier(monkeypatch) -> None:
         assert "secret-test-only" not in response.text
 
 
+def test_non_post_returns_405_before_verifier(monkeypatch) -> None:
+    """With outside access ON, GET/DELETE answer 405 Allow: POST without calling the verifier."""
+    monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=True))
+    app = build_app()
+
+    class SpyVerifier:
+        async def verify(self, request):
+            pytest.fail("verifier must not run for non-POST requests")
+
+    app.dependency_overrides[get_read_access_verifier] = SpyVerifier
+    with TestClient(app, base_url="http://localhost:3000") as client:
+        for response in (
+            client.get(MCP_MOUNT_PATH, headers=_modern_headers()),
+            client.delete(MCP_MOUNT_PATH, headers=_modern_headers()),
+        ):
+            assert response.status_code == 405
+            assert response.headers.get("allow") == "POST"
+            assert response.headers.get("cache-control") == "no-store"
+
+
 def test_default_denies_with_401_and_malformed_grant_is_rejected(monkeypatch) -> None:
     """With the switch ON, DenyReadAccess (default) and malformed grants both answer 401."""
     monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=True))
@@ -502,51 +522,73 @@ def test_transport_security_body_cap_and_rate_limit(indexed_mail, monkeypatch) -
 
     app.dependency_overrides[get_read_access_verifier] = PrincipalVerifier
 
-    with TestClient(app, base_url="http://localhost:3000") as client:
-        # Invalid Host -> 421.
-        bad_host = client.post(
-            MCP_MOUNT_PATH,
-            headers=_modern_headers("tools/list", Host="evil.example"),
-            json=_modern_rpc(1, "tools/list"),
-        )
-        assert bad_host.status_code == 421
+    transport_logs: list[str] = []
 
-        # Invalid Origin -> 403.
-        bad_origin = client.post(
-            MCP_MOUNT_PATH,
-            headers=_modern_headers("tools/list", Origin="https://evil.example"),
-            json=_modern_rpc(2, "tools/list"),
-        )
-        assert bad_origin.status_code == 403
+    class _TransportHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            transport_logs.append(record.getMessage())
 
-        # Valid Origin (CORS_ORIGIN) -> 200.
-        ok_origin = client.post(
-            MCP_MOUNT_PATH,
-            headers=_modern_headers("tools/list", Origin="http://localhost:3001"),
-            json=_modern_rpc(3, "tools/list"),
-        )
-        assert ok_origin.status_code == 200
+    handler = _TransportHandler(logging.INFO)
+    transport_logger = logging.getLogger("api.mcp.transport")
+    transport_logger.addHandler(handler)
+    try:
+        with TestClient(app, base_url="http://localhost:3000") as client:
+            # Invalid Host -> 421 with fixed-code log (no host value).
+            bad_host = client.post(
+                MCP_MOUNT_PATH,
+                headers=_modern_headers("tools/list", Host="evil.example"),
+                json=_modern_rpc(1, "tools/list"),
+            )
+            assert bad_host.status_code == 421
 
-        # Oversized body -> 413 (checked before verifier/rate limit).
-        oversized = client.post(
-            MCP_MOUNT_PATH,
-            headers=_modern_headers("tools/call", "liam_mail_search"),
-            content=json.dumps(_modern_rpc(4, "tools/call", {"name": "liam_mail_search", "arguments": {"query": "a" * 600}})),
-        )
-        assert oversized.status_code == 413
+            # Invalid Origin -> 403 with fixed-code log (no origin value).
+            bad_origin = client.post(
+                MCP_MOUNT_PATH,
+                headers=_modern_headers("tools/list", Origin="https://evil.example"),
+                json=_modern_rpc(2, "tools/list"),
+            )
+            assert bad_origin.status_code == 403
 
-        # Second allowed call for principal-a passes (limit=2), third hits 429.
-        second = client.post(MCP_MOUNT_PATH, headers=_modern_headers("tools/list"), json=_modern_rpc(5, "tools/list"))
-        assert second.status_code == 200
-        limited = client.post(MCP_MOUNT_PATH, headers=_modern_headers("tools/list"), json=_modern_rpc(6, "tools/list"))
-        assert limited.status_code == 429
-        assert limited.json() == {"detail": "rate_limited"}
-        assert int(limited.headers["retry-after"]) >= 1
+            # Valid Origin (CORS_ORIGIN) -> 200.
+            ok_origin = client.post(
+                MCP_MOUNT_PATH,
+                headers=_modern_headers("tools/list", Origin="http://localhost:3001"),
+                json=_modern_rpc(3, "tools/list"),
+            )
+            assert ok_origin.status_code == 200
 
-        # Another principal still has its own budget.
-        principal_box["name"] = "principal-b"
-        other = client.post(MCP_MOUNT_PATH, headers=_modern_headers("tools/list"), json=_modern_rpc(7, "tools/list"))
-        assert other.status_code == 200
+            # Oversized body -> 413 (checked before verifier/rate limit).
+            oversized = client.post(
+                MCP_MOUNT_PATH,
+                headers=_modern_headers("tools/call", "liam_mail_search"),
+                content=json.dumps(_modern_rpc(4, "tools/call", {"name": "liam_mail_search", "arguments": {"query": "a" * 600}})),
+            )
+            assert oversized.status_code == 413
+
+            # Non-POST requests return 405 before invoking the verifier or consuming rate-limit budget.
+            get_resp = client.get(MCP_MOUNT_PATH, headers=_modern_headers())
+            del_resp = client.delete(MCP_MOUNT_PATH, headers=_modern_headers())
+            assert get_resp.status_code == 405 and get_resp.headers.get("allow") == "POST"
+            assert del_resp.status_code == 405 and del_resp.headers.get("allow") == "POST"
+
+            # Second allowed call for principal-a passes (limit=2), third hits 429.
+            second = client.post(MCP_MOUNT_PATH, headers=_modern_headers("tools/list"), json=_modern_rpc(5, "tools/list"))
+            assert second.status_code == 200
+            limited = client.post(MCP_MOUNT_PATH, headers=_modern_headers("tools/list"), json=_modern_rpc(6, "tools/list"))
+            assert limited.status_code == 429
+            assert limited.json() == {"detail": "rate_limited"}
+            assert int(limited.headers["retry-after"]) >= 1
+
+            # Another principal still has its own budget.
+            principal_box["name"] = "principal-b"
+            other = client.post(MCP_MOUNT_PATH, headers=_modern_headers("tools/list"), json=_modern_rpc(7, "tools/list"))
+            assert other.status_code == 200
+    finally:
+        transport_logger.removeHandler(handler)
+
+    assert "mcp_transport=host_rejected" in transport_logs
+    assert "mcp_transport=origin_rejected" in transport_logs
+    assert all("evil.example" not in line for line in transport_logs)
 
 
 def test_timeout_cancellation_fresh_instance_and_log_privacy(indexed_mail, monkeypatch, caplog) -> None:
