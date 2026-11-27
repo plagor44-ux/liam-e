@@ -69,8 +69,9 @@ row means off.
   change applies to the next request on every app instance. A request that already passed the gate
   finishes with at most one bounded response.
 - **Who switches.** `agent_access_disable` passes the caller gate for every caller, takes no
-  revision and makes no identity lookup, so it always works, also during a Users API outage. It always advances the revision, also when access is already off, so a turn-on
-  confirmed earlier (say in another tab, while its identity lookup was still running) fails with
+  revision and makes no identity lookup, so it always works, also during a Users API outage. It
+  always advances the revision, also when access is already off, so a turn-on confirmed earlier
+  (say in another tab, while its identity lookup was still running) fails with
   409 `agent_access_conflict` instead of reopening access. `agent_access_enable` needs the bound
   owner's own browser session (`api/owner_access.py`, binding `AUDIO_STUDIO_OWNER`) and the
   current revision. Both changes take the same row lock. All three switch operations are
@@ -78,12 +79,13 @@ row means off.
 
 The switch does not revoke anything at the gateway. Tokens and refresh grants stay valid there;
 only deleting the app ends them (#157, L9). Data an agent has already read cannot be recalled.
-Callers the Users API reports as user sessions, such as an MCP sign-in (#157), pass the gate like
-the owner's browser, so the AGENTS.md import rule still applies. With the switch on, the read facade and `/api/mcp` still
-answer 401 to everyone because `DenyReadAccess` stays unconditionally bound in production until a
-separate binding PR installs a caller verifier and flags `/api/mcp` in `mistral.json` after #157 is
-GO, while workspace-key callers can already use the read-only `/api/v1` GETs; the settings page
-says both.
+Callers the Users API reports as user sessions, such as an MCP sign-in token (#157), pass the
+`/api/v1` gate like the owner's browser, so the AGENTS.md import rule still applies, and the
+`/api/mcp` binding PR (#36) must not rely on this gate to keep MCP clients away from `/api/v1`.
+With the switch on, the read facade and `/api/mcp` still answer 401 to everyone because
+`DenyReadAccess` stays unconditionally bound in production until that separate binding PR
+installs a caller verifier and flags `/api/mcp` in `mistral.json` after #157 is GO, while
+workspace-key callers can already use the read-only `/api/v1` GETs; the settings page says both.
 
 ## Native MCP transport (`/api/mcp`, #36)
 
