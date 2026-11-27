@@ -3,7 +3,8 @@
 #
 #   bash tools/probes/mcp_route_app/deploy.sh <commit> --create-app liam-e-mcp-route-probe   # first deploy
 #   bash tools/probes/mcp_route_app/deploy.sh <commit>                                       # update the app
-#   bash tools/probes/mcp_route_app/deploy.sh --delete                                       # delete it
+#   bash tools/probes/mcp_route_app/deploy.sh --delete                                       # dry run
+#   bash tools/probes/mcp_route_app/deploy.sh --delete --apply                               # delete it
 #
 # Each run needs the owner's approval for the live probe (docs/superpowers/probes/
 # 2026-11-25-mcp-route-sign-in.md). The Mistral IDs never enter the repository. They live in the
@@ -22,10 +23,11 @@
 # update refuses --create-app and needs the recorded app to be the only app of that name.
 #
 # liam-e's own apps are never a target. The script refuses an app ID that any liam-e deployment file
-# names: mistral.deployment.json at the checkout root, the file LIAM_E_DEPLOYMENT_FILE names, and
-# every file in the colon-separated list MCP_ROUTE_PROBE_LIAM_E_FILES (for example the deployment
-# files of liam-e's test and production apps). It stops if none of them names an app ID, because
-# then it could not tell liam-e's apps apart.
+# names: mistral.deployment.json at the checkout root, the file LIAM_E_DEPLOYMENT_FILE names, every
+# file in the colon-separated list MCP_ROUTE_PROBE_LIAM_E_FILES, and every *.json file in liam-e's
+# config directory, ${XDG_CONFIG_HOME:-$HOME/.config}/liam-e (for example the deployment files of
+# liam-e's test and production apps). It stops if none of them names an app ID, because then it
+# could not tell liam-e's apps apart.
 #
 # Steps: require the commit to be on origin/main; export the probe directory's tracked files at
 # that commit into a fresh temporary directory (no .env, no ignored files, no Git metadata); write
@@ -33,8 +35,19 @@
 # remove the copy. The script never prints the IDs. The CLI's own output may show the target and the
 # app URL; do not copy those into the probe log.
 #
-# --delete runs `mistral apps delete` without --yes: on a terminal the CLI asks for the app's name,
-# and off a terminal it refuses.
+# --delete is the emergency stop of the L9 kill-switch test, so it guards harder than a deploy:
+#   - it reads the app ID only from tools/probes/mcp_route_app/mistral.deployment.json and refuses
+#     MCP_ROUTE_PROBE_DEPLOYMENT_FILE;
+#   - liam-e's config directory must name at least one app ID, and the recorded ID must be none of
+#     the protected IDs;
+#   - the workspace listing must show the recorded app under the exact name liam-e-mcp-route-probe,
+#     and no other app may carry that name or label.
+# Without --apply it stops there (dry run). With --apply it runs `mistral apps delete --yes` (the
+# script has asked already, and the CLI needs --yes off a terminal), lists the workspace again, and
+# removes the appId from the deployment file only once the listing shows no app of the probe's ID
+# or name. Last it checks that the liam-e apps listed before the delete are still listed with the
+# same name, label and updatedAt. It prints counts, never IDs, and keeps the CLI's own output to
+# itself.
 set -euo pipefail
 
 PROBE_DIR="tools/probes/mcp_route_app"
@@ -46,7 +59,7 @@ fail() {
 }
 
 usage() {
-  echo "usage: bash $PROBE_DIR/deploy.sh <commit> [--create-app $PROBE_NAME] | --delete" >&2
+  echo "usage: bash $PROBE_DIR/deploy.sh <commit> [--create-app $PROBE_NAME] | --delete [--apply]" >&2
   exit 64
 }
 
@@ -54,11 +67,16 @@ mode=deploy
 commit=""
 create_given=0
 create_name=""
+apply=0
 case "${1:-}" in
   "") usage ;;
   --delete)
-    [ "$#" -eq 1 ] || usage
     mode=delete
+    case "$#:${2:-}" in
+      1:) ;;
+      2:--apply) apply=1 ;;
+      *) usage ;;
+    esac
     ;;
   -*) usage ;;
   *)
@@ -73,21 +91,26 @@ case "${1:-}" in
 esac
 
 root="$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+if [ "$mode" = delete ] && [ -n "${MCP_ROUTE_PROBE_DEPLOYMENT_FILE:-}" ]; then
+  fail "--delete reads the app ID only from $PROBE_DIR/mistral.deployment.json; unset MCP_ROUTE_PROBE_DEPLOYMENT_FILE"
+fi
 ids_file="${MCP_ROUTE_PROBE_DEPLOYMENT_FILE:-$root/$PROBE_DIR/mistral.deployment.json}"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/liam-e"
 [ -f "$ids_file" ] || fail "no deployment file at $ids_file; copy mistral.deployment.example.json there and fill in the IDs"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 command -v mistral >/dev/null 2>&1 || fail "the mistral CLI is not on PATH"
 
 # Validate the file, collect liam-e's app IDs and print organization, workspace, app ID ("none"
 # before the first deploy) and the protected app IDs. Errors name the rule, never a value.
-ids="$(python3 -I - "$ids_file" "$root/mistral.deployment.json" "${LIAM_E_DEPLOYMENT_FILE:-}" "${MCP_ROUTE_PROBE_LIAM_E_FILES:-}" <<'PY'
+ids="$(python3 -I - "$mode" "$ids_file" "$root/mistral.deployment.json" "${LIAM_E_DEPLOYMENT_FILE:-}" "${MCP_ROUTE_PROBE_LIAM_E_FILES:-}" "$config_dir" <<'PY'
 import json
+import pathlib
 import re
 import sys
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 REQUIRED = ("organizationId", "workspaceId")
-ids_path, root_file, named_file, listed_files = sys.argv[1:]
+mode, ids_path, root_file, named_file, listed_files, config_dir = sys.argv[1:]
 try:
     with open(ids_path, encoding="utf-8") as handle:
         data = json.load(handle)
@@ -105,7 +128,8 @@ def liam_app_id(path: str, required: bool) -> str | None:
             liam = json.load(handle)
     except OSError:
         if required:
-            sys.exit("probe deploy: a liam-e deployment file named in the environment is missing or unreadable")
+            sys.exit("probe deploy: a liam-e deployment file named in the environment or kept in the liam-e config "
+                     "directory is missing or unreadable")
         return None
     except ValueError:
         sys.exit("probe deploy: a liam-e deployment file is not readable JSON")
@@ -117,10 +141,17 @@ sources = [(root_file, False)]
 if named_file:
     sources.append((named_file, True))
 sources += [(path, True) for path in listed_files.split(":") if path]
-protected = {value for path, required in sources if (value := liam_app_id(path, required))}
+config = pathlib.Path(config_dir)
+config_files = sorted(str(path) for path in config.glob("*.json")) if config.is_dir() else []
+from_config = {value for path in config_files if (value := liam_app_id(path, True))}
+protected = from_config | {value for path, required in sources if (value := liam_app_id(path, required))}
 if not protected:
     sys.exit("probe deploy: no liam-e deployment file names an app ID, so liam-e's apps cannot be ruled out; "
-             "list liam-e's deployment files in MCP_ROUTE_PROBE_LIAM_E_FILES")
+             "list liam-e's deployment files in MCP_ROUTE_PROBE_LIAM_E_FILES or keep them in the liam-e "
+             "config directory")
+if mode == "delete" and not from_config:
+    sys.exit("probe deploy: the liam-e config directory (XDG_CONFIG_HOME/liam-e, by default $HOME/.config/liam-e) "
+             "names no app ID; --delete compares the probe app with liam-e's test and production apps there")
 if data.get("appId") in protected:
     sys.exit("probe deploy: the app ID is liam-e's own app; the probe never deploys to it")
 print(data["organizationId"])
@@ -152,7 +183,8 @@ trap 'exit 143' TERM
 
 # Lists the target workspace read-only and checks it for the probe's name, as an app's name or
 # label. "absent": no app may carry it. "recorded": the app with the given ID must carry it, and no
-# other app may.
+# other app may. "deletable": as "recorded", and the app's name must be exactly the probe's name.
+# "gone": no app may have the given ID or carry the name.
 check_listing() {
   local expectation="$1" expected_app="$2"
   (cd "$work" && mistral apps list --organization "$organization" --workspace "$workspace" --json >"$work/apps.json") ||
@@ -181,18 +213,21 @@ if expectation == "absent":
                  "probe app from an earlier run, record its appId in the deployment file and deploy without --create-app")
     sys.exit(0)
 recorded = [app for app in apps if app.get("id") == app_id]
+if expectation == "gone":
+    if recorded or named:
+        sys.exit(f"probe deploy: the app list still shows an app with the recorded ID or the name {name}")
+    sys.exit(0)
 if not recorded or recorded[0] not in named:
     sys.exit(f"probe deploy: no app with the recorded ID and the name {name} in the target workspace")
 if any(app.get("id") != app_id for app in named):
     sys.exit(f"probe deploy: another app in the target workspace is also named {name}; check the workspace by hand")
+if expectation == "deletable" and recorded[0].get("name") != name:
+    sys.exit(f"probe deploy: the app with the recorded ID is not named exactly {name}")
 PY
 }
 
-if [ "$mode" = delete ]; then
-  check_listing recorded "$app_id" || fail "nothing was deleted"
-  # Without --yes the CLI asks to type the app's name before it deletes anything.
-  (cd "$work" && mistral apps delete "$app_id" --organization "$organization" --workspace "$workspace") ||
-    fail "'mistral apps delete' did not finish; check the workspace by hand"
+# Removes the appId from the deployment file, keeping its mode at 0600.
+forget_app_id() {
   python3 -I - "$ids_file" <<'PY'
 import json
 import os
@@ -208,7 +243,49 @@ with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w",
     handle.write("\n")
 os.replace(temporary, path)
 PY
-  echo "Deleted the probe app and removed its appId from the deployment file."
+}
+
+if [ "$mode" = delete ]; then
+  check_listing deletable "$app_id" || fail "nothing was deleted"
+  cp "$work/apps.json" "$work/apps-before.json"
+  if [ "$apply" -eq 0 ]; then
+    echo "Dry run: the recorded app is the only app named $PROBE_NAME in the target workspace and none of" \
+      "liam-e's apps. Nothing was deleted; run again with --apply to delete it."
+    exit 0
+  fi
+  status=0
+  (cd "$work" && mistral apps delete "$app_id" --organization "$organization" --workspace "$workspace" --yes \
+    >"$work/delete.out" 2>&1) || status=$?
+  [ "$status" -eq 0 ] ||
+    fail "'mistral apps delete' exited with $status; the appId stays recorded; check the workspace by hand"
+  check_listing gone "$app_id" ||
+    fail "the CLI reported the delete, but the app list still shows the probe app; the appId stays recorded"
+  forget_app_id
+  echo "Deleted the probe app: no app named $PROBE_NAME remains, and its appId is gone from the deployment file."
+  kept="$(python3 -I - "$work/apps-before.json" "$work/apps.json" "$protected_ids" <<'PY'
+import json
+import sys
+
+before_path, after_path, protected = sys.argv[1:]
+protected_ids = set(protected.split(","))
+
+
+def listed(path: str) -> dict[str, tuple[object, ...]]:
+    with open(path, encoding="utf-8") as handle:
+        apps = json.load(handle)["apps"]
+    return {app.get("id"): (app.get("name"), app.get("label"), app.get("updatedAt"))
+            for app in apps if app.get("id") in protected_ids}
+
+
+before, after = listed(before_path), listed(after_path)
+changed = [app_id for app_id, record in before.items() if after.get(app_id) != record]
+if changed:
+    sys.exit(f"probe deploy: {len(changed)} liam-e app(s) listed before the delete are missing or changed now; "
+             "check the workspace by hand")
+print(len(before))
+PY
+)" || fail "a liam-e app listed before the delete is missing or changed now"
+  echo "Checked the listing: the $kept liam-e apps listed before are still listed, unchanged."
   exit 0
 fi
 

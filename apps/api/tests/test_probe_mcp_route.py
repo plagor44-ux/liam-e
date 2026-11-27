@@ -70,6 +70,14 @@ class FakeGateway:
     challenge: dict[str, str] = field(default_factory=dict)
     token_forms: list[dict[str, list[str]]] = field(default_factory=list)
     mistral_api_calls: int = 0
+    # The kill-switch test (L9): ``deleted`` is set when the probe app is deleted. ``after_delete``
+    # says what the gateway does then: "gone" (routes 404, refresh rejected), "ignored" (nothing
+    # changes), "refresh_only" (routes gone, refresh still works), "cached" (like "ignored" until
+    # ``cache_expired``, then "gone"), "unreachable" (every request fails to connect) or
+    # "server_error" (503 everywhere).
+    deleted: bool = False
+    after_delete: str = "gone"
+    cache_expired: bool = False
 
     def __post_init__(self) -> None:
         async def lookup(proxy: str, token: str) -> identity.Identity:
@@ -77,6 +85,13 @@ class FakeGateway:
             return identity.Identity("user", USER_ID, WORKSPACE_ID)
 
         self.app = TestClient(create_app(lookup=lookup), base_url=BASE)
+
+    def routes_gone(self) -> bool:
+        return self.deleted and (self.after_delete in ("gone", "refresh_only")
+                                 or (self.after_delete == "cached" and self.cache_expired))
+
+    def grant_gone(self) -> bool:
+        return self.deleted and (self.after_delete == "gone" or (self.after_delete == "cached" and self.cache_expired))
 
     def valid(self, request: httpx.Request) -> bool:
         tokens = {ACCESS, REFRESHED}
@@ -93,6 +108,12 @@ class FakeGateway:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         path = request.url.path
+        if self.deleted and self.after_delete == "unreachable":
+            raise httpx.ConnectError("synthetic: the deleted app does not answer", request=request)
+        if self.deleted and self.after_delete == "server_error":
+            return httpx.Response(503, json={"error": "unavailable"})
+        if self.routes_gone() and path in ("/mcp", "/api/mcp"):
+            return httpx.Response(404, json={"error": "not_found"})
         if url == probe.MISTRAL_API_PROBE:
             self.mistral_api_calls += 1
             return httpx.Response(401, json={"message": "Unauthorized"})
@@ -140,7 +161,7 @@ class FakeGateway:
             form = parse_qs(request.content.decode())
             self.token_forms.append(form)
             if form["grant_type"] == ["refresh_token"]:
-                if self.revoked and not self.ignore_revocation:
+                if self.grant_gone() or (self.revoked and not self.ignore_revocation):
                     return httpx.Response(400, json={"error": "invalid_grant", "error_description": USER_ID})
                 return httpx.Response(200, json={"access_token": REFRESHED, "token_type": "Bearer", "expires_in": 3600})
             verifier = form["code_verifier"][0]
@@ -191,18 +212,20 @@ def browser_for(gateway: FakeGateway):
 
 def run(gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch, *, callback: FakeCallback | None = None,
         revoke: bool = True, mistral_api: bool = True, open_browser: Callable[[str], bool] | None = None,
-        callback_factory: Callable[[], object] | None = None, **live: object) -> tuple[list, list[str]]:
+        callback_factory: Callable[[], object] | None = None, pause: Callable[[], None] | None = None,
+        **live: object) -> tuple[list, list[str]]:
     monkeypatch.setenv("__APPS_PROXY_URL", PROXY)
     lines: list[str] = []
     client = httpx.Client(transport=httpx.MockTransport(gateway), follow_redirects=False)
 
-    def pause() -> None:
+    def revoke_at_pause() -> None:
         gateway.revoked = True
 
     outcomes = probe.run_live(BASE, client=client, emit=lambda outcome: lines.append(outcome.line()),
                               open_browser=open_browser or browser_for(gateway),
                               callback_factory=callback_factory or (lambda: callback or FakeCallback(gateway)),
-                              check_mistral_api=mistral_api, revocation_step=revoke, pause=pause, **live)
+                              check_mistral_api=mistral_api, revocation_step=revoke, pause=pause or revoke_at_pause,
+                              **live)
     return outcomes, lines
 
 
@@ -653,3 +676,197 @@ def test_a_token_accepted_by_the_mistral_api_blocks() -> None:
         probe.Outcome("q6.revoked", "", 401),
     ]
     assert probe.evaluate(outcomes).get("reasons") == ("token_accepted_by_mistral_api",)
+
+
+# --- kill switch (L9): does deleting the probe app end its tokens? -----------------------------
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def kill_run(gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch, *, after_pause: Callable[[], None] | None = None,
+             after_sleep: Callable[[], None] | None = None, clock: Clock | None = None,
+             **options: object) -> tuple[dict, list[str], list[float]]:
+    sleeps: list[float] = []
+
+    def pause() -> None:
+        gateway.deleted = True
+        if after_pause is not None:
+            after_pause()
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if after_sleep is not None:
+            after_sleep()
+
+    outcomes, lines = run(gateway, monkeypatch, revoke=False, mistral_api=False, pause=pause, kill_switch_step=True,
+                          sleep=sleep, clock=clock or Clock(), **options)
+    return by_key(outcomes), lines, sleeps
+
+
+def test_kill_switch_effective_when_deletion_ends_calls_and_refresh(monkeypatch: pytest.MonkeyPatch,
+                                                                    capsys: pytest.CaptureFixture[str]) -> None:
+    gateway = FakeGateway()
+    results, lines, sleeps = kill_run(gateway, monkeypatch)
+
+    assert [results[f"k0.{name}"].status for name in ("call", "refresh", "refreshed_call")] == [200, 200, 200]
+    for check in ("k1", "k2"):
+        assert results[f"{check}.call"].status == 404 and results[f"{check}.call"].get("within_lifetime") == "yes"
+        assert results[f"{check}.refresh"].status == 400
+        assert f"{check}.refreshed_call" not in results
+    assert sleeps == [probe.KILL_SWITCH_RECHECK_SECONDS] and probe.KILL_SWITCH_RECHECK_SECONDS == 120
+    kill = results["kill_switch"]
+    assert kill.status == "effective" and kill.get("immediate") == "effective"
+    # The kill-switch run is not the matrix: no unflagged route, write, Mistral API or revocation call.
+    assert "verdict" not in results and "q2.baseline" not in results and "q7.prm" not in results
+    assert not any(key.startswith(("q2.", "q3.", "q4.", "q6.", "q8.", "q9.")) for key in results)
+    assert "Delete the probe app now" in capsys.readouterr().err
+    assert_redacted(lines)
+
+
+def test_kill_switch_not_effective_when_the_gateway_ignores_the_deletion(monkeypatch: pytest.MonkeyPatch) -> None:
+    results, lines, _ = kill_run(FakeGateway(after_delete="ignored"), monkeypatch)
+
+    assert [results[f"k1.{name}"].status for name in ("call", "refresh", "refreshed_call")] == [200, 200, 200]
+    kill = results["kill_switch"]
+    assert kill.status == "not_effective" and kill.get("immediate") == "not_effective"
+    assert {"call_accepted", "refresh_accepted", "refreshed_call_accepted"} <= set(kill.get("reasons"))
+    assert_redacted(lines)
+
+
+def test_a_live_refresh_grant_alone_means_not_effective(monkeypatch: pytest.MonkeyPatch) -> None:
+    results, _, _ = kill_run(FakeGateway(after_delete="refresh_only"), monkeypatch)
+
+    assert results["k2.call"].status == 404 and results["k2.refresh"].status == 200
+    assert results["k2.refreshed_call"].status == 404
+    kill = results["kill_switch"]
+    assert kill.status == "not_effective" and kill.get("reasons") == ("refresh_accepted",)
+
+
+def test_a_kill_switch_that_takes_effect_during_the_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = FakeGateway(after_delete="cached")
+    results, _, _ = kill_run(gateway, monkeypatch, after_sleep=lambda: setattr(gateway, "cache_expired", True))
+
+    assert results["k1.call"].status == 200 and results["k2.call"].status == 404 and results["k2.refresh"].status == 400
+    kill = results["kill_switch"]
+    assert kill.status == "effective" and kill.get("immediate") == "not_effective"
+
+
+def test_an_app_that_no_longer_answers_counts_as_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    results, lines, _ = kill_run(FakeGateway(after_delete="unreachable"), monkeypatch)
+
+    assert results["k1.call"].status == "transport:ConnectError"
+    assert results["k1.refresh"].status == "transport:ConnectError"
+    assert results["kill_switch"].status == "effective"
+    assert_redacted(lines)
+
+
+def test_server_errors_leave_the_kill_switch_unclear(monkeypatch: pytest.MonkeyPatch) -> None:
+    results, _, _ = kill_run(FakeGateway(after_delete="server_error"), monkeypatch)
+
+    kill = results["kill_switch"]
+    assert kill.status == "unclear" and {"call_unclear", "refresh_unclear"} <= set(kill.get("reasons"))
+
+
+def test_an_expired_access_token_proves_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = Clock()
+
+    def later() -> None:
+        clock.now += 4000  # past the fake's expires_in of 3600 seconds
+
+    results, lines, _ = kill_run(FakeGateway(), monkeypatch, clock=clock, after_pause=later)
+
+    assert results["k1.call"].status == 404 and results["k1.call"].get("within_lifetime") == "no"
+    kill = results["kill_switch"]
+    assert kill.status == "unclear" and "access_token_expired" in kill.get("reasons")
+    assert_redacted(lines)
+
+
+
+def test_expiry_during_the_delay_keeps_a_proven_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = Clock()
+
+    def later() -> None:
+        clock.now += 4000
+
+    results, _, _ = kill_run(FakeGateway(), monkeypatch, clock=clock, after_sleep=later)
+
+    assert results["k1.call"].get("within_lifetime") == "yes" and results["k2.call"].get("within_lifetime") == "no"
+    kill = results["kill_switch"]
+    # Round 1 proved the rejection while the token was valid; round 2 adds no contrary evidence.
+    assert kill.status == "effective" and kill.get("immediate") == "effective" and kill.get("after_delay") == "unclear"
+
+@pytest.mark.parametrize(("gateway_options", "callback_error", "reason"), [
+    ({}, "access_denied", "sign_in_error"),
+    ({"revoked": True}, None, "baseline_failed"),  # the token does not work even before the deletion
+])
+def test_no_pause_without_a_working_token(gateway_options: dict, callback_error: str | None, reason: str,
+                                          monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    gateway = FakeGateway(**gateway_options)
+    paused: list[bool] = []
+    callback = FakeCallback(gateway, error=callback_error) if callback_error else None
+    results, _, sleeps = kill_run(gateway, monkeypatch, after_pause=lambda: paused.append(True), callback=callback)
+
+    assert paused == [] and sleeps == [] and not any(key.startswith(("k1.", "k2.")) for key in results)
+    assert results["stop"].status == reason
+    kill = results["kill_switch"]
+    assert kill.status == "unclear" and kill.get("reasons") == (reason,)
+    assert "Delete the probe app" not in capsys.readouterr().err
+
+
+def outcome(key: str, status: int | str, lifetime: str | None = None) -> object:
+    return probe.Outcome(key, key, status, (("within_lifetime", lifetime),) if lifetime else ())
+
+
+@pytest.mark.parametrize(("call", "refresh", "refreshed", "expected"), [
+    (outcome("call", 401, "yes"), outcome("refresh", 400), None, ("effective", ())),
+    (outcome("call", 404, "yes"), outcome("refresh", "transport:ConnectError"), None, ("effective", ())),
+    (outcome("call", 200, "yes"), outcome("refresh", 400), None, ("not_effective", ("call_accepted",))),
+    (outcome("call", 401, "yes"), outcome("refresh", 200), outcome("refreshed_call", 401, "yes"),
+     ("not_effective", ("refresh_accepted",))),
+    (outcome("call", "transport:ReadTimeout", "yes"), outcome("refresh", 400), None, ("unclear", ("call_unclear",))),
+    (outcome("call", 401, "no"), outcome("refresh", 401), None, ("unclear", ("access_token_expired",))),
+    (outcome("call", 401, "unknown"), outcome("refresh", 400), None, ("unclear", ("lifetime_unknown",))),
+    (outcome("call", 401, "yes"), None, None, ("unclear", ("refresh_not_tried",))),
+    (outcome("call", 503, "yes"), outcome("refresh", 503), None, ("unclear", ("call_unclear", "refresh_unclear"))),
+])
+def test_kill_round_classification(call: object, refresh: object, refreshed: object,
+                                   expected: tuple[str, tuple[str, ...]]) -> None:
+    assert probe.kill_round(call, refresh, refreshed) == expected
+
+
+def test_the_kill_switch_flag_reaches_the_live_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(probe.URL_VARIABLE, BASE)
+    seen: dict[str, object] = {}
+
+    def fake_run_live(base_url: str, **kwargs: object) -> list:
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(probe, "run_live", fake_run_live)
+    assert probe.main(["--live", "--kill-switch-step", "--resource-from-metadata"]) == 0
+    assert seen["kill_switch_step"] is True and seen["resource_from_metadata"] is True
+    seen.clear()
+    assert probe.main(["--live"]) == 0 and seen["kill_switch_step"] is False
+
+
+@pytest.mark.parametrize("matrix_flag", ["--revocation-step", "--q3-mistral-api"])
+def test_the_kill_switch_runs_without_matrix_flags(matrix_flag: str, monkeypatch: pytest.MonkeyPatch,
+                                                   capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv(probe.URL_VARIABLE, BASE)
+    monkeypatch.setattr(probe, "run_live", lambda *a, **k: pytest.fail("ran with conflicting flags"))
+    assert probe.main(["--live", "--kill-switch-step", matrix_flag]) == 2
+    err = capsys.readouterr().err
+    assert "--kill-switch-step" in err
+    assert_redacted([err])
+
+
+def test_offline_lists_the_kill_switch_mode(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(probe, "run_live", lambda *a, **k: pytest.fail("offline run reached the network"))
+    assert probe.main([]) == 0
+    assert "--kill-switch-step" in capsys.readouterr().out

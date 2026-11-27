@@ -5,7 +5,8 @@ result record for #157 (parent #36). The sign-in through the flagged route works
 sends the resource that Studio's metadata names. The gateway keeps the token away from the app's
 unflagged routes, and the Mistral API rejects it. The owner found no way to revoke it, so the
 revocation check could not run. L6 (Vibe Code), L7, L8 and L9 have not run. "Result of the run"
-below has the verdict; the steps are kept as they were run.
+below has the verdict; the steps are kept as they were run. On 27 November the owner chose to test
+whether deleting the probe app ends its tokens (L9, step 8); that test has not run yet.
 
 ## Why this probe exists
 
@@ -27,10 +28,10 @@ never touches liam-e's data.
 
 | Part | Path | Role |
 | --- | --- | --- |
-| Probe tool | `tools/mcp_route_probe.py` | Offline by default. With `--live` it runs the matrix below against the probe app and prints one redacted line per case and a verdict. |
+| Probe tool | `tools/mcp_route_probe.py` | Offline by default. With `--live` it runs the matrix below against the probe app and prints one redacted line per case and a verdict. With `--live --kill-switch-step` it runs the L9 kill-switch test of step 8 instead. |
 | Probe app | `tools/probes/mcp_route_app/` | A standalone Starlette app, not part of the uv workspace. Unflagged `/api` routes (health, whoami, an in-memory counter and write route) and a test-only MCP stub on the flagged routes `/mcp` and `/api/mcp`. It holds no data and calls no provider or model. |
 | Manifest | `tools/probes/mcp_route_app/mistral.json` | One module with the routes `/api`, `/mcp` (`"mcp": true`) and `/api/mcp` (`"mcp": true`). No `deployment` block and no IDs. |
-| Deploy helper | `tools/probes/mcp_route_app/deploy.sh` | Exports the probe directory at a commit on `origin/main` into a temporary copy, writes the deployment block into that copy only and runs `mistral deploy --from-disk`. A first deploy needs `--create-app liam-e-mcp-route-probe`, checks the target workspace read-only for an app of that name and passes the name to the CLI. Refuses liam-e's apps. Also deletes the probe app. |
+| Deploy helper | `tools/probes/mcp_route_app/deploy.sh` | Exports the probe directory at a commit on `origin/main` into a temporary copy, writes the deployment block into that copy only and runs `mistral deploy --from-disk`. A first deploy needs `--create-app liam-e-mcp-route-probe`, checks the target workspace read-only for an app of that name and passes the name to the CLI. Refuses liam-e's apps. `--delete` checks the probe app as a dry run, and `--delete --apply` deletes it (step 8). |
 | Tests | `apps/api/tests/test_probe_mcp_route.py`, `apps/api/tests/test_probe_mcp_route_app.py`, `apps/api/tests/test_probe_mcp_route_deploy.py`, `tests/test_public_repo_hygiene.py` | Offline tests for the tool, the app and the manifest rules, and the deploy helper against a fake CLI. |
 
 The MCP stub answers both protocol eras that #36 must support (owner decision D6). The handshake
@@ -65,7 +66,7 @@ cover another. All live steps need the merged offline PR first.
 | L6 | Q8: add the probe's `/mcp` route to Vibe Code with OAuth, sign in, call the probe tools, remove the entry | A second OAuth client and token for the owner | Owner |
 | L7 | Optional Q5: a second workspace member signs in through the probe | Only if such an account exists | That member |
 | L8 | Optional: import the **probe app** (never liam-e) as a Studio connector, or try Vibe Work | Exposes only the probe's three read tools | Owner |
-| L9 | Delete the probe app (`deploy.sh --delete`). No way to revoke the probe's grants is known (Q6). | Removes the app; on a terminal the CLI asks for its name first, and off a terminal it refuses | Owner |
+| L9 | Kill-switch test and cleanup (step 8): one more sign-in with `--kill-switch-step`; at the pause the worker deletes the probe app with `deploy.sh --delete --apply`; the probe checks whether calls and refresh still work | Registers a fourth probe client and issues a token, then removes the app. The probe clients stay registered: there is no client management (RFC 7592). | Owner consents in the browser and gives the go |
 | L10 | Commit the redacted results in this file in a follow-up PR | Public repository change | Worker, owner merges |
 
 ## Live steps
@@ -245,20 +246,86 @@ fixed text only.
 - **Studio connector or Vibe Work**, only with L8: the probe app only. Record whether the tools
   appeared and whether a call reached the stub.
 
-### 8. Cleanup (L9)
+### 8. Kill-switch test and cleanup (L9)
 
-```bash
-bash tools/probes/mcp_route_app/deploy.sh --delete
-```
+Owner decision of 27 November 2026: L9 tests whether deleting the probe app works as an emergency
+stop for the probe's tokens, and deletes the app with it. There is no support request to Mistral,
+and L6 stays unapproved. L9 needs the merged PR that adds `--kill-switch-step` and the guarded
+delete, and the owner's explicit go.
 
-The helper first checks that the recorded app is listed under the probe's name. The CLI then asks
-for the app's name before it deletes anything; the helper never passes `--yes`, so this step needs
-a terminal and refuses without one. Then:
+Before the run:
 
-1. Check that `mistral apps list` no longer shows `liam-e-mcp-route-probe`, and record yes/no.
-2. Look for a way to revoke the OAuth grants of the three probe clients and of the Vibe entry. The
-   run of 27 November found none (Q6). Record where it was, or "none found" again.
-3. Unset `MCP_ROUTE_PROBE_URL`.
+1. Put the probe checkout at that merge commit, detached and clean. The commit changes `deploy.sh`
+   only, not the served app, so the app is not deployed again.
+2. Use a fresh `TMPDIR` with mode `0700` outside every Git checkout (#190), and set
+   `MCP_ROUTE_PROBE_URL` as in step 4.
+3. Run the dry run, which changes nothing:
+
+   ```bash
+   bash tools/probes/mcp_route_app/deploy.sh --delete
+   ```
+
+   It must end with "Nothing was deleted; run again with --apply to delete it." Otherwise stop.
+
+The run:
+
+1. Start the probe. It signs in as in step 4a, which registers a fourth probe client; the owner
+   consents in the browser.
+
+   ```bash
+   bash tools/uv.sh run --no-sync python tools/mcp_route_probe.py --live --kill-switch-step --resource-from-metadata
+   ```
+
+   Before it pauses, it runs the baseline `k0`: `tools/list`, a refresh grant, and `tools/list` with
+   the refreshed token. If one of them fails, it stops with `baseline_failed` and does not pause.
+2. At the prompt "Delete the probe app now", run this in a second shell, then press Enter in the
+   probe's shell at once:
+
+   ```bash
+   bash tools/probes/mcp_route_app/deploy.sh --delete --apply
+   ```
+
+   If the helper refuses, nothing was deleted: do not press Enter. End the probe with Ctrl-C (its
+   tokens exist only in its memory), record the helper's message and stop. If it fails after the
+   CLI's delete, check once more, read-only, whether the probe app is still listed. Press Enter if
+   it is gone; otherwise end the probe as above. Nothing is deleted by hand.
+3. The probe repeats the three requests at once (`k1`) and again after 120 seconds (`k2`), then
+   prints `kill_switch`. It refreshes with the newest refresh token, in case the server rotates
+   them. This mode prints no verdict line; `kill_switch` is the result of L9.
+
+The helper's guards, which the dry run checks as well:
+
+- It reads the app ID only from `tools/probes/mcp_route_app/mistral.deployment.json` and refuses
+  `MCP_ROUTE_PROBE_DEPLOYMENT_FILE`.
+- liam-e's config directory (`$XDG_CONFIG_HOME/liam-e`, by default `$HOME/.config/liam-e`) must name
+  at least one app ID, and the recorded ID must be none of them or of liam-e's other deployment
+  files.
+- The workspace listing must show the recorded app under the exact name `liam-e-mcp-route-probe`,
+  and no other app may carry that name or label.
+- With `--apply` it runs `mistral apps delete --yes`, because the helper has already asked and the
+  CLI needs `--yes` off a terminal. It keeps the CLI's output to itself and lists the workspace
+  again. It removes the `appId` from the deployment file only once no app of the probe's ID or
+  name is listed. Then it checks that the liam-e apps listed before are still listed unchanged
+  (name, label, `updatedAt`). It prints counts, never IDs.
+
+How to read the result: a request counts as stopped with 400, 401, 403, 404, 410 or a connection
+error. A stopped call counts only while the access token is within its own `expires_in`, less 10
+seconds (`within_lifetime=yes`).
+
+| `kill_switch` | When | Meaning |
+| --- | --- | --- |
+| `effective` | After the delay, no request returned 2xx, the refresh grant was stopped, and the call was stopped within the token's lifetime. Also when this held right after the deletion and only the token's expiry blurs the second check. | Deleting the app ends its tokens and grant. `immediate=not_effective` means that it took effect only within the 120 seconds. |
+| `not_effective` | After the delay, a call or the refresh grant still returned 2xx (`reasons`: `call_accepted`, `refresh_accepted`, `refreshed_call_accepted`) | Deleting the app does not end a leaked token or grant. |
+| `unclear` | Anything else, for example a 5xx or a timeout (`call_unclear`, `refresh_unclear`), an expired or unknown lifetime (`access_token_expired`, `lifetime_unknown`), or a stop before the pause | No conclusion; record the reasons. |
+
+Afterwards:
+
+1. Record yes/no: the helper's listing check passed, so no app named `liam-e-mcp-route-probe`
+   remains and liam-e's apps are listed unchanged.
+2. Record that the probe clients stay registered. The authorization server offers no client
+   management (RFC 7592), and the owner found no place to remove them. That makes four clients:
+   one from each of the three attempts and one from L9.
+3. Unset `MCP_ROUTE_PROBE_URL` and remove the temporary directory.
 4. Keep the deployment file: it now holds no `appId`.
 
 ### 9. Record (L10)
@@ -504,6 +571,9 @@ none of them had been confirmed against Studio; "Answered by the run" below list
   entries carry `id`, `name` and `label`. The helper's pre-check and post-check read that shape.
 - What `--name` does when an app of that name already exists is unknown. The helper's pre-check
   keeps that case from happening.
+- `mistral apps delete <app> --organization <id> --workspace <id> --yes` deletes the app without a
+  prompt; the CLI's help says `--yes` is required off a terminal. Whether the deletion ends the
+  app's tokens and grants is not documented, and is what L9 tests.
 - The runtime starts the container from `/srv` with the probe's start command (`--app-dir /srv`
   protects against another working directory). It also injects the gateway proxy URL as for liam-e
   (`__APPS_PROXY_URL` or `__SPACES_PROXY_URL`).

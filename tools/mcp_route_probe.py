@@ -13,6 +13,12 @@ sign-in (authorization code with PKCE ``S256``, ``resource`` and a loopback redi
 written or printed. ``resource`` is ``<app>/mcp`` unless ``--resource-from-metadata`` sends the
 value the route's protected-resource metadata names; the output shows which (``resource_sent``).
 
+``--live --kill-switch-step`` runs the L9 kill-switch test instead of the matrix: the same sign-in,
+then a call, a refresh grant and a call with the refreshed token as a baseline, and a pause for
+the owner to delete the probe app. After Enter it repeats the three requests at once and again
+after ``KILL_SWITCH_RECHECK_SECONDS``, and classifies ``kill_switch`` as ``effective``,
+``not_effective`` or ``unclear``. Both tokens stay in memory only.
+
 Output is one line per case: the HTTP status, fixed codes, header and field names, booleans, counts
 and duration buckets. It never prints a URL, token, client ID, user or workspace ID, or response
 text. The probe app's own fingerprints are salted per process and only compared, never decoded.
@@ -57,6 +63,10 @@ CALLBACK_VALUES = ("code", "state", "error", "iss")  # the only values the callb
 CALLBACK_BODY_LIMIT = 64 * 1024
 CALLBACK_FIELD_LIMIT = 64
 SIGN_IN_SECONDS = 300
+KILL_SWITCH_RECHECK_SECONDS = 120  # the second check after the deletion, to catch cached grants
+LIFETIME_MARGIN_SECONDS = 10  # an access token this close to its expiry no longer proves anything
+# Answers that show a request no longer reaches the deleted app or its grant.
+STOPPED = frozenset({400, 401, 403, 404, 410, "transport:ConnectError"})
 TIMEOUT_SECONDS = 20
 USER_AGENT = "liam-e-mcp-route-probe/1"
 
@@ -102,6 +112,9 @@ CASES: tuple[str, ...] = (
     "Q6 refresh grant, if a refresh token was issued",
     "Q6 (only with --revocation-step) pause for the owner to revoke, then repeat a call and a refresh",
     "verdict: GO-CANDIDATE, INCOMPLETE or BLOCKED with fixed reasons",
+    "L9 (only with --kill-switch-step, instead of the matrix): discovery and sign-in as above; a call, a refresh "
+    "and a call with the refreshed token; pause for the owner to delete the probe app; the same three at once "
+    f"and after {KILL_SWITCH_RECHECK_SECONDS} s; kill_switch effective, not_effective or unclear",
 )
 
 
@@ -438,6 +451,8 @@ def authorization_metadata_urls(issuer: str) -> list[str]:
 class Token:
     access: str = field(repr=False)
     refresh: str | None = field(default=None, repr=False)
+    expires_in: int | None = field(default=None, repr=False)  # seconds, as the token response says
+    issued_at: float = field(default=0.0, repr=False)  # the probe's clock when the token request was sent
 
     def __repr__(self) -> str:
         return "Token(<redacted>)"
@@ -578,10 +593,12 @@ class LoopbackCallback:
 class Probe:
     """Runs the matrix with one ``httpx.Client``. Every outcome goes to ``emit`` as soon as it exists."""
 
-    def __init__(self, client: Any, base_url: str, emit: Callable[[Outcome], None]) -> None:
+    def __init__(self, client: Any, base_url: str, emit: Callable[[Outcome], None],
+                 clock: Callable[[], float] = time.monotonic) -> None:
         self.client = client
         self.base = base_url.rstrip("/")
         self.emit = emit
+        self.clock = clock
         self.outcomes: list[Outcome] = []
         self._next_id = 0
 
@@ -610,13 +627,15 @@ class Probe:
     def mcp(self, key: str, label: str, route: str, era: str, method: str, *, token: Token | None,
             params: dict[str, Any] | None = None, name: str | None = None, notification: bool = False,
             version_header: str | None = None, meta_version: str | None = None,
-            extra: Callable[[dict[str, Any] | None], Iterable[tuple[str, object]]] | None = None) -> Outcome:
+            extra: Callable[[dict[str, Any] | None], Iterable[tuple[str, object]]] | None = None,
+            also: Iterable[tuple[str, object]] = ()) -> Outcome:
+        also = tuple(also)
         body = mcp_request(era, None if notification else self.rpc_id(), method, params, meta_version=meta_version)
         headers = mcp_headers(era, method, name=name, token=token.access if token else None, version_header=version_header)
         response, failure = self.send("POST", f"{self.base}{route}", json=body, headers=headers)
         if response is None:
-            return self.record(key, label, failure or "transport")
-        fields = response_fields(response)
+            return self.record(key, label, failure or "transport", also)
+        fields = [*response_fields(response), *also]
         if response.status_code < 300 and not notification:
             message = parse_mcp(response)
             error = message.get("error") if isinstance(message, dict) else None
@@ -752,6 +771,7 @@ class Probe:
         data = {**form, "client_id": client.client_id, "resource": discovery.parameter}
         if client.client_secret:
             data["client_secret"] = client.client_secret
+        sent_at = self.clock()  # the token cannot be older than the request, so its lifetime counts from here
         response, failure = self.send("POST", endpoint, data=data, headers={"Accept": "application/json"})
         if response is None:
             self.record(key, label, failure or "transport")
@@ -769,7 +789,9 @@ class Probe:
         ])
         if response.status_code != 200 or not isinstance(access, str) or not access:
             return None
-        return Token(access, refresh if isinstance(refresh, str) and refresh else None)
+        lifetime = body.get("expires_in")
+        lifetime = lifetime if isinstance(lifetime, int) and not isinstance(lifetime, bool) and lifetime > 0 else None
+        return Token(access, refresh if isinstance(refresh, str) and refresh else None, lifetime, sent_at)
 
     def sign_in(self, discovery: Discovery, *, open_browser: Callable[[str], bool],
                 callback_factory: Callable[[], Callback], show_url: Callable[[str], None] | None,
@@ -865,6 +887,9 @@ def run_live(
     resource_from_metadata: bool = False,
     pause: Callable[[], object] = input,
     sign_in_seconds: float = SIGN_IN_SECONDS,
+    kill_switch_step: bool = False,
+    sleep: Callable[[float], object] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> list[Outcome]:
     owned = client is None
     if owned:
@@ -873,7 +898,12 @@ def run_live(
         client = httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False, trust_env=False,
                               headers={"User-Agent": USER_AGENT})
     try:
-        probe = Probe(client, base_url, emit)
+        probe = Probe(client, base_url, emit, clock)
+        if kill_switch_step:
+            _run_kill_switch(probe, open_browser=open_browser, callback_factory=callback_factory, show_url=show_url,
+                             resource_from_metadata=resource_from_metadata, pause=pause, sleep=sleep,
+                             sign_in_seconds=sign_in_seconds)
+            return probe.outcomes
         _run_matrix(probe, open_browser=open_browser, callback_factory=callback_factory, show_url=show_url,
                     check_mistral_api=check_mistral_api, revocation_step=revocation_step,
                     resource_from_metadata=resource_from_metadata, pause=pause, sign_in_seconds=sign_in_seconds)
@@ -977,6 +1007,106 @@ def _run_matrix(probe: Probe, *, open_browser: Callable[[str], bool], callback_f
     if refresh and oauth_client is not None:
         probe.token_request("q6.revoked_refresh", "Q6 refresh after revocation", discovery, oauth_client,
                             {"grant_type": "refresh_token", "refresh_token": refresh})
+
+
+# --- kill switch (L9) ----------------------------------------------------------------------------
+
+
+def _within_lifetime(probe: Probe, token: Token) -> str:
+    """Whether the access token is still valid by its own ``expires_in``, so a rejection means something."""
+    if token.expires_in is None:
+        return "unknown"
+    return "yes" if probe.clock() - token.issued_at < token.expires_in - LIFETIME_MARGIN_SECONDS else "no"
+
+
+def kill_round(call: Outcome | None, refresh: Outcome | None,
+               refreshed_call: Outcome | None) -> tuple[str, tuple[str, ...]]:
+    """Classifies one check after the deletion: any accepted request means the stop did not work."""
+    accepted = tuple(reason for reason, outcome in (("call_accepted", call), ("refresh_accepted", refresh),
+                                                    ("refreshed_call_accepted", refreshed_call))
+                     if outcome is not None and _ok(outcome.status))
+    if accepted:
+        return "not_effective", accepted
+    reasons: list[str] = []
+    if call is None:
+        reasons.append("call_not_tried")
+    elif call.status not in STOPPED:
+        reasons.append("call_unclear")
+    elif call.get("within_lifetime") == "no":
+        reasons.append("access_token_expired")  # the rejection may be the expiry, not the deletion
+    elif call.get("within_lifetime") != "yes":
+        reasons.append("lifetime_unknown")
+    if refresh is None:
+        reasons.append("refresh_not_tried")
+    elif refresh.status not in STOPPED:
+        reasons.append("refresh_unclear")
+    return ("unclear", tuple(reasons)) if reasons else ("effective", ())
+
+
+def kill_switch(first: tuple[str, tuple[str, ...]], second: tuple[str, tuple[str, ...]]) -> tuple[str, tuple[str, ...]]:
+    """The result after the delay decides. An access token that expired during the delay adds no
+    contrary evidence to a stop that the first check proved."""
+    if first[0] == "effective" and second == ("unclear", ("access_token_expired",)):
+        return "effective", ()
+    return second
+
+
+def _run_kill_switch(probe: Probe, *, open_browser: Callable[[str], bool], callback_factory: Callable[[], Callback],
+                     show_url: Callable[[str], None] | None, resource_from_metadata: bool,
+                     pause: Callable[[], object], sleep: Callable[[float], object], sign_in_seconds: float) -> None:
+    def stop(reason: str) -> None:
+        probe.record("stop", "stop", reason)
+        probe.record("kill_switch", "L9 kill switch", "unclear", [("reasons", (reason,))])
+
+    discovery = probe.discover(PRIMARY_ROUTE, "q1")
+    methods = (discovery.metadata or {}).get("code_challenge_methods_supported")
+    if not isinstance(methods, list) or "S256" not in methods:
+        return stop("no_s256_authorization_server")
+    if resource_from_metadata:
+        if discovery.advertised_resource is None:
+            return stop("no_advertised_resource")
+        discovery.use_advertised = True
+    token, oauth_client = probe.sign_in(discovery, open_browser=open_browser, callback_factory=callback_factory,
+                                        show_url=show_url, timeout=sign_in_seconds)
+    if token is None:
+        signed = next((outcome for outcome in probe.outcomes if outcome.key == "q1.sign_in"), None)
+        return stop("sign_in_error" if signed is not None and signed.get("error") else "no_token")
+
+    current, refresh = token, token.refresh
+
+    def check(key: str, label: str) -> tuple[Outcome, Outcome | None, Outcome | None]:
+        """A call with the current token, a refresh grant and a call with the refreshed token."""
+        nonlocal current, refresh
+        call = probe.mcp(f"{key}.call", f"{label} tools/list", PRIMARY_ROUTE, MODERN, "tools/list", token=current,
+                         extra=_tools_fields, also=[("within_lifetime", _within_lifetime(probe, current))])
+        if not refresh or oauth_client is None:
+            return call, None, None
+        granted = probe.token_request(f"{key}.refresh", f"{label} refresh grant", discovery, oauth_client,
+                                      {"grant_type": "refresh_token", "refresh_token": refresh})
+        refreshed = probe.outcomes[-1]
+        if granted is None:
+            return call, refreshed, None
+        current, refresh = granted, granted.refresh or refresh  # a rotated refresh token replaces the old one
+        refreshed_call = probe.mcp(f"{key}.refreshed_call", f"{label} tools/list with the refreshed token",
+                                   PRIMARY_ROUTE, MODERN, "tools/list", token=current, extra=_tools_fields,
+                                   also=[("within_lifetime", _within_lifetime(probe, current))])
+        return call, refreshed, refreshed_call
+
+    baseline = check("k0", "L9 before the deletion,")
+    if not all(outcome is None or _ok(outcome.status) for outcome in baseline):
+        return stop("baseline_failed")  # no pause: a token that fails already proves nothing about the deletion
+    if baseline[1] is None:
+        probe.record("k0.refresh", "L9 before the deletion, refresh grant", "no_refresh_token")
+
+    print("Delete the probe app now as the runbook describes, then press Enter.", file=sys.stderr, flush=True)
+    pause()
+    first = kill_round(*check("k1", "L9 right after the deletion,"))
+    print(f"Waiting {KILL_SWITCH_RECHECK_SECONDS} seconds before the second check.", file=sys.stderr, flush=True)
+    sleep(KILL_SWITCH_RECHECK_SECONDS)
+    second = kill_round(*check("k2", f"L9 {KILL_SWITCH_RECHECK_SECONDS} s after the deletion,"))
+    status, reasons = kill_switch(first, second)
+    probe.record("kill_switch", "L9 kill switch", status,
+                 [("immediate", first[0]), ("after_delay", second[0]), ("reasons", reasons)])
 
 
 def write_effect(before: Outcome, after: Outcome) -> list[tuple[str, object]]:
@@ -1095,7 +1225,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resource-from-metadata", action="store_true",
                         help="send the resource that the /mcp metadata names instead of <app>/mcp in the sign-in "
                              "and token requests; for a deliberate diagnostic attempt only")
+    parser.add_argument("--kill-switch-step", action="store_true",
+                        help="run the L9 kill-switch test instead of the matrix: sign in, pause for the owner to "
+                             "delete the probe app, then check whether calls and refresh fail")
     args = parser.parse_args(argv)
+    if args.kill_switch_step and (args.revocation_step or args.q3_mistral_api):
+        print("--kill-switch-step runs without the matrix; leave out --revocation-step and --q3-mistral-api",
+              file=sys.stderr)
+        return 2
     if not args.live:
         print("Offline. Cases that --live would run against the probe app:")
         for case in CASES:
@@ -1109,7 +1246,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.show_sign_in_url else None
     try:
         run_live(base_url, check_mistral_api=args.q3_mistral_api, revocation_step=args.revocation_step,
-                 resource_from_metadata=args.resource_from_metadata, show_url=show_url)
+                 resource_from_metadata=args.resource_from_metadata, show_url=show_url,
+                 kill_switch_step=args.kill_switch_step)
     except Exception as exc:  # noqa: BLE001 - exception texts can carry the URL or a token
         print(f"probe_failed: {type(exc).__name__}", file=sys.stderr)
         return 1

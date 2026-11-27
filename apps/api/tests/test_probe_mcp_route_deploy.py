@@ -3,7 +3,9 @@
 Each test builds a bare `origin` and a checkout holding the probe directory's tracked files, the
 probe's deployment file and two liam-e deployment files outside that checkout, and a fake `mistral`
 that records its arguments and answers `apps list` from a file. The fake creates an app the way
-CLI v0.18.1 does: without asking, named after `--name` or else after the directory it runs in.
+CLI v0.18.1 does: without asking, named after `--name` or else after the directory it runs in, and
+`apps delete` removes the app from that file. A delete reads the probe's own deployment file and
+liam-e's test and production apps from a liam-e config directory under the test's own HOME.
 Nothing reaches Mistral or GitHub. The IDs are synthetic.
 """
 
@@ -64,6 +66,19 @@ elif args[:1] == ["deploy"]:
         listing["apps"].append({"id": new_app, "name": name, "label": name})
         apps_file.write_text(json.dumps(listing))
     sys.exit(int(os.environ.get("FAKE_DEPLOY_STATUS", "0")))
+elif args[:2] == ["apps", "delete"]:
+    status = int(os.environ.get("FAKE_DELETE_STATUS", "0"))
+    gone = set() if status or os.environ.get("FAKE_DELETE_KEEPS") else {args[2]}
+    gone |= {value for value in os.environ.get("FAKE_DELETE_ALSO", "").split(",") if value}
+    listing = json.loads(apps_file.read_text())
+    listing["apps"] = [app for app in listing["apps"] if app.get("id") not in gone]
+    for app in listing["apps"]:
+        if app.get("id") == os.environ.get("FAKE_DELETE_TOUCH"):
+            app["updatedAt"] = "2026-11-27T12:00:00Z"
+    apps_file.write_text(json.dumps(listing))
+    # The real CLI may name the app it deleted; the script must not pass that on.
+    print(f"Deleted app {args[2]}")
+    sys.exit(status)
 """
 
 
@@ -76,6 +91,7 @@ class Probe:
     apps: Path
     liam_test: Path
     liam_prod: Path
+    home: Path
     env: dict[str, str]
 
     def git(self, *args: str) -> str:
@@ -112,6 +128,26 @@ class Probe:
         listing["apps"].append(app)
         self.apps.write_text(json.dumps(listing))
 
+    def listed_ids(self) -> list[str]:
+        return [app["id"] for app in json.loads(self.apps.read_text())["apps"]]
+
+    def config_dir(self) -> Path:
+        return self.home / ".config" / "liam-e"
+
+    def prepare_delete(self, app_id: str = NEW, *, name: str | None = PROBE) -> None:
+        """The setup of a delete: the app ID only in the probe's own deployment file, and liam-e's
+        test and production apps in the config directory instead of the environment."""
+        del self.env["MCP_ROUTE_PROBE_DEPLOYMENT_FILE"]
+        del self.env["MCP_ROUTE_PROBE_LIAM_E_FILES"]
+        self.ids = self.work / PROBE_DIR / "mistral.deployment.json"
+        self.record(app_id)
+        self.ids.chmod(0o600)
+        self.config_dir().mkdir(parents=True)
+        shutil.copy(self.liam_test, self.config_dir() / "studio-test.json")
+        shutil.copy(self.liam_prod, self.config_dir() / "studio-production.json")
+        if name is not None:
+            self.add_app({"id": app_id, "name": name, "label": name})
+
 
 @pytest.fixture
 def probe(tmp_path: Path) -> Probe:
@@ -137,7 +173,7 @@ def probe(tmp_path: Path) -> Probe:
     }))
 
     env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("GIT_", "LIAM_E_", "MCP_ROUTE_PROBE_", "FAKE_"))}
+           if not key.startswith(("GIT_", "LIAM_E_", "MCP_ROUTE_PROBE_", "FAKE_")) and key != "XDG_CONFIG_HOME"}
     env.update(
         HOME=str(home),
         TMPDIR=str(tmpdir),
@@ -159,7 +195,7 @@ def probe(tmp_path: Path) -> Probe:
         (work / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / name, work / name)
     probe = Probe(work=work, tmpdir=tmpdir, log=log, ids=ids, apps=apps, liam_test=liam_test, liam_prod=liam_prod,
-                  env=env)
+                  home=home, env=env)
     probe.git("add", ".")
     probe.git("commit", "--quiet", "-m", "probe")
     probe.git("push", "--quiet", "origin", "HEAD:refs/heads/main")
@@ -342,10 +378,34 @@ def test_update_refuses_a_recorded_app_under_another_name(probe: Probe) -> None:
 @pytest.mark.parametrize("liam_app", [LIAM_TEST, LIAM_PROD])
 def test_liam_e_app_ids_are_refused(probe: Probe, liam_app: str) -> None:
     probe.record(liam_app)
-    for args in ([probe.head()], ["--delete"]):
-        result = probe.run(*args)
-        assert result.returncode == 1 and "liam-e's own app" in result.stderr
-        assert_no_ids(result)
+    result = probe.run(probe.head())
+    assert result.returncode == 1 and "liam-e's own app" in result.stderr
+    assert_no_ids(result)
+    assert probe.calls() == []
+
+
+def test_the_config_directory_also_guards_deploys(probe: Probe) -> None:
+    del probe.env["MCP_ROUTE_PROBE_LIAM_E_FILES"]
+    probe.config_dir().mkdir(parents=True)
+    shutil.copy(probe.liam_prod, probe.config_dir() / "studio-production.json")
+    probe.record(LIAM_PROD)
+    result = probe.run(probe.head())
+
+    assert result.returncode == 1 and "liam-e's own app" in result.stderr
+    assert probe.calls() == []
+
+
+def test_an_unreadable_config_file_stops_every_mode(probe: Probe) -> None:
+    probe.config_dir().mkdir(parents=True)
+    (probe.config_dir() / "broken.json").write_text("not json\n")
+    result = probe.run(probe.head(), "--create-app", PROBE)
+    assert result.returncode == 1 and "not readable JSON" in result.stderr
+
+    del probe.env["MCP_ROUTE_PROBE_DEPLOYMENT_FILE"]
+    probe.ids = probe.work / PROBE_DIR / "mistral.deployment.json"
+    probe.record(NEW)
+    result = probe.run("--delete")
+    assert result.returncode == 1 and "not readable JSON" in result.stderr
     assert probe.calls() == []
 
 
@@ -389,28 +449,169 @@ def test_a_listed_liam_e_file_must_exist(probe: Probe) -> None:
 # --- delete ------------------------------------------------------------------------------------
 
 
+DELETE_ARGS = ["apps", "delete", NEW, "--organization", ORG, "--workspace", WS, "--yes"]
+
+
 def test_delete_needs_a_recorded_app(probe: Probe) -> None:
-    result = probe.run("--delete")
+    probe.prepare_delete(name=None)
+    probe.ids.write_text(json.dumps({"organizationId": ORG, "workspaceId": WS}))
+    result = probe.run("--delete", "--apply")
     assert result.returncode == 1 and "no appId" in result.stderr
     assert probe.calls() == []
 
 
-def test_delete_checks_the_listing_and_leaves_the_prompt_to_the_cli(probe: Probe) -> None:
-    probe.record(NEW)
-    probe.add_app({"id": NEW, "name": PROBE, "label": PROBE})
+def test_delete_is_a_dry_run_by_default(probe: Probe) -> None:
+    probe.prepare_delete()
     result = probe.run("--delete")
 
     assert result.returncode == 0, result.stderr
-    listing, delete = probe.calls()
-    assert listing["args"] == LIST_ARGS
-    assert delete["args"] == ["apps", "delete", NEW, "--organization", ORG, "--workspace", WS]
+    assert [call["args"] for call in probe.calls()] == [LIST_ARGS], "a dry run only lists"
+    assert probe.recorded()["appId"] == NEW and NEW in probe.listed_ids()
+    assert "Dry run" in result.stdout and "--apply" in result.stdout and "Nothing was deleted" in result.stdout
+    assert_no_ids(result)
+
+
+def test_delete_with_apply_deletes_the_app_and_checks_the_listing(probe: Probe) -> None:
+    probe.prepare_delete()
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 0, result.stderr
+    before, delete, after = probe.calls()
+    assert before["args"] == LIST_ARGS and after["args"] == LIST_ARGS
+    # --yes because the script has asked already (--apply) and runs off a terminal.
+    assert delete["args"] == DELETE_ARGS
     assert probe.recorded() == {"organizationId": ORG, "workspaceId": WS}
+    assert stat.S_IMODE(probe.ids.stat().st_mode) == 0o600
+    assert probe.listed_ids() == [LIAM_TEST, LIAM_PROD]
+    assert f"no app named {PROBE} remains" in result.stdout
+    assert "the 2 liam-e apps listed before are still listed, unchanged" in result.stdout
+    assert list(probe.tmpdir.iterdir()) == [], "the work directory must be removed"
+    assert_no_ids(result)
 
 
-def test_delete_refuses_an_unlisted_app(probe: Probe) -> None:
-    probe.record(NEW)
+def test_delete_reads_only_the_probe_deployment_file(probe: Probe) -> None:
+    probe.prepare_delete()
+    probe.env["MCP_ROUTE_PROBE_DEPLOYMENT_FILE"] = str(probe.ids)
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "MCP_ROUTE_PROBE_DEPLOYMENT_FILE" in result.stderr
+    assert probe.calls() == []
+
+
+def test_delete_needs_liam_e_app_ids_from_the_config_directory(probe: Probe) -> None:
+    probe.prepare_delete()
+    shutil.rmtree(probe.config_dir())
+    # Another protected source is not enough: the delete compares with liam-e's own config files.
+    probe.env["MCP_ROUTE_PROBE_LIAM_E_FILES"] = f"{probe.liam_test}{os.pathsep}{probe.liam_prod}"
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "liam-e config directory" in result.stderr
+    assert probe.calls() == [] and probe.recorded()["appId"] == NEW
+
+
+def test_delete_honours_xdg_config_home(probe: Probe) -> None:
+    probe.prepare_delete()
+    elsewhere = probe.home / "xdg"
+    elsewhere.mkdir()
+    probe.config_dir().rename(elsewhere / "liam-e")
+    assert probe.run("--delete").returncode == 1
+
+    probe.env["XDG_CONFIG_HOME"] = str(elsewhere)
     result = probe.run("--delete")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("liam_app", [LIAM_TEST, LIAM_PROD])
+@pytest.mark.parametrize("renamed", [False, True])
+def test_delete_refuses_liam_e_app_ids(probe: Probe, liam_app: str, renamed: bool) -> None:
+    probe.prepare_delete(liam_app, name=None)
+    if renamed:  # even a liam-e app that carries the probe's name
+        listing = json.loads(probe.apps.read_text())
+        for app in listing["apps"]:
+            if app["id"] == liam_app:
+                app.update(name=PROBE, label=PROBE)
+        probe.apps.write_text(json.dumps(listing))
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "liam-e's own app" in result.stderr
+    assert probe.calls() == [], "the CLI must not run"
+    assert probe.recorded()["appId"] == liam_app and liam_app in probe.listed_ids()
+    assert_no_ids(result)
+
+
+@pytest.mark.parametrize(("name", "label"), [
+    ("app", "app"),
+    (f"{PROBE}-1a2b", PROBE),  # only the label matches
+    (PROBE.upper(), PROBE.upper()),
+    ("liam-e", "liam-e"),
+])
+def test_delete_refuses_an_app_of_another_name(probe: Probe, name: str, label: str) -> None:
+    probe.prepare_delete(name=None)
+    probe.add_app({"id": NEW, "name": name, "label": label})
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "nothing was deleted" in result.stderr
+    assert [call["args"] for call in probe.calls()] == [LIST_ARGS], "only the read-only listing may run"
+    assert probe.recorded()["appId"] == NEW
+    assert_no_ids(result)
+
+
+def test_delete_refuses_when_no_app_matches(probe: Probe) -> None:
+    probe.prepare_delete(name=None)
+    result = probe.run("--delete", "--apply")
 
     assert result.returncode == 1 and "nothing was deleted" in result.stderr
     assert [call["args"] for call in probe.calls()] == [LIST_ARGS]
     assert probe.recorded()["appId"] == NEW
+
+
+@pytest.mark.parametrize("field", ["name", "label"])
+def test_delete_refuses_two_apps_of_the_name(probe: Probe, field: str) -> None:
+    probe.prepare_delete()
+    probe.add_app({"id": OTHER, "name": "earlier", "label": "earlier", field: PROBE})
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "also named" in result.stderr and "nothing was deleted" in result.stderr
+    assert [call["args"] for call in probe.calls()] == [LIST_ARGS]
+    assert OTHER in probe.listed_ids() and NEW in probe.listed_ids()
+
+
+def test_a_failed_cli_delete_keeps_the_app_id(probe: Probe) -> None:
+    probe.prepare_delete()
+    probe.env["FAKE_DELETE_STATUS"] = "3"
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "exited with 3" in result.stderr
+    assert [call["args"] for call in probe.calls()] == [LIST_ARGS, DELETE_ARGS]
+    assert probe.recorded()["appId"] == NEW
+    assert_no_ids(result)
+
+
+def test_an_app_still_listed_after_the_delete_keeps_the_app_id(probe: Probe) -> None:
+    probe.prepare_delete()
+    probe.env["FAKE_DELETE_KEEPS"] = "1"
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "still shows" in result.stderr
+    assert [call["args"] for call in probe.calls()] == [LIST_ARGS, DELETE_ARGS, LIST_ARGS]
+    assert probe.recorded()["appId"] == NEW
+    assert_no_ids(result)
+
+
+@pytest.mark.parametrize("variable", ["FAKE_DELETE_ALSO", "FAKE_DELETE_TOUCH"])
+def test_a_liam_e_app_missing_or_changed_after_the_delete_is_reported(probe: Probe, variable: str) -> None:
+    probe.prepare_delete()
+    probe.env[variable] = LIAM_TEST
+    result = probe.run("--delete", "--apply")
+
+    assert result.returncode == 1 and "liam-e app" in result.stderr and "missing or changed" in result.stderr
+    assert probe.recorded() == {"organizationId": ORG, "workspaceId": WS}, "the probe app is gone either way"
+    assert_no_ids(result)
+
+
+@pytest.mark.parametrize("args", [["--apply"], ["--apply", "--delete"], ["--delete", "--apply", "--apply"],
+                                  ["--delete", "--yes"], ["--delete", "apply"], ["HEAD", "--apply"]])
+def test_delete_usage(probe: Probe, args: list[str]) -> None:
+    probe.prepare_delete()
+    assert probe.run(*args).returncode == 64, args
+    assert probe.calls() == []
