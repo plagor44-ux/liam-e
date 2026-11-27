@@ -14,6 +14,7 @@ import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -128,6 +129,28 @@ def repo(deploy_tmp_path: Path) -> Repo:
     (work / ".env").write_text("TOKEN=test-only\n")
     (work / "mistral.deployment.json").write_text(json.dumps(IDS) + "\n")
     return repo
+
+
+def test_deploy_fixture_skips_a_noexec_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    noexec = getattr(os, "ST_NOEXEC", None)
+    if noexec is None:
+        pytest.skip("mount execution flags are unavailable")
+    (tmp_path / ".git").mkdir()
+    noexec_mount = Path("/var/tmp").resolve()
+    statvfs = os.statvfs
+
+    def with_noexec(path: Path) -> SimpleNamespace:
+        flags = statvfs(path).f_flag
+        if Path(path).resolve().is_relative_to(noexec_mount):
+            flags |= noexec
+        return SimpleNamespace(f_flag=flags)
+
+    monkeypatch.setattr(os, "statvfs", with_noexec)
+    base = request.getfixturevalue("deploy_tmp_path")
+
+    assert not (os.statvfs(base).f_flag & noexec)
 
 
 @pytest.mark.parametrize("deploy_tmp_path", [False, True], indirect=True, ids=["normal", "ancestor-git"])
