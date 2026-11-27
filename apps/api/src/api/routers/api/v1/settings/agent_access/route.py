@@ -1,8 +1,10 @@
 """The owner's switch for agent access from outside liam-e ("Zugriff von außen", #197).
 
-Browser-only. Reading and turning access off need nothing beyond the gateway: off is the
-emergency stop, so it takes no revision, makes no identity lookup and always succeeds, even
-without an owner binding or a reachable Mistral API. It always advances the revision, also when
+Browser-only. Reading passes the ``/api/v1`` caller gate like any browser read
+(:mod:`api.mcp.exposure`), also while the Users API is down. Turning access off needs nothing
+beyond the gateway: off is the emergency stop, so the caller gate lets every caller through to
+it, and it takes no revision, makes no identity lookup and always succeeds, even without an owner
+binding or a reachable Mistral API. It always advances the revision, also when
 access is already off, so a turn-on confirmed earlier, for example in another tab while its
 identity lookup was still running, fails as stale instead of reopening access. Turning access on
 needs the bound owner's own browser session (:mod:`api.owner_access`: no workspace key, the
