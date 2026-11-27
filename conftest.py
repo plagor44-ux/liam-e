@@ -14,8 +14,14 @@ def _has_git_ancestor(path: Path) -> bool:
 
 
 @pytest.fixture
-def deploy_tmp_path(tmp_path: Path) -> Iterator[Path]:
+def deploy_tmp_path(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Path]:
     """Keep the fake home, cache, and staging outside Git ancestry."""
+    if getattr(request, "param", False):
+        # Selected success tests simulate the host marker in their own pytest directory.
+        (tmp_path / ".git").mkdir()
+        tmp_path = tmp_path / "beneath-marker"
+        tmp_path.mkdir()
+
     if not _has_git_ancestor(tmp_path):
         yield tmp_path
         return

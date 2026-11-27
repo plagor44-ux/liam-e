@@ -130,6 +130,7 @@ def repo(deploy_tmp_path: Path) -> Repo:
     return repo
 
 
+@pytest.mark.parametrize("deploy_tmp_path", [False, True], indirect=True, ids=["normal", "ancestor-git"])
 def test_deploys_a_clean_copy_of_the_commit_without_yes(repo: Repo) -> None:
     sha = repo.git("rev-parse", "HEAD")
     manifest_before = (repo.work / "mistral.json").read_text()
@@ -155,6 +156,7 @@ def test_deploys_a_clean_copy_of_the_commit_without_yes(repo: Repo) -> None:
         assert value not in result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("deploy_tmp_path", [False, True], indirect=True, ids=["normal", "ancestor-git"])
 def test_unset_tmpdir_uses_private_cache_removed_after_deploy(repo: Repo) -> None:
     del repo.env["TMPDIR"]
 

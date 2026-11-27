@@ -364,6 +364,7 @@ def test_a_git_entry_above_the_temporary_directory_stops_a_deploy(probe: Probe, 
     assert_no_ids(result)
 
 
+@pytest.mark.parametrize("deploy_tmp_path", [False, True], indirect=True, ids=["normal", "ancestor-git"])
 def test_unset_tmpdir_uses_private_xdg_cache_for_the_gitless_export(probe: Probe) -> None:
     del probe.env["TMPDIR"]
     cache = probe.home / "cache"
