@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -63,6 +64,9 @@ class FakeGateway:
     ignore_revocation: bool = False
     s256: bool = True
     revoked: bool = False
+    prm_resource: str | None = None  # the resource the metadata names; None means the route's own URL
+    token_resource: str = f"{BASE}/mcp"  # the resource the authorization server expects
+    echo: str | None = None  # "same" or "slash": the registration answer repeats the redirect URIs
     challenge: dict[str, str] = field(default_factory=dict)
     token_forms: list[dict[str, list[str]]] = field(default_factory=list)
     mistral_api_calls: int = 0
@@ -96,7 +100,8 @@ class FakeGateway:
             return self.authorization_server(request, path)
         if path.startswith("/.well-known/oauth-protected-resource"):
             route = path.removeprefix("/.well-known/oauth-protected-resource") or "/"
-            return httpx.Response(200, json={"resource": f"{BASE}{route}", "authorization_servers": [ISSUER],
+            resource = self.prm_resource if self.prm_resource is not None else f"{BASE}{route}"
+            return httpx.Response(200, json={"resource": resource, "authorization_servers": [ISSUER],
                                              "scopes_supported": ["mcp"], "bearer_methods_supported": ["header"]})
         if path in ("/mcp", "/api/mcp"):
             if self.valid(request):
@@ -125,7 +130,12 @@ class FakeGateway:
         if path == "/oauth/register":
             body = json.loads(request.content)
             assert body["token_endpoint_auth_method"] == "none" and body["redirect_uris"][0].startswith("http://127.0.0.1:")
-            return httpx.Response(201, json={"client_id": CLIENT_ID})
+            answer: dict[str, object] = {"client_id": CLIENT_ID}
+            if self.echo == "same":
+                answer["redirect_uris"] = body["redirect_uris"]
+            elif self.echo == "slash":
+                answer["redirect_uris"] = [f"{uri}/" for uri in body["redirect_uris"]]
+            return httpx.Response(201, json=answer)
         if path == "/oauth/token":
             form = parse_qs(request.content.decode())
             self.token_forms.append(form)
@@ -136,7 +146,7 @@ class FakeGateway:
             verifier = form["code_verifier"][0]
             digest = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
             ok = (form["code"] == [CODE] and form["client_id"] == [CLIENT_ID] and digest == self.challenge["code_challenge"]
-                  and form["resource"] == [f"{BASE}/mcp"] and form["redirect_uri"] == [self.challenge["redirect_uri"]])
+                  and form["resource"] == [self.token_resource] and form["redirect_uri"] == [self.challenge["redirect_uri"]])
             if not ok:
                 return httpx.Response(400, json={"error": "invalid_grant"})
             return httpx.Response(200, json={"access_token": ACCESS, "token_type": "Bearer", "expires_in": 3600,
@@ -147,13 +157,20 @@ class FakeGateway:
 class FakeCallback:
     redirect_uri = "http://127.0.0.1:9/callback"
 
-    def __init__(self, gateway: FakeGateway, *, state_override: str | None = None) -> None:
+    def __init__(self, gateway: FakeGateway, *, state_override: str | None = None, error: str | None = None) -> None:
         self.gateway = gateway
         self.state_override = state_override
+        self.error = error
 
     def wait(self, timeout: float) -> dict[str, str] | None:
         state = self.state_override or self.gateway.challenge["state"]
+        if self.error is not None:
+            return {"error": self.error, "state": state}
         return {"code": CODE, "state": state, "iss": ISSUER}
+
+    def shape(self) -> tuple[tuple[str, object], ...]:
+        names = ("error", "state") if self.error is not None else ("code", "iss", "state")
+        return (("method", "GET"), ("path", "exact"), ("source", "query"), ("params", names))
 
     def close(self) -> None:
         return None
@@ -165,7 +182,7 @@ def browser_for(gateway: FakeGateway):
         assert parts.scheme == "https" and parts.hostname == urlsplit(ISSUER).hostname
         query = {key: values[0] for key, values in parse_qs(parts.query).items()}
         assert query["response_type"] == "code" and query["code_challenge_method"] == "S256"
-        assert query["resource"] == f"{BASE}/mcp" and query["client_id"] == CLIENT_ID and query["scope"] == "mcp"
+        assert query["resource"] == gateway.token_resource and query["client_id"] == CLIENT_ID and query["scope"] == "mcp"
         gateway.challenge = query
         return True
 
@@ -173,7 +190,8 @@ def browser_for(gateway: FakeGateway):
 
 
 def run(gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch, *, callback: FakeCallback | None = None,
-        revoke: bool = True, mistral_api: bool = True) -> tuple[list, list[str]]:
+        revoke: bool = True, mistral_api: bool = True, open_browser: Callable[[str], bool] | None = None,
+        callback_factory: Callable[[], object] | None = None, **live: object) -> tuple[list, list[str]]:
     monkeypatch.setenv("__APPS_PROXY_URL", PROXY)
     lines: list[str] = []
     client = httpx.Client(transport=httpx.MockTransport(gateway), follow_redirects=False)
@@ -182,8 +200,9 @@ def run(gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch, *, callback: Fake
         gateway.revoked = True
 
     outcomes = probe.run_live(BASE, client=client, emit=lambda outcome: lines.append(outcome.line()),
-                              open_browser=browser_for(gateway), callback_factory=lambda: callback or FakeCallback(gateway),
-                              check_mistral_api=mistral_api, revocation_step=revoke, pause=pause)
+                              open_browser=open_browser or browser_for(gateway),
+                              callback_factory=callback_factory or (lambda: callback or FakeCallback(gateway)),
+                              check_mistral_api=mistral_api, revocation_step=revoke, pause=pause, **live)
     return outcomes, lines
 
 
@@ -305,20 +324,132 @@ def test_tokens_and_clients_hide_their_values() -> None:
     assert BASE not in repr(probe.Discovery(resource=BASE))
 
 
+def assert_shape_holds_no_values(shape: tuple[tuple[str, object], ...]) -> None:
+    text = repr(shape)
+    for value in (CODE, USER_ID, ISSUER, "s-test-only", "SECRET", "://"):
+        assert value not in text
+
+
 def test_loopback_callback_takes_one_answer_and_logs_nothing(capfd: pytest.CaptureFixture[str]) -> None:
     callback = probe.LoopbackCallback()
     try:
         assert callback.redirect_uri.startswith("http://127.0.0.1:") and callback.redirect_uri.endswith("/callback")
-        with httpx.Client() as client:
-            assert client.get(callback.redirect_uri.replace("/callback", "/other")).status_code == 404
+        with httpx.Client(trust_env=False) as client:
             answer = client.get(f"{callback.redirect_uri}?code={CODE}&state=s-test-only&error_description={USER_ID}")
             assert answer.status_code == 200 and CODE not in answer.text
             assert client.get(f"{callback.redirect_uri}?code=second").status_code == 404
         assert callback.wait(1) == {"code": CODE, "state": "s-test-only"}
+        assert callback.shape() == (("method", "GET"), ("path", "exact"), ("source", "query"),
+                                    ("params", ("code", "error_description", "state")))
     finally:
         callback.close()
     captured = capfd.readouterr()
     assert CODE not in captured.err + captured.out and USER_ID not in captured.err + captured.out
+
+
+def test_loopback_callback_accepts_a_trailing_slash(capfd: pytest.CaptureFixture[str]) -> None:
+    callback = probe.LoopbackCallback()
+    try:
+        with httpx.Client(trust_env=False) as client:
+            answer = client.get(f"{callback.redirect_uri}/?state=s-test-only&code={CODE}&session_state={USER_ID}")
+            assert answer.status_code == 200 and CODE not in answer.text
+        assert callback.wait(1) == {"code": CODE, "state": "s-test-only"}
+        shape = callback.shape()
+        assert shape == (("method", "GET"), ("path", "trailing_slash"), ("source", "query"),
+                         ("params", ("code", "session_state", "state")))
+        assert_shape_holds_no_values(shape)
+    finally:
+        callback.close()
+    captured = capfd.readouterr()
+    assert CODE not in captured.err + captured.out and USER_ID not in captured.err + captured.out
+
+
+def test_loopback_callback_accepts_a_form_post(capfd: pytest.CaptureFixture[str]) -> None:
+    callback = probe.LoopbackCallback()
+    try:
+        with httpx.Client(trust_env=False) as client:
+            answer = client.post(callback.redirect_uri, data={"code": CODE, "state": "s-test-only", "iss": ISSUER})
+            assert answer.status_code == 200 and CODE not in answer.text
+            assert client.post(callback.redirect_uri, data={"code": "second"}).status_code == 404
+        assert callback.wait(1) == {"code": CODE, "state": "s-test-only", "iss": ISSUER}
+        shape = callback.shape()
+        assert shape == (("method", "POST"), ("path", "exact"), ("source", "form"), ("params", ("code", "iss", "state")))
+        assert_shape_holds_no_values(shape)
+    finally:
+        callback.close()
+    captured = capfd.readouterr()
+    assert CODE not in captured.err + captured.out and ISSUER not in captured.err + captured.out
+
+
+def test_loopback_callback_skips_the_favicon_and_reduces_odd_names() -> None:
+    callback = probe.LoopbackCallback()
+    try:
+        origin = callback.redirect_uri.removesuffix(probe.CALLBACK_PATH)
+        with httpx.Client(trust_env=False) as client:
+            assert client.get(f"{origin}/favicon.ico").status_code == 404
+            answer = client.get(f"{origin}/elsewhere?error=access_denied&X-Odd-{USER_ID}=1&error_description={USER_ID}")
+            assert answer.status_code == 200
+            assert client.get(f"{callback.redirect_uri}?code=second").status_code == 404
+        assert callback.wait(1) == {"error": "access_denied"}
+        shape = callback.shape()
+        assert shape == (("method", "GET"), ("path", "other"), ("source", "query"),
+                         ("params", ("error", "error_description", "other")))
+        assert_shape_holds_no_values(shape)
+    finally:
+        callback.close()
+
+
+def test_loopback_callback_without_an_answer_has_no_shape() -> None:
+    callback = probe.LoopbackCallback()
+    try:
+        assert callback.wait(0.01) is None and callback.shape() == ()
+    finally:
+        callback.close()
+
+
+@pytest.mark.parametrize(("advertised", "expected", "relation"), [
+    (f"{BASE}/mcp", f"{BASE}/mcp", "equal"),
+    (f"{BASE}/mcp/", f"{BASE}/mcp", "equal"),
+    (f"{BASE.replace('probe-host', 'PROBE-HOST')}/mcp", f"{BASE}/mcp", "equal"),
+    (f"{BASE}:443/mcp", f"{BASE}/mcp", "equal"),
+    (BASE, f"{BASE}/mcp", "origin"),
+    (f"{BASE}/", f"{BASE}/api/mcp", "origin"),
+    (f"{BASE}/api", f"{BASE}/api/mcp", "parent"),
+    (f"{BASE}/api/", f"{BASE}/api/mcp", "parent"),
+    (f"{BASE}/mc", f"{BASE}/mcp", "other_path"),
+    (f"{BASE}/mcp/extra", f"{BASE}/mcp", "other_path"),
+    (f"{BASE}/api/mcp", f"{BASE}/mcp", "other_path"),
+    (f"{BASE}/mcp?x=1", f"{BASE}/mcp", "other_path"),
+    ("https://other.example.test/mcp", f"{BASE}/mcp", "other_host"),
+    (f"{BASE}:8443/mcp", f"{BASE}/mcp", "other_host"),
+    (BASE.replace("https:", "http:") + "/mcp", f"{BASE}/mcp", "other_host"),
+    ("urn:test-only", f"{BASE}/mcp", "other_host"),
+    (f"{BASE}:bad/mcp", f"{BASE}/mcp", "other_host"),
+    ("", f"{BASE}/mcp", "absent"),
+    (None, f"{BASE}/mcp", "absent"),
+    (["x"], f"{BASE}/mcp", "absent"),
+])
+def test_resource_relation(advertised: object, expected: str, relation: str) -> None:
+    assert probe.resource_relation(advertised, expected) == relation
+
+
+REDIRECT = "http://127.0.0.1:9/callback"
+
+
+@pytest.mark.parametrize(("body", "echoed"), [
+    ({"client_id": CLIENT_ID, "redirect_uris": [REDIRECT]}, "yes"),
+    ({"redirect_uris": ["http://127.0.0.1:9/other", REDIRECT]}, "yes"),
+    ({"redirect_uris": [f"{REDIRECT}/"]}, "no"),
+    ({"redirect_uris": ["http://127.0.0.1/callback"]}, "no"),
+    ({"redirect_uris": ["http://localhost:9/callback"]}, "no"),
+    ({"redirect_uris": []}, "no"),
+    ({"redirect_uris": REDIRECT}, "absent"),
+    ({"client_id": CLIENT_ID}, "absent"),
+    (None, "absent"),
+    ([REDIRECT], "absent"),
+])
+def test_registration_redirect_echo(body: object, echoed: str) -> None:
+    assert probe.redirect_echoed(body, REDIRECT) == echoed
 
 
 # --- the matrix against a fake gateway ---------------------------------------------------------
@@ -330,8 +461,13 @@ def test_full_run_against_a_well_behaved_gateway(monkeypatch: pytest.MonkeyPatch
     results = by_key(outcomes)
     assert results["verdict"].status == "GO-CANDIDATE", lines
     assert results["q1.as"].get("s256") is True and results["q1.as"].get("registration_endpoint") is True
-    assert results["q1.prm"].get("resource_matches") is True and results["q1.challenge"].status == 401
+    assert results["q1.prm"].get("resource_relation") == "equal" and results["q1.challenge"].status == 401
+    assert results["q7.prm"].get("resource_relation") == "equal"
+    assert results["q1.register"].get("registration_redirect_echoed") == "absent"
     assert results["q1.sign_in"].get("state_matches") is True and results["q1.sign_in"].get("iss_matches") is True
+    assert results["q1.sign_in"].get("path") == "exact" and results["q1.sign_in"].get("method") == "GET"
+    assert results["q1.sign_in"].get("params") == ("code", "iss", "state")
+    assert results["q1.sign_in"].get("resource_sent") == "route"
     assert results["q1.token"].get("refresh_token") is True and results["q1.token"].get("expires_in") == "<=1h"
     assert results["q4.whoami"].get("identity") == "user" and results["q4.whoami"].get("token_header") == "x-apps-token"
     assert results["q4.whoami"].get("authorization_header") is False
@@ -383,6 +519,107 @@ def test_a_forged_state_stops_before_the_code_exchange(monkeypatch: pytest.Monke
     assert results["stop"].status == "no_token" and results["verdict"].status == "INCOMPLETE"
     assert gateway.token_forms == []
     assert_redacted(lines)
+
+
+@pytest.mark.parametrize(("error", "code"), [("access_denied", "access_denied"), ("invalid_target", "invalid_target"),
+                                            (f"odd-{USER_ID}", "other")])
+def test_an_error_redirect_stops_with_sign_in_error(error: str, code: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = FakeGateway()
+    outcomes, lines = run(gateway, monkeypatch, callback=FakeCallback(gateway, error=error))
+    results = by_key(outcomes)
+    assert results["stop"].status == "sign_in_error"
+    assert results["verdict"].status == "INCOMPLETE" and "sign_in_error" in results["verdict"].get("reasons")
+    assert results["q1.sign_in"].status == "callback" and results["q1.sign_in"].get("error") == code
+    assert results["q1.sign_in"].get("params") == ("error", "state") and "q1.token" not in results
+    assert gateway.token_forms == []
+    assert_redacted(lines)
+
+
+@pytest.mark.parametrize(("echo", "echoed"), [("same", "yes"), ("slash", "no")])
+def test_the_registration_answer_is_classified(echo: str, echoed: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    outcomes, lines = run(FakeGateway(echo=echo), monkeypatch)
+    assert by_key(outcomes)["q1.register"].get("registration_redirect_echoed") == echoed
+    assert_redacted(lines)
+
+
+@pytest.mark.parametrize(("method", "suffix", "path", "source"), [
+    ("GET", "/", "trailing_slash", "query"),
+    ("POST", "", "exact", "form"),
+    ("POST", "/", "trailing_slash", "form"),
+])
+def test_a_real_callback_completes_and_no_line_holds_a_value(method: str, suffix: str, path: str, source: str,
+                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = FakeGateway()
+    approve = browser_for(gateway)
+    sent: list[str] = []
+
+    def open_browser(url: str) -> bool:
+        approve(url)
+        values = {"code": CODE, "state": gateway.challenge["state"], "iss": ISSUER,
+                  "session_state": "session-SECRET11-test-only"}
+        sent.extend(values.values())
+        target = gateway.challenge["redirect_uri"] + suffix
+        with httpx.Client(trust_env=False) as browser:
+            answer = browser.get(target, params=values) if method == "GET" else browser.post(target, data=values)
+        assert answer.status_code == 200
+        return True
+
+    outcomes, lines = run(gateway, monkeypatch, open_browser=open_browser, callback_factory=probe.LoopbackCallback)
+    results = by_key(outcomes)
+    sign_in = results["q1.sign_in"]
+    assert sign_in.get("method") == method and sign_in.get("path") == path and sign_in.get("source") == source
+    assert sign_in.get("params") == ("code", "iss", "session_state", "state") and sign_in.get("state_matches") is True
+    assert results["q1.token"].status == 200 and results["verdict"].status == "GO-CANDIDATE", lines
+    text = "\n".join(lines)
+    assert sent and all(value not in text for value in sent)
+    assert_redacted(lines)
+
+
+def test_resource_from_metadata_sends_the_advertised_resource(monkeypatch: pytest.MonkeyPatch) -> None:
+    advertised = f"{BASE}/"
+    gateway = FakeGateway(prm_resource=advertised, token_resource=advertised)
+    outcomes, lines = run(gateway, monkeypatch, resource_from_metadata=True)
+    results = by_key(outcomes)
+    assert results["q1.prm"].get("resource_relation") == "origin"
+    assert results["q1.sign_in"].get("resource_sent") == "metadata"
+    assert gateway.challenge["resource"] == advertised and len(gateway.token_forms) >= 2
+    assert all(form["resource"] == [advertised] for form in gateway.token_forms)
+    assert results["verdict"].status == "GO-CANDIDATE", lines
+    assert_redacted(lines)
+
+
+def test_by_default_the_route_is_sent_even_if_the_metadata_differs(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = FakeGateway(prm_resource=f"{BASE}/")
+    outcomes, lines = run(gateway, monkeypatch)
+    results = by_key(outcomes)
+    assert results["q1.prm"].get("resource_relation") == "origin"
+    assert results["q1.sign_in"].get("resource_sent") == "route"
+    assert all(form["resource"] == [f"{BASE}/mcp"] for form in gateway.token_forms)
+    assert_redacted(lines)
+
+
+def test_resource_from_metadata_needs_an_https_resource(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = FakeGateway(prm_resource="urn:test-only")
+    outcomes, lines = run(gateway, monkeypatch, resource_from_metadata=True)
+    results = by_key(outcomes)
+    assert results["stop"].status == "no_advertised_resource" and "q1.register" not in results
+    assert "q1.sign_in" not in results and gateway.token_forms == []
+    assert results["verdict"].status == "INCOMPLETE" and "no_advertised_resource" in results["verdict"].get("reasons")
+    assert_redacted(lines)
+
+
+def test_the_resource_flag_reaches_the_live_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(probe.URL_VARIABLE, BASE)
+    seen: dict[str, object] = {}
+
+    def fake_run_live(base_url: str, **kwargs: object) -> list:
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(probe, "run_live", fake_run_live)
+    assert probe.main(["--live", "--resource-from-metadata"]) == 0 and seen["resource_from_metadata"] is True
+    seen.clear()
+    assert probe.main(["--live"]) == 0 and seen["resource_from_metadata"] is False
 
 
 def test_skipped_checks_leave_the_verdict_incomplete(monkeypatch: pytest.MonkeyPatch) -> None:

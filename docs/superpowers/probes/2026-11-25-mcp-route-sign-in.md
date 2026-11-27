@@ -153,6 +153,12 @@ Leave out `--q3-mistral-api` or `--revocation-step` if L4 or L5 is not approved.
 
 - The tool checks discovery, registers a client and opens the browser for the owner's sign-in. The
   loopback callback listens only on `127.0.0.1` and waits at most 300 seconds.
+- The callback takes the first GET or POST on any path except `/favicon.ico`, so a redirect to
+  `/callback/` or an answer posted as a form (`response_mode=form_post`) still arrives. It reads
+  `code`, `state`, `error` and `iss` from the query or the form body. The `q1.sign_in` line names
+  the `method`, the `path` class (`exact`, `trailing_slash` or `other`), the `source` of the
+  parameters (`query`, `form` or `none`) and their sorted names (`params`), never a value. The code
+  exchange always sends the registered redirect URI.
 - If no browser opens, `--show-sign-in-url` prints the sign-in URL to stderr. Never copy that URL
   anywhere.
 - At the revocation pause, the owner revokes the probe's grant wherever Studio or the Mistral
@@ -162,7 +168,50 @@ Leave out `--q3-mistral-api` or `--revocation-step` if L4 or L5 is not approved.
 The tool prints one line per case and ends with `verdict: GO-CANDIDATE`, `INCOMPLETE` or `BLOCKED`
 plus fixed reasons. The lines hold statuses, fixed codes, field names, booleans, scope names and
 time buckets. The `q4.whoami` and `q7.whoami` lines also show `instance` and the fingerprints, for
-the comparison in step 5.
+the comparison in step 5. Three sign-in fields help when no token arrives:
+
+- `q1.prm` and `q7.prm`: `resource_relation` says how the resource the metadata names relates to
+  the route URL: `equal` (a trailing slash aside), `origin`, `parent`, `other_path`, `other_host`
+  (another scheme, host or port) or `absent`.
+- `q1.register`: `registration_redirect_echoed` is `yes` if the registration answer lists the
+  redirect URI unchanged, `no` if it lists others, and `absent` if it lists none.
+- `stop`: `sign_in_error` if the callback carried `error`, `no_token` for any other sign-in without
+  a token, and `no_advertised_resource` (see step 4a). `error` shows a fixed code such as
+  `access_denied` or `invalid_target`, or `other`.
+
+### 4a. Third attempt: send the metadata's resource
+
+By default the sign-in and token requests send `resource=<app>/mcp`. With
+`--resource-from-metadata` they send, verbatim, the resource that the `/mcp` route's
+protected-resource metadata names. This applies to the authorization request, the code exchange
+and the refresh grant. The third attempt runs step 4 with that flag:
+
+```bash
+read -rs MCP_ROUTE_PROBE_URL && export MCP_ROUTE_PROBE_URL   # the probe app's https base URL, no path
+bash tools/uv.sh run --no-sync python tools/mcp_route_probe.py --live --q3-mistral-api --revocation-step \
+  --resource-from-metadata
+unset MCP_ROUTE_PROBE_URL
+```
+
+It tests the main candidate from the first two attempts (see "Findings before the third attempt"):
+the authorization server may look up the app by the `resource` parameter and fail after consent.
+
+- The attempt registers one more client. It needs the owner's go like every attempt, and step 8
+  revokes the grants of all probe clients.
+- If the metadata names no https resource, the tool stops with `stop: no_advertised_resource`
+  before it registers a client.
+- Without the flag nothing changes; the `q1.sign_in` line then shows `resource_sent=route`.
+
+What the lines show, and what it means:
+
+| Case | Lines | Meaning |
+| --- | --- | --- |
+| Token received | `Q1 sign-in: callback state_matches=yes code=yes error=- … resource_sent=metadata`, then `Q1 code exchange: 200 … bearer=yes`; the matrix runs and ends with a verdict as in step 4 | The authorization server accepts the metadata's resource, where `<app>/mcp` failed twice. The earlier attempts most likely failed on the `resource` parameter. #36 has to send the value its metadata names. |
+| Sign-in error | `Q1 sign-in: callback … error=<code> … resource_sent=metadata`, then `stop: sign_in_error`; the verdict is `INCOMPLETE` with the reason `sign_in_error` | The redirect now reaches the probe, but the server refuses. `invalid_target` means it rejects the resource (RFC 8707), `access_denied` that consent was declined; record the code. |
+| Still a timeout | `Q1 sign-in: timeout resource_sent=metadata`, then `stop: no_token` | No answer reached the probe with either value, so the resource is not the only cause. Record where the browser ended up (the loopback address or a Mistral address, no URL) and do not repeat the attempt without a new diagnosis. |
+
+A sign-in that reaches the callback but whose code exchange fails shows `Q1 code exchange: 400
+error=<code>` and then `stop: no_token`. Record that code as well.
 
 ### 5. Fingerprint comparison (part of L3)
 
@@ -212,6 +261,26 @@ a terminal and refuses without one. Then:
 
 Fill in the tables below. Change the status line to GO, INCOMPLETE or BLOCKED with the date of the
 run. Run `tests/test_public_repo_hygiene.py` before committing. The follow-up PR says "Closes #157".
+
+## Findings before the third attempt
+
+From the two sign-in attempts of 26 November 2026, both with the probe's default
+`resource=<app>/mcp`. These are findings for #157; the result matrix below stays open until the
+run is complete.
+
+- **The metadata's resource does not match the route.** On both flagged routes, `/mcp` and
+  `/api/mcp`, the tool fetched the protected-resource metadata from the URL in the bearer challenge
+  (`source=challenge`), on the app's own host (`same_host=yes`). The `resource` it names was not the
+  route URL, even ignoring a trailing slash (`resource_matches=no`, in both attempts). RFC 9728,
+  Section 3.3, requires that value to be identical to the URL the client used for the request when
+  the metadata came from the challenge; otherwise the client must not use the metadata. A client
+  that follows RFC 9728 therefore cannot use Studio's metadata for these routes. How the two differ
+  was not recorded; the tool now prints it as `resource_relation`.
+- **The sign-in failed before the redirect.** Both attempts ended with `Q1 sign-in: timeout` and
+  `stop: no_token`. After the owner's consent in the second attempt, a "Not Found" page appeared on
+  a Mistral address, not on the loopback address. The authorization server therefore did not send
+  the browser back to the probe at all. The main candidate is that it looks up the app by the
+  `resource` parameter and finds nothing for `<app>/mcp`. Step 4a tests this.
 
 ## Result matrix
 

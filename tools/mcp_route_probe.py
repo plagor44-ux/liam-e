@@ -10,7 +10,8 @@ A live run needs the owner's approval. It discovers the authorization server fro
 route's bearer challenge, registers a public client dynamically, opens the owner's browser for the
 sign-in (authorization code with PKCE ``S256``, ``resource`` and a loopback redirect on
 ``127.0.0.1``) and then calls the probe app with the token. The token stays in memory and is never
-written or printed.
+written or printed. ``resource`` is ``<app>/mcp`` unless ``--resource-from-metadata`` sends the
+value the route's protected-resource metadata names; the output shows which (``resource_sent``).
 
 Output is one line per case: the HTTP status, fixed codes, header and field names, booleans, counts
 and duration buckets. It never prints a URL, token, client ID, user or workspace ID, or response
@@ -52,6 +53,9 @@ HANDSHAKE = "2025-11-25"
 KNOWN_VERSIONS = frozenset({MODERN, HANDSHAKE, "2025-06-18", "2025-03-26"})
 EXPECTED_TOOLS = frozenset({"probe_whoami", "probe_counter", "probe_sse"})
 CALLBACK_PATH = "/callback"
+CALLBACK_VALUES = ("code", "state", "error", "iss")  # the only values the callback keeps, and only in memory
+CALLBACK_BODY_LIMIT = 64 * 1024
+CALLBACK_FIELD_LIMIT = 64
 SIGN_IN_SECONDS = 300
 TIMEOUT_SECONDS = 20
 USER_AGENT = "liam-e-mcp-route-probe/1"
@@ -63,6 +67,7 @@ KNOWN_ERROR_CODES = frozenset({
     "unsupported_grant_type", "invalid_scope", "invalid_redirect_uri", "invalid_client_metadata",
     "server_error", "temporarily_unavailable", "login_required", "consent_required",
     "interaction_required", "method_not_allowed",
+    "invalid_target",  # RFC 8707: the authorization server refuses the resource parameter
 })
 KNOWN_RPC_CODES = frozenset({-32700, -32600, -32601, -32602, -32603, -32020, -32022})
 CHALLENGE_PARAMS = frozenset({"resource_metadata", "scope", "error", "error_description", "realm", "resource"})
@@ -75,6 +80,9 @@ _SCOPE = re.compile(r"^[a-z][a-z_.:-]{0,40}$")
 # The probe app's rule (probe_app/identity.py): up to five short letter-only words, so a name that
 # embeds a token, an ID or any digits is dropped.
 _HEADER_NAME = re.compile(r"^[a-z]{1,20}(?:-[a-z]{1,20}){0,4}$")
+# Callback parameter names such as code, state, iss or error_description; a name with digits,
+# capitals or dashes could embed an identifier and becomes "other".
+_PARAM_NAME = re.compile(r"^[a-z][a-z_]{0,31}$")
 _CHALLENGE_PARAM = re.compile(r'([A-Za-z_][A-Za-z0-9_-]*)=(?:"((?:[^"\\]|\\.)*)"|([^\s,]*))')
 
 # What --live does, in order; the offline run prints this list.
@@ -82,7 +90,8 @@ CASES: tuple[str, ...] = (
     "Q2 baseline: GET /api/health without a credential",
     "Q1 discovery: POST /mcp without a credential; bearer challenge, resource and authorization server metadata",
     "Q7 discovery: POST /api/mcp without a credential (flagged route under the unflagged /api prefix)",
-    "Q1 sign-in: dynamic client registration, browser sign-in with PKCE S256 and resource, code exchange",
+    "Q1 sign-in: dynamic client registration, browser sign-in with PKCE S256 and resource, code exchange "
+    "(resource <app>/mcp, or with --resource-from-metadata the one the metadata names)",
     "Q8/Q9 modern era on /mcp: server/discover, tools/list, probe_whoami, probe_counter, probe_sse",
     "Q9 protocol checks on /mcp: header mismatch, unsupported version, GET",
     "Q8 handshake era on /mcp: initialize, notifications/initialized, tools/list",
@@ -127,6 +136,20 @@ def safe_scopes(value: object) -> str:
 def safe_header_names(names: Iterable[object]) -> tuple[str, ...]:
     kept = {name.lower() for name in names if isinstance(name, str)}
     return tuple(sorted(name for name in kept if _HEADER_NAME.match(name)))
+
+
+def safe_param_names(names: Iterable[object]) -> tuple[str, ...]:
+    """The sorted names of the callback's parameters, never their values."""
+    return tuple(sorted({name if isinstance(name, str) and _PARAM_NAME.match(name) else "other" for name in names}))
+
+
+def callback_path_class(path: str) -> str:
+    """Where the authorization server sent the browser: ``exact``, ``trailing_slash`` or ``other``."""
+    if path == CALLBACK_PATH:
+        return "exact"
+    if path == f"{CALLBACK_PATH}/":
+        return "trailing_slash"
+    return "other"
 
 
 def content_kind(content_type: str | None) -> str:
@@ -346,6 +369,48 @@ def same_host(first: str, second: str) -> bool:
     return (urlsplit(first).hostname or "").lower() == (urlsplit(second).hostname or "").lower()
 
 
+def _origin(url: str) -> tuple[str, str, int | None] | None:
+    parts = urlsplit(url)
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.hostname:
+        return None
+    return parts.scheme, parts.hostname.lower(), port if port is not None else {"https": 443, "http": 80}.get(parts.scheme)
+
+
+def resource_relation(advertised: object, expected: str) -> str:
+    """How the resource that the metadata names relates to the route URL the probe sends.
+
+    ``equal`` (ignoring a trailing slash), ``origin`` (the bare origin), ``parent`` (a path prefix
+    of the route), ``other_path``, ``other_host`` (another scheme, host or port, or no URL at all),
+    or ``absent``. Only the class is printed, never the value.
+    """
+    if not isinstance(advertised, str) or not advertised:
+        return "absent"
+    origin = _origin(advertised)
+    if origin is None or origin != _origin(expected):
+        return "other_host"
+    first, second = urlsplit(advertised), urlsplit(expected)
+    if (first.query, first.fragment) != (second.query, second.fragment):
+        return "other_path"
+    path, route = first.path.rstrip("/"), second.path.rstrip("/")
+    if path == route:
+        return "equal"
+    if not path:
+        return "origin"
+    return "parent" if route.startswith(f"{path}/") else "other_path"
+
+
+def redirect_echoed(body: object, redirect_uri: str) -> str:
+    """Whether a registration answer lists the registered redirect URI unchanged: ``yes``, ``no`` or ``absent``."""
+    uris = body.get("redirect_uris") if isinstance(body, dict) else None
+    if not isinstance(uris, list):
+        return "absent"
+    return "yes" if redirect_uri in uris else "no"
+
+
 def resource_metadata_urls(resource: str) -> list[str]:
     """RFC 9728 well-known locations for ``resource``, path-specific first."""
     parts = urlsplit(resource)
@@ -380,11 +445,22 @@ class Token:
 
 @dataclass
 class Discovery:
-    resource: str = field(repr=False)
+    resource: str = field(repr=False)  # the route URL the probe calls
     scope: str | None = field(default=None, repr=False)
     metadata: dict[str, Any] | None = field(default=None, repr=False)
     metadata_url: str | None = field(default=None, repr=False)
     issuer: str | None = field(default=None, repr=False)
+    advertised_resource: str | None = field(default=None, repr=False)  # the metadata's resource, if https
+    use_advertised: bool = False  # set by --resource-from-metadata
+
+    @property
+    def parameter(self) -> str:
+        """The ``resource`` parameter (RFC 8707) of the authorization and token requests."""
+        return self.advertised_resource if self.use_advertised and self.advertised_resource else self.resource
+
+    @property
+    def sent(self) -> str:
+        return "metadata" if self.use_advertised and self.advertised_resource else "route"
 
     def __repr__(self) -> str:
         return "Discovery(<redacted>)"
@@ -404,31 +480,71 @@ class Callback(Protocol):
 
     def wait(self, timeout: float) -> dict[str, str] | None: ...
 
+    def shape(self) -> tuple[tuple[str, object], ...]: ...
+
     def close(self) -> None: ...
 
 
+def _parse_form(text: str) -> dict[str, list[str]]:
+    try:
+        return parse_qs(text, keep_blank_values=True, max_num_fields=CALLBACK_FIELD_LIMIT)
+    except ValueError:
+        return {"": [""]}  # too many fields: reported as the single name "other"
+
+
 class LoopbackCallback:
-    """A one-shot HTTP listener on 127.0.0.1 for the authorization response."""
+    """A one-shot HTTP listener on 127.0.0.1 for the authorization response.
+
+    The first GET or POST on any path except ``/favicon.ico`` is the answer, so a server that sends
+    the browser to ``/callback/`` or posts the response (``response_mode=form_post``) still reaches
+    the probe. ``wait`` returns only ``code``, ``state``, ``error`` and ``iss``, from the query or a
+    form body. ``shape`` reports how the answer came: method, path class, where the parameters were
+    and their sorted names, never a value. Every other request gets an empty 404.
+    """
 
     def __init__(self) -> None:
         received: dict[str, str] = {}
+        shape: list[tuple[str, object]] = []
         done = threading.Event()
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 - http.server's naming
+                self._answer("GET")
+
+            def do_POST(self) -> None:  # noqa: N802 - http.server's naming
+                self._answer("POST")
+
+            def _answer(self, method: str) -> None:
                 parts = urlsplit(self.path)
-                if parts.path != CALLBACK_PATH or done.is_set():
-                    self.send_response(404)
-                    self.end_headers()
+                if parts.path == "/favicon.ico" or done.is_set():
+                    self._reply(404, b"")
                     return
-                query = parse_qs(parts.query)
-                for name in ("code", "state", "error", "iss"):
-                    if query.get(name):
-                        received[name] = query[name][0]
+                query = _parse_form(parts.query)
+                form = _parse_form(self._form_body()) if method == "POST" else {}
+                for name in CALLBACK_VALUES:
+                    value = next((values[0] for values in (form.get(name), query.get(name)) if values and values[0]), None)
+                    if value:
+                        received[name] = value
+                sources = [label for label, found in (("query", query), ("form", form)) if found]
+                shape.extend([("method", method), ("path", callback_path_class(parts.path)),
+                              ("source", "+".join(sources) or "none"), ("params", safe_param_names({*query, *form}))])
                 done.set()
-                body = b"Sign-in finished. You can close this tab and return to the probe."
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self._reply(200, b"Sign-in finished. You can close this tab and return to the probe.")
+
+            def _form_body(self) -> str:
+                kind = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    return ""
+                if kind != "application/x-www-form-urlencoded" or not 0 < length <= CALLBACK_BODY_LIMIT:
+                    return ""
+                return self.rfile.read(length).decode("utf-8", "replace")
+
+            def _reply(self, status: int, body: bytes) -> None:
+                self.send_response(status)
+                if body:
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -438,6 +554,7 @@ class LoopbackCallback:
                 del format, args
 
         self._received = received
+        self._shape = shape
         self._done = done
         self._server = HTTPServer(("127.0.0.1", 0), Handler)
         self.redirect_uri = f"http://127.0.0.1:{self._server.server_address[1]}{CALLBACK_PATH}"
@@ -446,6 +563,9 @@ class LoopbackCallback:
 
     def wait(self, timeout: float) -> dict[str, str] | None:
         return dict(self._received) if self._done.wait(timeout) else None
+
+    def shape(self) -> tuple[tuple[str, object], ...]:
+        return tuple(self._shape) if self._done.is_set() else ()
 
     def close(self) -> None:
         self._server.shutdown()
@@ -546,10 +666,11 @@ class Probe:
                 ("fields", tuple(sorted(name for name in prm if name in {
                     "resource", "authorization_servers", "scopes_supported", "bearer_methods_supported",
                     "resource_name", "resource_documentation"}))),
-                ("resource_matches", isinstance(prm.get("resource"), str) and prm["resource"].rstrip("/") == resource),
+                ("resource_relation", resource_relation(prm.get("resource"), resource)),
                 ("authorization_servers", len(servers)),
                 ("scopes", safe_scopes(prm.get("scopes_supported"))),
             ]
+            discovery.advertised_resource = prm["resource"] if is_https(prm.get("resource")) else None
             if discovery.scope is None and isinstance(prm.get("scopes_supported"), list):
                 scopes = [item for item in prm["scopes_supported"] if isinstance(item, str)]
                 discovery.scope = " ".join(scopes) or None
@@ -615,6 +736,7 @@ class Probe:
         self.record("q1.register", "Q1 client registration", response.status_code, [
             *response_fields(response), ("client_id", isinstance(client_id, str) and bool(client_id)),
             ("secret_issued", isinstance(secret, str) and bool(secret)),
+            ("registration_redirect_echoed", redirect_echoed(body, redirect_uri)),
         ])
         if response.status_code not in (200, 201) or not isinstance(client_id, str) or not client_id:
             return None
@@ -627,7 +749,7 @@ class Probe:
         if not is_https(endpoint):
             self.record(key, label, "insecure_url")
             return None
-        data = {**form, "client_id": client.client_id, "resource": discovery.resource}
+        data = {**form, "client_id": client.client_id, "resource": discovery.parameter}
         if client.client_secret:
             data["client_secret"] = client.client_secret
         response, failure = self.send("POST", endpoint, data=data, headers={"Accept": "application/json"})
@@ -670,22 +792,23 @@ class Probe:
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
                 "state": state,
-                "resource": discovery.resource,
+                "resource": discovery.parameter,
             }
             if discovery.scope:
                 query["scope"] = discovery.scope
             separator = "&" if "?" in meta["authorization_endpoint"] else "?"
             url = f"{meta['authorization_endpoint']}{separator}{urlencode(query)}"
+            sent = ("resource_sent", discovery.sent)
             if not open_browser(url):
                 if show_url is None:
-                    self.record("q1.sign_in", "Q1 sign-in", "no_browser")
+                    self.record("q1.sign_in", "Q1 sign-in", "no_browser", [sent])
                     return None, client
                 show_url(url)
             started = time.monotonic()
             received = callback.wait(timeout)
             elapsed = "<=1m" if time.monotonic() - started <= 60 else ">1m"
             if received is None:
-                self.record("q1.sign_in", "Q1 sign-in", "timeout")
+                self.record("q1.sign_in", "Q1 sign-in", "timeout", [sent])
                 return None, client
             state_ok = secrets.compare_digest(received.get("state", ""), state)
             fields: list[tuple[str, object]] = [
@@ -694,6 +817,7 @@ class Probe:
             ]
             if "iss" in received:
                 fields.append(("iss_matches", discovery.issuer is not None and received["iss"].rstrip("/") == discovery.issuer.rstrip("/")))
+            fields += [*callback.shape(), sent]
             outcome = self.record("q1.sign_in", "Q1 sign-in", "callback", fields)
             if not state_ok or not received.get("code") or outcome.get("error"):
                 return None, client
@@ -738,6 +862,7 @@ def run_live(
     show_url: Callable[[str], None] | None = None,
     check_mistral_api: bool = False,
     revocation_step: bool = False,
+    resource_from_metadata: bool = False,
     pause: Callable[[], object] = input,
     sign_in_seconds: float = SIGN_IN_SECONDS,
 ) -> list[Outcome]:
@@ -750,8 +875,8 @@ def run_live(
     try:
         probe = Probe(client, base_url, emit)
         _run_matrix(probe, open_browser=open_browser, callback_factory=callback_factory, show_url=show_url,
-                    check_mistral_api=check_mistral_api, revocation_step=revocation_step, pause=pause,
-                    sign_in_seconds=sign_in_seconds)
+                    check_mistral_api=check_mistral_api, revocation_step=revocation_step,
+                    resource_from_metadata=resource_from_metadata, pause=pause, sign_in_seconds=sign_in_seconds)
         verdict = evaluate(probe.outcomes)
         probe.record("verdict", "verdict", verdict.status, verdict.fields)
         return probe.outcomes
@@ -762,7 +887,7 @@ def run_live(
 
 def _run_matrix(probe: Probe, *, open_browser: Callable[[str], bool], callback_factory: Callable[[], Callback],
                 show_url: Callable[[str], None] | None, check_mistral_api: bool, revocation_step: bool,
-                pause: Callable[[], object], sign_in_seconds: float) -> None:
+                resource_from_metadata: bool, pause: Callable[[], object], sign_in_seconds: float) -> None:
     base = probe.base
     probe.plain("q2.baseline", "Q2 baseline GET /api/health, no credential", "GET", f"{base}{HEALTH_PATH}")
     discovery = probe.discover(PRIMARY_ROUTE, "q1")
@@ -772,10 +897,16 @@ def _run_matrix(probe: Probe, *, open_browser: Callable[[str], bool], callback_f
     if not isinstance(methods, list) or "S256" not in methods:
         probe.record("stop", "stop", "no_s256_authorization_server")
         return
+    if resource_from_metadata:
+        if discovery.advertised_resource is None:  # before registering, so no client is created for nothing
+            probe.record("stop", "stop", "no_advertised_resource")
+            return
+        discovery.use_advertised = True
     token, oauth_client = probe.sign_in(discovery, open_browser=open_browser, callback_factory=callback_factory,
                                         show_url=show_url, timeout=sign_in_seconds)
     if token is None:
-        probe.record("stop", "stop", "no_token")
+        signed = next((outcome for outcome in probe.outcomes if outcome.key == "q1.sign_in"), None)
+        probe.record("stop", "stop", "sign_in_error" if signed is not None and signed.get("error") else "no_token")
         return
 
     probe.mcp("q9.discover", "Q9 modern server/discover", PRIMARY_ROUTE, MODERN, "server/discover", token=token,
@@ -961,6 +1092,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="pause for the owner to revoke access, then check that calls and refresh fail")
     parser.add_argument("--show-sign-in-url", action="store_true",
                         help="print the sign-in URL to stderr if no browser opens; never copy it into a log")
+    parser.add_argument("--resource-from-metadata", action="store_true",
+                        help="send the resource that the /mcp metadata names instead of <app>/mcp in the sign-in "
+                             "and token requests; for a deliberate diagnostic attempt only")
     args = parser.parse_args(argv)
     if not args.live:
         print("Offline. Cases that --live would run against the probe app:")
@@ -975,7 +1109,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.show_sign_in_url else None
     try:
         run_live(base_url, check_mistral_api=args.q3_mistral_api, revocation_step=args.revocation_step,
-                 show_url=show_url)
+                 resource_from_metadata=args.resource_from_metadata, show_url=show_url)
     except Exception as exc:  # noqa: BLE001 - exception texts can carry the URL or a token
         print(f"probe_failed: {type(exc).__name__}", file=sys.stderr)
         return 1
