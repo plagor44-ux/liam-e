@@ -131,8 +131,8 @@ In the Studio probe on 13.11.2026 the same process was still running at the end 
    Disk deploy and probe staging uses a private directory under `$XDG_CACHE_HOME/liam-e`
    (default `$HOME/.cache/liam-e`) or an explicit `TMPDIR`. The CLI receives the private
    directory as its own `TMPDIR` and the wrapper removes it on exit. A `.git` entry anywhere
-   above the staging directory stops the deploy before any CLI request. Run sandboxed
-   release checks from a path outside the shared system temporary directory.
+   above the staging directory stops the deploy before any CLI request. Allocate staging
+   for a sandboxed release preflight before launching the sandbox, as shown below.
    It clones the commit into a temporary directory outside the working tree (tracked files
    only, so no `.env`), writes the block into that copy's `mistral.json`, checks with
    `mistral apps list` that the app exists and runs `mistral deploy --from-disk` there without
@@ -156,3 +156,28 @@ Studio provides the app and its API. Releasing operations as MCP tools is a sepa
 The full OpenAPI also includes operations that perform actions. For HTTP connectors follow
 the read-only allowlist in the [agent rules](../AGENTS.md#security) and the
 [MCP inventory](../apps/api/tests/test_mcp_exposure.py).
+
+### Sandboxed release preflight
+
+Define this function in a Bash shell outside the sandbox. Start in the release checkout at
+the revision to check, with a home directory outside the shared system temporary directory.
+The helper checks the staging ancestry and creates a `0700` directory under
+`$HOME/.cache/liam-e`. The function sets `TMPDIR` before it creates the checkout or starts
+the sandbox launcher, and removes the staging directory when the launcher exits.
+
+```bash
+sandboxed_release_preflight() (
+  staging="$(env -u TMPDIR -u XDG_CACHE_HOME python3 -I tools/deploy_temp.py liam-e-preflight)" || exit
+  trap 'rm -rf -- "$staging"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  export TMPDIR="$staging"
+  git clone --quiet --no-local -- . "$TMPDIR/checkout" || exit
+  cd -- "$TMPDIR/checkout" || exit
+  "$@"
+)
+```
+
+Pass your sandbox launcher and its arguments to `sandboxed_release_preflight`. Run the
+launcher in the foreground. If it overrides its working directory or filters the environment,
+configure it to use the current checkout and forward the exported `TMPDIR` to the sandbox.
