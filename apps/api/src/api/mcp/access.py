@@ -13,7 +13,7 @@ from db.accessors import agent_access
 from fastapi import Depends, HTTPException, Request
 
 _LOG = logging.getLogger(__name__)
-PathGroup = Literal["agent-read", "v1-key"]
+PathGroup = Literal["agent-read", "mcp", "v1-key"]
 
 
 async def ensure_agent_access(*, path_group: PathGroup = "agent-read") -> None:
@@ -43,6 +43,7 @@ async def ensure_agent_access(*, path_group: PathGroup = "agent-read") -> None:
 @dataclass(frozen=True)
 class ReadGrant:
     account_ids: frozenset[str]
+    principal: str = "owner"
 
 
 class ReadAccessVerifier(Protocol):
@@ -55,6 +56,8 @@ class DenyReadAccess:
 
 
 def get_read_access_verifier() -> ReadAccessVerifier:
+    # Keep DenyReadAccess unconditionally bound in production until the #157 prerequisite
+    # (or an owner-approved replacement) is complete; activation is a separate follow-up PR.
     return DenyReadAccess()
 
 

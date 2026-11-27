@@ -27,6 +27,8 @@ dependencies = [
     # RFC 5545 typed parsing and VTIMEZONE; recurrence uses the pinned dateutil above.
     "icalendar==7.3.0",
     "markdown-it-py==4.3.0",
+    # Native MCP Streamable HTTP transport (v2 supports both handshake and 2026-07-28 protocol eras).
+    "mcp==2.3.0",
 ]
 
 [build-system]

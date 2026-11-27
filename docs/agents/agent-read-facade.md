@@ -52,5 +52,28 @@ row means off.
 The switch does not revoke anything at the gateway. Tokens and refresh grants stay valid there;
 only deleting the app ends them (#157, L9). Data an agent has already read cannot be recalled.
 Callers the app cannot tell apart from the owner's browser are not covered, so the AGENTS.md
-import rule still applies. With the switch on, the read facade still answers 401 until a real
-`ReadAccessVerifier` exists (#36, #54); the settings page says so.
+import rule still applies. With the switch on, the read facade and `/api/mcp` still answer 401
+to everyone because `DenyReadAccess` stays unconditionally bound in production until a separate
+binding PR installs a caller verifier and flags `/api/mcp` in `mistral.json` after #157 is GO;
+the settings page says so.
+
+## Native MCP transport (`/api/mcp`, #36)
+
+- **Server (`api/mcp/server.py`):** stateless `MCPServer` (`mcp==2.3.0`, JSON responses, both
+  `2026-07-28` and `2025-11-25` protocol eras) whose tools are generated strictly from
+  `registry.OPERATIONS` with read-only annotations and fixed error codes. No resources, prompts,
+  subscriptions, sampling, or elicitation handlers are registered. SDK loggers are kept off `DEBUG`
+  so tool arguments are never logged.
+- **Mount (`api/mcp/transport.py`):** mounted in `api/main.py` as a single non-OpenAPI route at
+  `/api/mcp` with `session_manager.run()` inside the app lifespan. Every request passes through
+  `ensure_agent_access(path_group="mcp")`, explicit `TransportSecuritySettings` (Host 421, Origin
+  403; absent Origin allowed for server-side clients; fixed-code logs without header values),
+  POST-only enforcement (405 `Allow: POST` for GET/DELETE), a body size cap (413), the shared
+  `get_read_access_verifier()` dependency bound into a request-scoped `ContextVar`, and an
+  in-process per-principal rate limit (429).
+- **Grant (`mcp_settings`):** installation-wide account list managed at `/settings/mcp`
+  (`GET`/`PATCH /api/v1/settings/mcp`, browser-only GET and mutating PATCH), intersected with
+  active accounts and cleaned up in the same transaction when `mail_account.delete_account` runs.
+- **Guards:** `apps/api/tests/test_mcp_transport.py` verifies the closed non-OpenAPI route/mount
+  inventory, both protocol eras, access/security rejections, side-effect spies, and log privacy.
+  Setup and revocation details live in [docs/mcp.md](../mcp.md).

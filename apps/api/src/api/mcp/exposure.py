@@ -49,6 +49,7 @@ BROWSER_ONLY_GET_OPERATIONS: frozenset[str] = frozenset(
         "chat_settings_get",
         "chat_model_settings_get",
         "calendar_settings_get",
+        "mcp_settings_get",
         "chat_mail_reference_get",
         "mail_account_oauth_authorize",
         "mail_account_oauth_callback",

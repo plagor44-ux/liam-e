@@ -82,6 +82,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
         "chat_settings_update",
         "chat_model_settings_update",
         "calendar_settings_update",
+        "mcp_settings_update",
         "agent_access_disable",  # The owner's switch for outside agent access (#197).
         "agent_access_enable",
         "tasks_archive",
