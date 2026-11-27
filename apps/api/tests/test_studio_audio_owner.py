@@ -65,7 +65,8 @@ def test_verified_gateway_owner_can_read_the_independent_capabilities(studio_cli
     ({"id": OTHER}, 401, "unauthorized"),
     ({"organization": {"id": OTHER}}, 401, "unauthorized"),
     ({"workspace": {"id": OTHER}}, 401, "unauthorized"),
-    ({"organization": None}, 401, "unauthorized"),
+    # An answer of the wrong shape is no verdict: the caller gate fails closed first.
+    ({"organization": None}, 503, "caller_identity_unavailable"),
     # Any non-null api_key marks a key caller, which the caller gate refuses first.
     ({"api_key": {"id": OWNER}}, 403, "agent_access_disabled"),
     ({"api_key": False}, 403, "agent_access_disabled"),
@@ -88,7 +89,8 @@ def test_missing_credential_type_is_not_proof_of_a_session(studio_client: TestCl
     with respx.mock(assert_all_called=False) as outbound:
         outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=body))
         response = studio_client.get(CAPABILITIES, headers=HEADERS)
-    assert response.status_code == 401
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
 
 
 def test_identity_redirect_does_not_send_the_gateway_token_elsewhere(studio_client: TestClient) -> None:
@@ -97,7 +99,8 @@ def test_identity_redirect_does_not_send_the_gateway_token_elsewhere(studio_clie
             return_value=httpx.Response(302, headers={"location": "https://other.example.test/"})
         )
         response = studio_client.get(CAPABILITIES, headers=HEADERS)
-    assert response.status_code == 401
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
     assert who.call_count == 1
 
 

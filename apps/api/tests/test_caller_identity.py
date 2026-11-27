@@ -13,7 +13,7 @@ from starlette.requests import HTTPConnection
 from utils.mistral import CallerCredentials, MistralNotConfiguredError, install_caller_credentials
 
 import api.caller_identity as identity_module
-from api.caller_identity import FRESH_SECONDS, STALE_SECONDS, CallerKind, caller_identity
+from api.caller_identity import FRESH_SECONDS, RETRY_SECONDS, STALE_SECONDS, CallerKind, caller_identity
 
 PROXY = "https://gateway.example.test/mistral"
 WHO = PROXY + "/v1/users/me"
@@ -198,11 +198,27 @@ async def test_the_cache_holds_hashes_not_tokens(app, who):
     assert TOKEN not in repr(cache._entries) and TOKEN not in "".join(cache._entries)
 
 
-async def test_a_failed_lookup_is_never_kept_across_requests(app, who):
+async def test_a_failed_lookup_is_retried_after_a_short_pause_and_never_kept(app, who, clock):
     who.mock(return_value=httpx.Response(500))
     _token()
     assert (await caller_identity(_request(app))).kind is CallerKind.UNAVAILABLE
     who.mock(return_value=httpx.Response(200, json=IDENTITY))
+    # Within the pause the token is not asked about again, and nothing was stored as a verdict.
+    clock[0] += RETRY_SECONDS - 1
+    for _ in range(5):
+        assert (await caller_identity(_request(app))).kind is CallerKind.UNAVAILABLE
+    assert who.call_count == 1
+    clock[0] += 2
+    assert (await caller_identity(_request(app))).kind is CallerKind.USER
+    assert who.call_count == 2
+
+
+async def test_the_pause_is_per_token(app, who):
+    who.mock(return_value=httpx.Response(500))
+    _token()
+    await caller_identity(_request(app))
+    who.mock(return_value=httpx.Response(200, json=IDENTITY))
+    _token("another-caller-token-test-only")
     assert (await caller_identity(_request(app))).kind is CallerKind.USER
     assert who.call_count == 2
 
@@ -216,9 +232,12 @@ async def test_one_request_never_repeats_a_failed_lookup(app, who):
     assert who.call_count == 1
 
 
-@pytest.mark.parametrize(("body", "kind"), [(IDENTITY, CallerKind.USER), (KEY_IDENTITY, CallerKind.API_KEY)])
+@pytest.mark.parametrize(("body", "kind"), [
+    (IDENTITY, CallerKind.USER), (KEY_IDENTITY, CallerKind.API_KEY), (None, CallerKind.REJECTED),
+])
 async def test_only_allow_stale_falls_back_to_the_last_answer(app, who, clock, caplog, body, kind):
-    who.mock(return_value=httpx.Response(200, json=body))
+    """The stand-in keeps its kind: a stale refusal or key never becomes a user."""
+    who.mock(return_value=httpx.Response(200, json=body) if body else httpx.Response(401))
     _token()
     await caller_identity(_request(app))
     clock[0] += FRESH_SECONDS[kind] + 1
@@ -235,12 +254,23 @@ async def test_only_allow_stale_falls_back_to_the_last_answer(app, who, clock, c
     assert (await caller_identity(request)).kind is CallerKind.UNAVAILABLE
 
 
-async def test_a_stale_answer_expires(app, who, clock):
+@pytest.mark.parametrize(("body", "kind"), [(IDENTITY, CallerKind.USER), (KEY_IDENTITY, CallerKind.API_KEY)])
+async def test_a_stale_answer_expires_after_its_grace(app, who, clock, body, kind):
+    who.mock(return_value=httpx.Response(200, json=body))
     _token()
     await caller_identity(_request(app))
-    clock[0] += STALE_SECONDS
     who.mock(return_value=httpx.Response(503))
+    clock[0] += STALE_SECONDS[kind] - 1
+    assert (await caller_identity(_request(app), allow_stale=True)).kind is kind
+    clock[0] += 1
     assert (await caller_identity(_request(app), allow_stale=True)).kind is CallerKind.UNAVAILABLE
+
+
+async def test_a_user_grace_is_short_and_a_refusal_grace_is_long():
+    assert STALE_SECONDS[CallerKind.USER] == 15 * 60
+    assert STALE_SECONDS[CallerKind.API_KEY] >= STALE_SECONDS[CallerKind.USER]
+    assert STALE_SECONDS[CallerKind.REJECTED] >= STALE_SECONDS[CallerKind.USER]
+    assert set(STALE_SECONDS) == set(FRESH_SECONDS)
 
 
 async def test_the_cache_is_bounded_and_drops_the_least_recent_token(app, who, monkeypatch):

@@ -10,10 +10,12 @@ token and keeps the answer briefly:
 
 - per app instance, keyed by a SHA-256 hash of the gateway URL and the token, never the token;
 - a user, an API key or a rejection is reused while fresh (:data:`FRESH_SECONDS`);
-- a failed lookup is never stored across requests, and it is not repeated within one: the caller
-  gate and the owner check of the same request share one lookup. With ``allow_stale=True`` the
-  caller may fall back to the last definite answer for the same token, up to
-  :data:`STALE_SECONDS` old.
+- a failed lookup never becomes a verdict. It is not repeated within the same request (the caller
+  gate and the owner check share one lookup), and for :data:`RETRY_SECONDS` the token is not
+  looked up again, so a slow or failing Users API costs one wait per token, not one per request;
+- with ``allow_stale=True`` a failed lookup falls back to the token's last definite answer, as
+  long as it is younger than its grace period (:data:`STALE_SECONDS`). The answer keeps its kind:
+  a stale refusal or API key never turns into a user.
 
 A request that brings a gateway token to an app with no gateway configured is not treated as a
 local run: the app cannot check the token, so it counts as an unavailable lookup.
@@ -41,6 +43,7 @@ from utils.mistral import MistralNotConfiguredError, caller_credentials
 
 __all__ = [
     "FRESH_SECONDS",
+    "RETRY_SECONDS",
     "STALE_SECONDS",
     "CallerIdentity",
     "CallerKind",
@@ -71,7 +74,16 @@ FRESH_SECONDS: dict[CallerKind, float] = {
     CallerKind.REJECTED: 60.0,
     CallerKind.API_KEY: 600.0,
 }
-STALE_SECONDS = 3600.0
+# How long, counted from the lookup, a definite answer may stand in for a failed one. A user's
+# grace is short: it keeps the owner's browser working through a brief outage, not a long one. A
+# refusal or an API key is kept longer, since standing in for it only ever refuses.
+STALE_SECONDS: dict[CallerKind, float] = {
+    CallerKind.USER: 900.0,
+    CallerKind.REJECTED: 3600.0,
+    CallerKind.API_KEY: 3600.0,
+}
+# After a failed lookup, how long the same token goes without a new one.
+RETRY_SECONDS = 10.0
 
 
 @dataclass(frozen=True, repr=False)
@@ -105,10 +117,12 @@ class _Entry:
 
 
 class _Cache:
-    """A bounded, least-recently-used map from a token hash to the last definite answer."""
+    """Bounded, least-recently-used maps from a token hash to its last definite answer and to the
+    time of its last failed lookup."""
 
     def __init__(self) -> None:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
+        self._failures: OrderedDict[str, float] = OrderedDict()
 
     def get(self, key: str) -> _Entry | None:
         entry = self._entries.get(key)
@@ -121,6 +135,17 @@ class _Cache:
         self._entries.move_to_end(key)
         while len(self._entries) > _MAX_ENTRIES:
             self._entries.popitem(last=False)
+        self._failures.pop(key, None)
+
+    def failed(self, key: str, now: float) -> None:
+        self._failures[key] = now
+        self._failures.move_to_end(key)
+        while len(self._failures) > _MAX_ENTRIES:
+            self._failures.popitem(last=False)
+
+    def failed_recently(self, key: str, now: float) -> bool:
+        failed_at = self._failures.get(key)
+        return failed_at is not None and now - failed_at < RETRY_SECONDS
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -197,9 +222,9 @@ async def _lookup(server_url: str, token: str) -> CallerIdentity:
 async def caller_identity(request: HTTPConnection, *, allow_stale: bool = False) -> CallerIdentity:
     """The kind of caller ``request`` comes from, looked up at most once per fresh period.
 
-    ``allow_stale`` lets a failed lookup fall back to the last definite answer for the same token.
-    Use it only where a stale answer is safer than none, such as the ``/api/v1`` caller gate; an
-    owner check must keep the default.
+    ``allow_stale`` lets a failed lookup fall back to the token's last definite answer within its
+    grace period. Use it only where a stale answer is safer than none, such as the ``/api/v1``
+    caller gate; an owner check must keep the default.
     """
     try:
         credentials = caller_credentials()
@@ -219,13 +244,15 @@ async def caller_identity(request: HTTPConnection, *, allow_stale: bool = False)
     if entry is not None and now - entry.fetched_at < FRESH_SECONDS[entry.identity.kind]:
         return entry.identity
 
-    if getattr(request.state, _FAILED_ATTR, None) == key:
+    if getattr(request.state, _FAILED_ATTR, None) == key or cache.failed_recently(key, now):
         identity = CallerIdentity(CallerKind.UNAVAILABLE)
     else:
         identity = await _lookup(credentials.server_url, credentials.token)
+        if identity.kind is CallerKind.UNAVAILABLE:
+            cache.failed(key, _now())
     if identity.kind is CallerKind.UNAVAILABLE:
         setattr(request.state, _FAILED_ATTR, key)
-        if allow_stale and entry is not None and now - entry.fetched_at < STALE_SECONDS:
+        if allow_stale and entry is not None and now - entry.fetched_at < STALE_SECONDS[entry.identity.kind]:
             _LOG.info("caller_identity=stale kind=%s", entry.identity.kind.value)
             return entry.identity
         return identity

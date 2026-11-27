@@ -20,7 +20,8 @@ TTS_LIMITS = {"max_input_characters": 500, "max_response_bytes": 1_000_000, "tim
     [
         ({}, 401, "unauthorized"),
         ({"x-apps-token": "unverified-test-only", "x-api-key": "unverified-test-only"}, 403, "agent_access_disabled"),
-        ({"authorization": "Bearer unverified-test-only", "x-space-token": "unverified-test-only"}, 401, "unauthorized"),
+        # A gateway token on an app without a configured gateway cannot be checked: fail closed.
+        ({"authorization": "Bearer unverified-test-only", "x-space-token": "unverified-test-only"}, 503, "caller_identity_unavailable"),
     ],
 )
 def test_audio_capabilities_rejects_unverified_owner(

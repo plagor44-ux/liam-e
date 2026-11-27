@@ -47,16 +47,22 @@ row means off.
   has not been checked live; `tools/gateway_access_probe.py` checks it.
 - **Identity lookups.** The gate looks a token up with the request's own bearer and keeps a
   definite answer per app instance, keyed by a hash of gateway URL and token: a user or a refusal
-  for 60 s, an API key for 10 min, a bounded number of tokens. A failed lookup is never kept and
-  never repeated within one request. The owner check (`api/owner_access.py`) uses the same lookup
-  and never accepts a stale answer.
-- **When the Users API is down.** The gate falls back to the token's last definite answer, up to
-  an hour old: a known key stays refused and a known user keeps working. Without one, GET and HEAD
-  pass and every other method gets 503 `caller_identity_unavailable` with `Retry-After: 5`, each
-  logged with a fixed code (`agent_caller=unverified outcome=...`). So the owner's browser keeps
-  reading and cannot change anything until the lookup works again, and a key the app has not seen
-  before can read during the outage. A gateway token on an app without a configured gateway
-  counts as such a failed lookup.
+  for 60 s, an API key for 10 min, a bounded number of tokens. A failed lookup never becomes a
+  verdict. It is not repeated within one request, and the same token is not asked about again
+  for 10 s, so a slow Users API costs one wait per token rather than one per request. The owner
+  check (`api/owner_access.py`) uses the same lookup and never accepts a stale answer.
+- **When the Users API is down.** The gate lets the token's last definite answer stand in, within
+  a grace period counted from that lookup: 15 minutes for a user, an hour for an API key or a
+  refusal. The stand-in keeps its kind, so a known key or refusal stays refused and never becomes
+  a user. Without such an answer the request fails closed: every method, reads included, gets 503
+  `caller_identity_unavailable` with `Retry-After: 5`, logged as
+  `agent_caller=unverified outcome=refused`. So the owner's browser keeps working through an
+  outage of up to 15 minutes, and a new token gets nothing until the lookup works again. A gateway
+  token on an app without a configured gateway counts as such a failed lookup, so a deployment
+  that lacks the gateway setting refuses every gateway request.
+- **What the owner binding does here.** Nothing: the gate never reads `AUDIO_STUDIO_OWNER`. A
+  missing or malformed binding only makes turning access on answer 409
+  `agent_access_owner_unbound` and refuses the audio owner routes.
 - **How fast it applies.** The switch has no cache. Every gated request reads the one row, so a
   change applies to the next request on every app instance. A request that already passed the gate
   finishes with at most one bounded response.
@@ -70,8 +76,8 @@ row means off.
 
 The switch does not revoke anything at the gateway. Tokens and refresh grants stay valid there;
 only deleting the app ends them (#157, L9). Data an agent has already read cannot be recalled.
-Callers the app cannot classify, such as a new key during a Users API outage, can still read, so
-the AGENTS.md import rule still applies. With the switch on, the read facade and `/api/mcp` still
+Callers the Users API reports as user sessions, such as an MCP sign-in (#157), pass the gate like
+the owner's browser, so the AGENTS.md import rule still applies. With the switch on, the read facade and `/api/mcp` still
 answer 401 to everyone because `DenyReadAccess` stays unconditionally bound in production until a
 separate binding PR installs a caller verifier and flags `/api/mcp` in `mistral.json` after #157 is
 GO, while workspace-key callers can already use the read-only `/api/v1` GETs; the settings page

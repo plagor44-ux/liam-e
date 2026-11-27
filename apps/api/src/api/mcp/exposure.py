@@ -15,10 +15,15 @@ part of the read-only inventory documented in AGENTS.md.
   else gets 403 ``agent_operation_refused``.
 - Turning access off (``agent_access_disable``) passes for every caller without any lookup, so the
   emergency stop never depends on the Users API.
-- When the lookup fails and there is no recent definite answer for the token, a GET or HEAD passes
-  and anything else gets 503 ``caller_identity_unavailable``. Both are logged with fixed codes. An
-  outage therefore never locks the owner's browser out of reading, and a key holder who could make
-  the lookup fail still cannot change or send anything.
+- When the lookup fails, the token's last definite answer stands in within its grace period
+  (:data:`api.caller_identity.STALE_SECONDS`): a user keeps working for 15 minutes, and a known
+  key or refusal stays refused for an hour. A stand-in never changes kind.
+- Without such an answer the request fails closed: 503 ``caller_identity_unavailable`` with
+  ``Retry-After``, logged with a fixed code. A new token during an outage therefore gets nothing,
+  and a key holder who could make the lookup fail gains nothing.
+
+The owner binding plays no part here: a missing binding only stops turning access on and the
+audio owner routes.
 """
 
 from __future__ import annotations
@@ -168,9 +173,6 @@ async def agent_caller_policy(request: HTTPConnection) -> None:
     if kind in (CallerKind.USER, CallerKind.NO_GATEWAY):
         return
     if kind is CallerKind.UNAVAILABLE:
-        if _is_read(request):
-            _LOG.warning("agent_caller=unverified outcome=read_allowed")
-            return
         _LOG.warning("agent_caller=unverified outcome=refused")
         raise HTTPException(
             status_code=503,

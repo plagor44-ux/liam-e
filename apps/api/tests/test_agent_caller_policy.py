@@ -17,7 +17,7 @@ import respx
 from starlette.websockets import WebSocketDisconnect
 
 import api.caller_identity as identity_module
-from api.caller_identity import FRESH_SECONDS, STALE_SECONDS, CallerKind
+from api.caller_identity import FRESH_SECONDS, RETRY_SECONDS, STALE_SECONDS, CallerKind
 from db.accessors import agent_access, prompt_template
 
 PROXY = "https://gateway.example.test/mistral"
@@ -174,37 +174,54 @@ def test_anyone_may_turn_access_off_without_a_lookup(client, switch, users_api, 
     assert not users_api.calls
 
 
+def _unavailable(response) -> None:
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["retry-after"] == "5"
+
+
 @pytest.mark.parametrize("failure", [httpx.Response(500), httpx.ConnectTimeout("down")])
-def test_without_any_verdict_reads_pass_and_changes_wait(client, switch, who, caplog, failure):
-    """A Users API outage keeps the owner's browser readable and stops every change."""
+def test_a_new_token_during_an_outage_fails_closed(client, switch, who, caplog, failure):
+    """No verdict at all: reads and changes are refused, the turn-off still works."""
     if isinstance(failure, Exception):
         who.mock(side_effect=failure)
     else:
         who.mock(return_value=failure)
     caplog.set_level(logging.INFO)
 
-    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
-    assert client.get(BROWSER_ONLY, headers=HEADERS).status_code == 200
-    assert "agent_caller=unverified outcome=read_allowed" in caplog.text
-
-    response = client.post(MUTATION, headers=HEADERS, json={})
-    assert response.status_code == 503
-    assert response.json() == {"detail": "caller_identity_unavailable"}
-    assert response.headers["cache-control"] == "no-store"
-    assert response.headers["retry-after"] == "5"
+    _unavailable(client.get(READ_ONLY, headers=HEADERS))
+    _unavailable(client.get(BROWSER_ONLY, headers=HEADERS))
+    _unavailable(client.post(MUTATION, headers=HEADERS, json={}))
+    assert client.post(DISABLE, headers=HEADERS).status_code == 200
     assert "agent_caller=unverified outcome=refused" in caplog.text
     assert switch.reads == 0
     assert TOKEN not in caplog.text
 
 
-def test_a_known_user_keeps_working_through_an_outage(client, switch, who, clock, caplog):
+def test_a_known_user_keeps_working_through_an_outage_within_its_grace(client, switch, who, clock, caplog):
     assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
-    clock[0] += FRESH_SECONDS[CallerKind.USER] + 1
     who.mock(return_value=httpx.Response(503))
     caplog.set_level(logging.INFO)
+    clock[0] += FRESH_SECONDS[CallerKind.USER] + 1
+    assert client.get(BROWSER_ONLY, headers=HEADERS).status_code == 200
     assert client.post(MUTATION, headers=HEADERS, json={}).status_code == 422
     assert "caller_identity=stale kind=user" in caplog.text
+    clock[0] = 1000.0 + STALE_SECONDS[CallerKind.USER] - 1
+    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
     assert switch.reads == 0
+
+
+def test_an_outage_costs_one_lookup_per_pause_not_one_per_request(client, who, clock):
+    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
+    clock[0] += FRESH_SECONDS[CallerKind.USER] + 1
+    who.mock(side_effect=httpx.ConnectTimeout("down"))
+    for _ in range(6):
+        assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
+    assert who.call_count == 2
+    clock[0] += RETRY_SECONDS
+    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
+    assert who.call_count == 3
 
 
 def test_a_known_key_stays_refused_through_an_outage(client, switch, who, clock):
@@ -216,11 +233,23 @@ def test_a_known_key_stays_refused_through_an_outage(client, switch, who, clock)
     _refused(client.get(BROWSER_ONLY, headers=HEADERS), "agent_access_disabled")
 
 
-def test_a_stale_user_verdict_ends(client, switch, who, clock):
+def test_a_user_grace_ends_after_15_minutes(client, switch, who, clock):
     assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
-    clock[0] += STALE_SECONDS
+    clock[0] += STALE_SECONDS[CallerKind.USER]
     who.mock(return_value=httpx.Response(503))
-    assert client.post(MUTATION, headers=HEADERS, json={}).status_code == 503
+    _unavailable(client.get(READ_ONLY, headers=HEADERS))
+    _unavailable(client.post(MUTATION, headers=HEADERS, json={}))
+
+
+def test_a_stale_refusal_never_becomes_a_user(client, switch, who, clock):
+    who.mock(return_value=httpx.Response(401))
+    switch.enabled = True
+    _refused(client.get(BROWSER_ONLY, headers=HEADERS), "agent_operation_refused")
+    clock[0] += FRESH_SECONDS[CallerKind.REJECTED] + 1
+    who.mock(return_value=httpx.Response(503))
+    _refused(client.get(BROWSER_ONLY, headers=HEADERS), "agent_operation_refused")
+    _refused(client.post(MUTATION, headers=HEADERS, json={}), "agent_operation_refused")
+    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
 
 
 def test_without_a_gateway_requests_pass_unchanged(monkeypatch, switch, users_api):
@@ -231,10 +260,10 @@ def test_without_a_gateway_requests_pass_unchanged(monkeypatch, switch, users_ap
     assert not users_api.calls
 
 
-def test_a_gateway_token_without_a_configured_gateway_cannot_change_anything(monkeypatch, switch, users_api):
+def test_a_gateway_token_without_a_configured_gateway_fails_closed(monkeypatch, switch, users_api):
     client = TestClient(_app(monkeypatch, proxy=None))
-    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
-    assert client.post(MUTATION, headers=HEADERS, json={}).status_code == 503
+    _unavailable(client.get(READ_ONLY, headers=HEADERS))
+    _unavailable(client.post(MUTATION, headers=HEADERS, json={}))
     assert not users_api.calls
 
 
@@ -246,3 +275,16 @@ def test_a_key_identity_cannot_open_the_live_websocket(client, switch, who, enab
         with client.websocket_connect("/api/v1/audio/live/transcription", headers=HEADERS):
             pass
     assert who.call_count == 1
+
+
+def test_a_missing_owner_binding_does_not_refuse_the_ui(client, switch, monkeypatch):
+    """The caller gate never reads the binding; without one only turning access on is refused."""
+    from env.audio import env
+
+    monkeypatch.setattr(env, "audio_studio_owner", None)
+    assert client.get(READ_ONLY, headers=HEADERS).status_code == 200
+    assert client.get(BROWSER_ONLY, headers=HEADERS).json()["owner_bound"] is False
+    assert client.post(MUTATION, headers=HEADERS, json={}).status_code == 422
+    response = client.post("/api/v1/settings/agent-access/enable", headers=HEADERS, json={"expected_revision": 2})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_access_owner_unbound"
