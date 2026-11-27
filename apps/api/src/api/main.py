@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from api.mcp.transport import mount_mcp_transport
 from env.api import env as http_env
 from env.logging import env as logging_env
 from env.mistral import env as mistral_env
@@ -30,7 +31,8 @@ def create_app(*, hooks: FastAPIHooks | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         try:
             await manager.startup(app)
-            yield
+            async with mcp_server.session_manager.run():
+                yield
         finally:
             # Hooks first, so their shutdown logs still export; telemetry last, even if one raises.
             try:
@@ -46,6 +48,7 @@ def create_app(*, hooks: FastAPIHooks | None = None) -> FastAPI:
     app.state.fastapi_hooks = manager
     manager.configure(app)
     app.include_router(create_api_router("api.routers"))
+    mcp_server = mount_mcp_transport(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[http_env.cors_origin],

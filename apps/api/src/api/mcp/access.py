@@ -43,6 +43,7 @@ async def ensure_agent_access(*, path_group: PathGroup = "agent-read") -> None:
 @dataclass(frozen=True)
 class ReadGrant:
     account_ids: frozenset[str]
+    principal: str = "owner"
 
 
 class ReadAccessVerifier(Protocol):

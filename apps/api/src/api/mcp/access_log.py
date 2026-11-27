@@ -6,10 +6,10 @@ Gateway and reverse-proxy logging must independently apply the same policy befor
 import logging
 import re
 
-PREFIX = "/api/agent-read/"
+PREFIXES = ("/api/agent-read/", "/api/mcp")
 # Everything from the "?" up to the next whitespace: a request target never contains raw
 # whitespace, and quotes inside the query must not end the redaction early.
-_QUERY = re.compile(r"(/api/agent-read/[^\s?]*)\?\S*")
+_QUERY = re.compile(r"(/api/(?:agent-read/|mcp(?:/|(?=\?)))[^\s?]*)\?\S*")
 
 
 def _redact(text: str) -> str:
@@ -22,7 +22,10 @@ class RedactAgentReadQuery(logging.Filter):
         if isinstance(args, tuple):
             # Keep the argument shape (uvicorn's formatter unpacks its 5-tuple) and redact every
             # facade path among the arguments, wherever a format puts it.
-            record.args = tuple(_redact(item) if isinstance(item, str) and PREFIX in item else item for item in args)
+            record.args = tuple(
+                _redact(item) if isinstance(item, str) and any(prefix in item for prefix in PREFIXES) else item
+                for item in args
+            )
         # Then check the rendered line: a query can still appear when a format splits path and
         # query into separate arguments, carries the path in the message itself or passes a
         # mapping. Only such lines lose their arguments; uvicorn's own line no longer matches.
