@@ -179,19 +179,37 @@ sandboxed_release_preflight() (
 ```
 
 Pass your sandbox launcher and its arguments to `sandboxed_release_preflight`. Run the
-launcher in the foreground. If it overrides its working directory or filters the environment,
-configure it to use the current checkout and forward the exported `TMPDIR` to the sandbox.
+launcher in the foreground. If it sets its own working directory or environment, give it
+the current checkout and a temporary directory writable inside the sandbox.
 
-On Linux, Codex in `workspace-write` mode can mount the host `/tmp` as a separate writable
-root even with the private `TMPDIR` above. This can leave an empty `/tmp/.git` on the host
-if the sandbox helper is interrupted. Exclude that writable root when launching Codex.
-[Codex configuration reference](https://developers.openai.com/codex/config-reference/),
-[upstream sandbox report](https://github.com/openai/codex/issues/31599).
+On Linux, `sandbox_workspace_write.exclude_slash_tmp=true` removes the host `/tmp` from
+Codex's default writable roots. Codex 0.149.0 can still mount a protected `.git` at an
+exported `TMPDIR` that it treats as a writable root. The staging helper rejects that
+marker. [Codex configuration reference](https://developers.openai.com/codex/config-reference/),
+[Codex writable-root selection](https://github.com/openai/codex/blob/rust-v0.149.0/codex-rs/protocol/src/permissions.rs),
+[Linux metadata mounts](https://github.com/openai/codex/blob/rust-v0.149.0/codex-rs/linux-sandbox/src/bwrap.rs).
+
+Use a private, marker-free guest `/tmp` for the Gitless staging check. This Linux example
+uses Bubblewrap, system Bash and Python 3, and requires permission to create namespaces.
+It mounts the checkout read-only, isolates the network, and verifies that the helper
+creates a `0700` directory inside the guest `TMPDIR`.
 
 ```bash
-sandboxed_release_preflight codex --sandbox workspace-write \
-  -c sandbox_workspace_write.exclude_slash_tmp=true
+gitless_staging_check() {
+  bwrap --unshare-all --die-with-parent --clearenv \
+    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+    --ro-bind-try /lib64 /lib64 --dev /dev \
+    --ro-bind "$PWD" /checkout --tmpfs /tmp --setenv TMPDIR /tmp \
+    --chdir /checkout /bin/bash -eu -c '
+      test ! -e "$TMPDIR/.git"
+      stage="$(/usr/bin/python3 -I tools/deploy_temp.py liam-e-preflight-check)"
+      test -d "$stage"
+      test "$(/usr/bin/stat -c %a "$stage")" = 700
+      printf "Gitless staging check passed.\n"
+    '
+}
+sandboxed_release_preflight gitless_staging_check
 ```
 
-Keep the private `TMPDIR` writable and omit the host `/tmp` from any additional writable
-roots. With another launcher, give the sandbox its own private `/tmp` mount.
+The guest `/tmp` disappears with the sandbox. The outer function removes its checkout
+after the launcher exits.
