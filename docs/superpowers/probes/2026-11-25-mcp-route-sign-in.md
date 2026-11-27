@@ -325,8 +325,9 @@ verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional
 - **Automated verdict.** The tool printed `verdict: BLOCKED reasons=revocation_not_effective`.
   That reason does not apply, because nothing was revoked. The tool cannot tell "revoked, still
   works" from "nothing to revoke": after the pause it always treats a working call or refresh as a
-  failed revocation. By the time Enter was pressed, both access tokens were past their lifetime
-  (`expires_in` at most five minutes), so their `401 invalid_token` shows expiry. The refresh grant
+  failed revocation. The two `401 invalid_token` answers after the pause are read as expiry, which
+  is assumed, not executed: the tool records `expires_in` only as a bucket (at most five minutes),
+  and Enter came more than five minutes after both tokens were issued. The refresh grant
   still returned 200, which shows that the grant was live, not that a revocation failed. Without
   the revocation step the verdict is `INCOMPLETE revocation_not_checked`, and every other automated
   condition holds: `S256`, write rejected and without effect, unflagged reads rejected, Mistral API
@@ -341,8 +342,8 @@ verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional
 Live, 27 November 2026:
 
 - The authorization server's metadata names no revocation endpoint (`revocation_endpoint=no`).
-- The owner looked for a way to revoke the probe's access and found none. Owner searched in: <to
-  be added>.
+- The owner found no revocation option in the Mistral UI; the exact places searched were not
+  recorded.
 
 Public Mistral documentation, read on 27 November 2026 without signing in. Each point is "checked,
 not documented":
