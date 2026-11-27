@@ -4,9 +4,10 @@ Status: **INCOMPLETE (live run of 26 and 27 November 2026).** This file is the r
 result record for #157 (parent #36). The sign-in through the flagged route works once the client
 sends the resource that Studio's metadata names. The gateway keeps the token away from the app's
 unflagged routes, and the Mistral API rejects it. The owner found no way to revoke it, so the
-revocation check could not run. L6 (Vibe Code), L7, L8 and L9 have not run. "Result of the run"
-below has the verdict; the steps are kept as they were run. On 27 November the owner chose to test
-whether deleting the probe app ends its tokens (L9, step 8); that test has not run yet.
+revocation check could not run. "Result of the run" below has the verdict; the steps are kept as
+they were run. L9 (step 8) showed on 27 November that deleting the probe app cuts off its access
+and refresh tokens at once. That is the only cut-off proven so far, and it removes the whole app
+(see "Result of the kill-switch test"). L6 (Vibe Code), L7 and L8 have not run.
 
 ## Why this probe exists
 
@@ -66,7 +67,7 @@ cover another. All live steps need the merged offline PR first.
 | L6 | Q8: add the probe's `/mcp` route to Vibe Code with OAuth, sign in, call the probe tools, remove the entry | A second OAuth client and token for the owner | Owner |
 | L7 | Optional Q5: a second workspace member signs in through the probe | Only if such an account exists | That member |
 | L8 | Optional: import the **probe app** (never liam-e) as a Studio connector, or try Vibe Work | Exposes only the probe's three read tools | Owner |
-| L9 | Kill-switch test and cleanup (step 8): one more sign-in with `--kill-switch-step`; at the pause the worker deletes the probe app with `deploy.sh --delete --apply`; the probe checks whether calls and refresh still work | Registers a fourth probe client and issues a token, then removes the app. The probe clients stay registered: there is no client management (RFC 7592). | Owner consents in the browser and gives the go |
+| L9 | Kill-switch test and cleanup (step 8): one more sign-in with `--kill-switch-step`; at the pause the worker deletes the probe app with `deploy.sh --delete --apply`; the probe checks whether calls and refresh still work | Registers one more probe client per attempt and issues a token, then removes the app. The probe clients stay registered: there is no client management (RFC 7592). | Owner consents in the browser and gives the go |
 | L10 | Commit the redacted results in this file in a follow-up PR | Public repository change | Worker, owner merges |
 
 ## Live steps
@@ -269,12 +270,18 @@ Before the run:
 
 The run:
 
-1. Start the probe. It signs in as in step 4a, which registers a fourth probe client; the owner
+1. Start the probe. It signs in as in step 4a, which registers one more probe client; the owner
    consents in the browser.
 
    ```bash
    bash tools/uv.sh run --no-sync python tools/mcp_route_probe.py --live --kill-switch-step --resource-from-metadata
    ```
+
+   Operator note: the consent page opens as a new tab of the running browser, in its last-active
+   window and profile (for Chromium, `chromium --new-tab` through `BROWSER`). That may not be the
+   window the owner is looking at. The owner keeps the intended profile's window in front and has
+   300 seconds to consent; after that the probe stops with `no_token`, and a new attempt
+   registers another client. The first L9 attempt ended this way.
 
    Before it pauses, it runs the baseline `k0`: `tools/list`, a refresh grant, and `tools/list` with
    the refreshed token. If one of them fails, it stops with `baseline_failed` and does not pause.
@@ -323,8 +330,8 @@ Afterwards:
 1. Record yes/no: the helper's listing check passed, so no app named `liam-e-mcp-route-probe`
    remains and liam-e's apps are listed unchanged.
 2. Record that the probe clients stay registered. The authorization server offers no client
-   management (RFC 7592), and the owner found no place to remove them. That makes four clients:
-   one from each of the three attempts and one from L9.
+   management (RFC 7592), and the owner found no place to remove them. That makes five clients:
+   one from each of the three attempts and two from L9, whose first attempt timed out.
 3. Unset `MCP_ROUTE_PROBE_URL` and remove the temporary directory.
 4. Keep the deployment file: it now holds no `appId`.
 
@@ -387,8 +394,9 @@ verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional
 - **Revocation.** The owner found no way to revoke the probe's access in the UI. The
   authorization server's metadata names no revocation endpoint (`revocation_endpoint=no`), and
   the public documentation describes none (see "Revocation: what was checked"). The refresh grant
-  stayed live. The refresh token's lifetime is unknown. The three probe clients and their grant on
-  the server side remain until L9, and whether L9 ends the grant is not documented.
+  stayed live. The refresh token's lifetime is unknown. After L9 deleted the app, its refresh grant
+  answered 404; whether the probe clients and grants still exist on the server side was not
+  checked.
 - **Automated verdict.** The tool printed `verdict: BLOCKED reasons=revocation_not_effective`.
   That reason does not apply, because nothing was revoked. The tool cannot tell "revoked, still
   works" from "nothing to revoke": after the pause it always treats a working call or refresh as a
@@ -400,9 +408,11 @@ verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional
   condition holds: `S256`, write rejected and without effect, unflagged reads rejected, Mistral API
   rejected, identity `user`.
 - **Consequence for liam-e.** Exposing the agent read facade in production (#36, #54) stays
-  blocked. The open question is no longer route scoping but an emergency stop. That could be a
-  revocation on Mistral's side, deleting the app as a kill switch (its effect on grants is not
-  documented), or a kill switch inside the app.
+  blocked. The open question is no longer route scoping but an emergency stop. There is still no
+  way to revoke one grant. The only cut-off proven so far is deleting the whole app (L9, see
+  "Result of the kill-switch test"). For liam-e's production app that would delete the app itself,
+  so it is not a usable kill switch. A revocation on Mistral's side or a kill switch inside the
+  app remains open.
 
 ### Revocation: what was checked
 
@@ -427,7 +437,8 @@ not documented":
 3. Not documented: what deleting an app does to tokens and grants already issued (the deploy page,
    the CLI reference for `mistral apps delete`, managed apps), and the lifetime of the gateway's
    access and refresh tokens. Inference only, unverified: tokens probably stop working once the
-   gateway no longer routes to a deleted app; whether grants survive is unknown.
+   gateway no longer routes to a deleted app; whether grants survive is unknown. L9 later bore out
+   the first part; the second remains unchecked.
 4. No changelog entry (up to about 22 October 2026) and no note about the gap. Not searched: GitHub
    issue trackers and Discord.
 
@@ -452,7 +463,8 @@ header name that the gateway sets distinguishes MCP traffic from a browser sessi
 ### Not checked
 
 - Any revocation, whether the grant ends on its own, and the refresh token's lifetime.
-- L6 (Vibe Code, second half of Q8), L7 (Q5), L8 and L9.
+- L6 (Vibe Code, second half of Q8), L7 (Q5) and L8. L9 has its own list under "Result of the
+  kill-switch test".
 - The values and meaning of the forwarded headers, including whether `x-space-token` works as a
   credential.
 - Whether the browser's 405 on `GET /mcp` and `GET /api/mcp` in step 3 came from the gateway or
@@ -460,6 +472,70 @@ header name that the gateway sets distinguishes MCP traffic from a browser sessi
 - Whether Mistral APIs other than `GET /v1/models` accept the token.
 - Whether the authorization server accepts any `resource` other than the metadata's value. Only
   the route URL and that value were tried.
+
+## Result of the kill-switch test (L9, 27 November 2026)
+
+**`kill_switch: effective`.** Deleting the probe app cut off its tokens at once. Right after the
+deletion and again 120 seconds later, `tools/list` and the refresh grant answered 404 while the
+access token was still within its lifetime. Before the deletion, all three requests succeeded.
+
+| Attempt | Time (Europe/Berlin) | Outcome |
+| --- | --- | --- |
+| L9-1 | 27 November, 18:55 to 19:00 | The consent tab opened, but no callback arrived within 300 seconds: `Q1 sign-in: timeout`, `stop: no_token`, `kill_switch: unclear` with `no_token`. No pause, nothing deleted. The cause was not established; see the operator note in step 8. |
+| L9-2 | 27 November, 19:16 to 19:19 | Approved separately by the owner; complete, as below. |
+
+Each attempt registered one client, so five probe clients exist. The tool and the delete helper
+ran from `df07fe81` (#193); the app was not deployed again and still ran the code of `ee43cd09`.
+
+| Step of L9-2 | Time (Europe/Berlin) | Result |
+| --- | --- | --- |
+| Sign-in | tab at 19:16:43 | callback within a minute; code exchange 200, access token at most five minutes, refresh token issued |
+| `k0`, before the deletion | up to 19:16:52 | `tools/list` 200, refresh grant 200 with a new refresh token, `tools/list` with the refreshed token 200 |
+| Guarded delete at the pause | 19:16:52 to 19:17:12 | dry run passed, as it had before the run; `--apply` exit 0; apps named `liam-e-mcp-route-probe`: one before, none after; `appId` removed from the deployment file; the helper's check: the two liam-e apps listed before are still listed, unchanged |
+| `k1`, right after | 19:17:12 | `tools/list` 404 (HTML body) with `within_lifetime=yes`; refresh grant 404; no refreshed call, because no token was issued |
+| `k2`, 120 seconds after | about 19:19 | `tools/list` 404 with `within_lifetime=yes`; refresh grant 404 |
+
+Besides the helper's check, a separate read-only listing of liam-e's test and production apps
+showed the same record before and after the run. The tokens existed only in the probe's memory and
+ended with it; no output held a token.
+
+What it means:
+
+- Deleting an app is an emergency stop for that app's tokens: the gateway stopped serving the
+  MCP route and the token endpoint at once, and nothing came back within 120 seconds.
+- There is still no way to revoke one grant: no revocation endpoint, no client management
+  (RFC 7592) and no place in the UI that the owner found. The only proven cut-off removes the
+  whole app. For liam-e's production app that would mean deleting it, so it is not a usable kill
+  switch, and exposing the agent read facade in production (#36, #54) stays blocked.
+
+Not checked:
+
+- Whether the 404 means the tokens are invalid or only that the route is gone. In practice it is
+  the same here: the tokens reach nothing.
+- The tokens against any other app; that was deliberately not tried.
+- Whether the five probe client registrations or the owner's consent persist on the server side.
+- Anything after 120 seconds.
+- Why the first L9 attempt timed out.
+
+Probe output of L9-2, from `--live --kill-switch-step --resource-from-metadata`. These lines carry
+no `instance` or fingerprint values; nothing else was changed.
+
+```text
+Q1 challenge /mcp, no credential: 401 content=json error=unauthorized challenge=bearer[resource_metadata] headers=set-cookie,www-authenticate
+Q1 resource metadata /mcp: 200 source=challenge same_host=yes fields=authorization_servers,bearer_methods_supported,resource,scopes_supported resource_relation=origin authorization_servers=1 scopes=openid+email+profile
+Q1 authorization server: 200 issuer_same_host=yes issuer_matches=yes s256=yes plain=no registration_endpoint=yes cimd=no refresh_grant=yes auth_method_none=yes revocation_endpoint=no endpoints_https=yes scopes=openid+email+profile
+Q1 client registration: 201 content=json headers=set-cookie client_id=yes secret_issued=no registration_redirect_echoed=yes
+Q1 sign-in: callback state_matches=yes code=yes error=- duration=<=1m method=GET path=exact source=query params=code,state resource_sent=metadata
+Q1 code exchange: 200 content=json headers=- bearer=yes expires_in=<=5m refresh_token=yes scope=openid+email+profile
+L9 before the deletion, tools/list: 200 content=json headers=- within_lifetime=yes tools=3 expected_tools=yes
+L9 before the deletion, refresh grant: 200 content=json headers=- bearer=yes expires_in=<=5m refresh_token=yes scope=openid+email+profile
+L9 before the deletion, tools/list with the refreshed token: 200 content=json headers=- within_lifetime=yes tools=3 expected_tools=yes
+L9 right after the deletion, tools/list: 404 content=html headers=- within_lifetime=yes
+L9 right after the deletion, refresh grant: 404 content=html headers=- bearer=no expires_in=absent refresh_token=no scope=-
+L9 120 s after the deletion, tools/list: 404 content=html headers=- within_lifetime=yes
+L9 120 s after the deletion, refresh grant: 404 content=html headers=- bearer=no expires_in=absent refresh_token=no scope=-
+L9 kill switch: effective immediate=effective after_delay=effective reasons=-
+```
 
 ## Result matrix
 
@@ -573,7 +649,7 @@ none of them had been confirmed against Studio; "Answered by the run" below list
   keeps that case from happening.
 - `mistral apps delete <app> --organization <id> --workspace <id> --yes` deletes the app without a
   prompt; the CLI's help says `--yes` is required off a terminal. Whether the deletion ends the
-  app's tokens and grants is not documented, and is what L9 tests.
+  app's tokens and grants is not documented, which is what L9 tested.
 - The runtime starts the container from `/srv` with the probe's start command (`--app-dir /srv`
   protects against another working directory). It also injects the gateway proxy URL as for liam-e
   (`__APPS_PROXY_URL` or `__SPACES_PROXY_URL`).
@@ -591,6 +667,9 @@ Answered by the run:
 - The app reached the gateway proxy: the identity lookup returned `user` (Q4).
 - The gateway forwards the caller token as `x-apps-token` and also sends `x-space-token` (Q4). It
   passes `MCP-Protocol-Version`, `Mcp-Method` and SSE through unchanged (Q9).
+- `mistral apps delete --yes` deleted the probe app without a prompt, and the next listing no
+  longer showed it (L9). Right away, the app's MCP route and its token endpoint answered 404 to
+  the remaining access and refresh tokens (L9).
 
 The other assumptions remain unconfirmed.
 
