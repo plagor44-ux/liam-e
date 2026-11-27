@@ -34,7 +34,17 @@ def test_offline_by_default_sends_nothing(monkeypatch: pytest.MonkeyPatch,
 
 
 def test_gateway_probe_reads_only() -> None:
-    assert all(path.startswith(("/api/health", "/api/agent-read/", "/.well-known/")) for _, path, _ in gateway.CASES)
+    v1_reads = {"/api/v1/settings/agent-access", "/api/v1/audio/capabilities"}
+    assert all(
+        path.startswith(("/api/health", "/api/agent-read/", "/.well-known/")) or path in v1_reads
+        for _, path, _ in gateway.CASES
+    )
+    assert {path for _, path, _ in gateway.CASES} >= v1_reads
+
+
+def test_gateway_redaction_recognizes_the_caller_gate_codes() -> None:
+    for code in ("agent_operation_refused", "caller_identity_unavailable"):
+        assert gateway.redact("case", 403, {"detail": code}, []).error_code == code
 
 
 def test_gateway_redaction_keeps_codes_and_header_names_only() -> None:

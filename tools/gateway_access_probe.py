@@ -1,4 +1,4 @@
-"""Which credentials get a request through the Studio app gateway (#34).
+"""Which credentials get a request through the Studio app gateway (#34, #200).
 
 Offline by default: prints the probe plan and runs nothing. With ``--live`` it sends read-only
 ``GET`` requests to the deployed app and prints one redacted line per case: HTTP status, the
@@ -22,7 +22,10 @@ from typing import NoReturn
 # Only read routes. ``/api/agent-read`` is the read facade from #35: with the owner's outside-access
 # switch off (default) a key caller gets 403 ``agent_access_disabled`` before the verifier runs, and
 # with the switch on the default verifier rejects every request with 401; ``/.well-known`` paths
-# show whether OAuth discovery reaches the app.
+# show whether OAuth discovery reaches the app. The two ``/api/v1`` reads touch no mail data and
+# make no provider call. With the switch off a key caller must get 403 ``agent_access_disabled``
+# there too: the gateway drops ``x-api-key``, so this shows whether the app tells the key from the
+# owner by the Users API answer (#200). A 200 means it does not.
 CASES: tuple[tuple[str, str, str], ...] = (
     ("health, no credential", "/api/health", "none"),
     ("health, invalid bearer", "/api/health", "bearer-invalid"),
@@ -31,6 +34,8 @@ CASES: tuple[tuple[str, str, str], ...] = (
     ("health, workspace key as x-api-key", "/api/health", "x-api-key"),
     ("read facade, no credential", "/api/agent-read/v1/mail/accounts", "none"),
     ("read facade, workspace key as x-api-key", "/api/agent-read/v1/mail/accounts", "x-api-key"),
+    ("v1 browser-only read, workspace key as x-api-key", "/api/v1/settings/agent-access", "x-api-key"),
+    ("owner-only capability, workspace key as x-api-key", "/api/v1/audio/capabilities", "x-api-key"),
     ("oauth resource metadata, no credential", "/.well-known/oauth-protected-resource", "none"),
 )
 REPORTED_HEADERS = ("www-authenticate", "location", "set-cookie")
@@ -44,6 +49,7 @@ KNOWN_ERROR_CODES = frozenset({
     "agent_access_disabled",
     "agent_access_unavailable",
     "agent_operation_refused",
+    "caller_identity_unavailable",
 })
 INVALID = "invalid-test-only"
 
