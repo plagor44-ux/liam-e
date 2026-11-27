@@ -10,6 +10,7 @@ token and keeps the answer briefly:
 
 - per app instance, keyed by a SHA-256 hash of the gateway URL and the token, never the token;
 - a user, an API key or a rejection is reused while fresh (:data:`FRESH_SECONDS`);
+- concurrent requests for one token share the lookup in flight;
 - a failed lookup never becomes a verdict. It is not repeated within the same request (the caller
   gate and the owner check share one lookup), and for :data:`RETRY_SECONDS` the token is not
   looked up again, so a slow or failing Users API costs one wait per token, not one per request;
@@ -118,11 +119,41 @@ class _Entry:
 
 class _Cache:
     """Bounded, least-recently-used maps from a token hash to its last definite answer and to the
-    time of its last failed lookup."""
+    time of its last failed lookup, plus the lookups still in flight."""
 
     def __init__(self) -> None:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._failures: OrderedDict[str, float] = OrderedDict()
+        self._inflight: dict[str, asyncio.Task[CallerIdentity]] = {}
+
+    def lookup(self, key: str, server_url: str, token: str) -> asyncio.Task[CallerIdentity]:
+        """The lookup in flight for ``key`` on this event loop, started if there is none.
+
+        Concurrent requests for one token share it, so a slow Users API costs one wait per token,
+        not one per request. The task records its own outcome, so a cancelled request leaves it
+        running for the others. A task left on another event loop (an app reused across test
+        clients) is never joined.
+        """
+        loop = asyncio.get_running_loop()
+        task = self._inflight.get(key)
+        if task is None or task.done() or task.get_loop() is not loop:
+            task = loop.create_task(self._run(key, server_url, token))
+            task.add_done_callback(_retrieve)
+            self._inflight[key] = task
+        return task
+
+    async def _run(self, key: str, server_url: str, token: str) -> CallerIdentity:
+        started = _now()
+        try:
+            identity = await _lookup(server_url, token)
+            if identity.kind is CallerKind.UNAVAILABLE:
+                self.failed(key, _now())
+            else:
+                self.put(key, identity, started)
+            return identity
+        finally:
+            if self._inflight.get(key) is asyncio.current_task():
+                del self._inflight[key]
 
     def get(self, key: str) -> _Entry | None:
         entry = self._entries.get(key)
@@ -152,6 +183,13 @@ class _Cache:
 
 
 _FALLBACK_CACHE = _Cache()
+
+
+def _retrieve(task: asyncio.Task[CallerIdentity]) -> None:
+    # Every awaiting request may have been cancelled; reading the outcome keeps asyncio from
+    # logging an unretrieved exception, whose text could name the gateway.
+    if not task.cancelled():
+        task.exception()
 
 
 def _now() -> float:
@@ -247,14 +285,10 @@ async def caller_identity(request: HTTPConnection, *, allow_stale: bool = False)
     if getattr(request.state, _FAILED_ATTR, None) == key or cache.failed_recently(key, now):
         identity = CallerIdentity(CallerKind.UNAVAILABLE)
     else:
-        identity = await _lookup(credentials.server_url, credentials.token)
-        if identity.kind is CallerKind.UNAVAILABLE:
-            cache.failed(key, _now())
+        identity = await asyncio.shield(cache.lookup(key, credentials.server_url, credentials.token))
     if identity.kind is CallerKind.UNAVAILABLE:
         setattr(request.state, _FAILED_ATTR, key)
         if allow_stale and entry is not None and now - entry.fetched_at < STALE_SECONDS[entry.identity.kind]:
             _LOG.info("caller_identity=stale kind=%s", entry.identity.kind.value)
             return entry.identity
-        return identity
-    cache.put(key, identity, now)
     return identity

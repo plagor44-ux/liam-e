@@ -1,5 +1,6 @@
 """The caller kind behind the Studio gateway, from the Users API answer for the caller token (#200)."""
 
+import asyncio
 from collections.abc import Iterator
 import logging
 from types import SimpleNamespace
@@ -219,6 +220,81 @@ async def test_the_pause_is_per_token(app, who):
     await caller_identity(_request(app))
     who.mock(return_value=httpx.Response(200, json=IDENTITY))
     _token("another-caller-token-test-only")
+    assert (await caller_identity(_request(app))).kind is CallerKind.USER
+    assert who.call_count == 2
+
+
+def _held(who: respx.Route) -> tuple[asyncio.Event, asyncio.Event, list[int]]:
+    """Hold every Users API answer until ``release`` is set; ``started`` is set once one is asked.
+
+    ``asked`` counts the requests as they arrive: respx records a call only once it is answered.
+    """
+    started, release, asked = asyncio.Event(), asyncio.Event(), [0]
+
+    async def answer(_request):
+        asked[0] += 1
+        started.set()
+        await release.wait()
+        return httpx.Response(200, json=IDENTITY)
+
+    who.mock(side_effect=answer)
+    return started, release, asked
+
+
+async def test_concurrent_requests_for_one_token_share_one_lookup(app, who):
+    started, release, asked = _held(who)
+    _token()
+    pending = [asyncio.create_task(caller_identity(_request(app))) for _ in range(5)]
+    await started.wait()
+    await asyncio.sleep(0.01)  # every request has reached the lookup
+    release.set()
+    assert {identity.kind for identity in await asyncio.gather(*pending)} == {CallerKind.USER}
+    assert asked == [1]
+
+
+async def test_a_slow_outage_costs_one_shared_wait_then_the_pause(app, who, monkeypatch, caplog):
+    asked = [0]
+
+    async def stall(_request):
+        asked[0] += 1
+        await asyncio.sleep(1)
+        return httpx.Response(200, json=IDENTITY)
+
+    monkeypatch.setattr(identity_module, "_LOOKUP_SECONDS", 0.05)
+    who.mock(side_effect=stall)
+    _token()
+    caplog.set_level(logging.INFO, logger="api.caller_identity")
+    identities = await asyncio.gather(*(caller_identity(_request(app)) for _ in range(5)))
+    assert {identity.kind for identity in identities} == {CallerKind.UNAVAILABLE}
+    assert asked == [1]
+    assert _own(caplog) == ["caller_identity=unavailable reason=timeout"]
+    assert (await caller_identity(_request(app))).kind is CallerKind.UNAVAILABLE
+    assert asked == [1]
+
+
+async def test_a_cancelled_request_leaves_the_shared_lookup_to_the_others(app, who):
+    started, release, asked = _held(who)
+    _token()
+    first = asyncio.create_task(caller_identity(_request(app)))
+    await started.wait()
+    second = asyncio.create_task(caller_identity(_request(app)))
+    await asyncio.sleep(0.01)
+    first.cancel()
+    release.set()
+    assert (await second).kind is CallerKind.USER
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert (await caller_identity(_request(app))).kind is CallerKind.USER
+    assert asked == [1]
+
+
+async def test_a_lookup_left_on_another_event_loop_is_not_joined(app, who):
+    _token()
+    await caller_identity(_request(app))
+    cache = app.state.caller_identity_cache
+    key = identity_module._key(PROXY, TOKEN)
+    cache._entries.clear()
+    cache._inflight[key] = SimpleNamespace(done=lambda: False, get_loop=lambda: object())
     assert (await caller_identity(_request(app))).kind is CallerKind.USER
     assert who.call_count == 2
 

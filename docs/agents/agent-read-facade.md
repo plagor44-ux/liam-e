@@ -47,9 +47,10 @@ row means off.
   has not been checked live; `tools/gateway_access_probe.py` checks it.
 - **Identity lookups.** The gate looks a token up with the request's own bearer and keeps a
   definite answer per app instance, keyed by a hash of gateway URL and token: a user or a refusal
-  for 60 s, an API key for 10 min, a bounded number of tokens. A failed lookup never becomes a
-  verdict. It is not repeated within one request, and the same token is not asked about again
-  for 10 s, so a slow Users API costs one wait per token rather than one per request. The owner
+  for 60 s, an API key for 10 min, a bounded number of tokens. Concurrent requests with one token
+  share the lookup in flight. A failed lookup never becomes a verdict. It is not repeated within
+  one request, and the same token is not asked about again for 10 s, so a slow Users API costs
+  one wait per token rather than one per request. The owner
   check (`api/owner_access.py`) uses the same lookup and never accepts a stale answer.
 - **When the Users API is down.** The gate lets the token's last definite answer stand in, within
   a grace period counted from that lookup: 15 minutes for a user, an hour for an API key or a
