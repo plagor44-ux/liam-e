@@ -81,6 +81,8 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
         "chat_settings_update",
         "chat_model_settings_update",
         "calendar_settings_update",
+        "agent_access_disable",  # The owner's switch for outside agent access (#197).
+        "agent_access_enable",
         "tasks_archive",
         "tasks_create",
         "tasks_delete",
@@ -107,6 +109,7 @@ BROWSER_ONLY_GET_OPERATIONS: frozenset[str] = frozenset(
         "mail_rules_list",
         "mail_rule_runs_list",
         "audio_capabilities_get",  # Owner-only application capability.
+        "agent_access_get",  # An agent must not probe the switch that governs it (#197).
         "audio_device_test_get",
         "audio_device_test_sample",
         # Provider calls expose private calendar names; never an agent discovery tool.

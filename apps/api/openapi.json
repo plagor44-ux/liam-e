@@ -367,6 +367,63 @@
         "title": "AccountsResult",
         "type": "object"
       },
+      "AgentAccessEnable": {
+        "additionalProperties": false,
+        "description": "Turning access on; the owner scope and identity are not part of the contract.",
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "AgentAccessEnable",
+        "type": "object"
+      },
+      "AgentAccessOut": {
+        "properties": {
+          "changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "owner_bound": {
+            "title": "Owner Bound",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "verifier_configured": {
+            "title": "Verifier Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "revision",
+          "changed_at",
+          "verifier_configured",
+          "owner_bound"
+        ],
+        "title": "AgentAccessOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "additionalProperties": false,
         "properties": {
@@ -13503,6 +13560,91 @@
           }
         },
         "summary": "Update Settings"
+      }
+    },
+    "/api/v1/settings/agent-access": {
+      "get": {
+        "description": "The switch; off when it was never turned on.",
+        "operationId": "agent_access_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAccessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "The switch cannot be read or changed; outside access stays refused"
+          }
+        },
+        "summary": "Get Agent Access"
+      }
+    },
+    "/api/v1/settings/agent-access/disable": {
+      "post": {
+        "description": "Turn outside access off at once. Idempotent; no revision and no identity check.",
+        "operationId": "agent_access_disable",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAccessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "The switch cannot be read or changed; outside access stays refused"
+          }
+        },
+        "summary": "Disable Agent Access"
+      }
+    },
+    "/api/v1/settings/agent-access/enable": {
+      "post": {
+        "description": "Turn outside access on, for the verified owner holding the current revision.",
+        "operationId": "agent_access_enable",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAccessEnable"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAccessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not the bound owner's own browser session"
+          },
+          "409": {
+            "description": "No owner binding, or the expected revision is stale"
+          },
+          "422": {
+            "description": "Invalid body; the rejected payload is not echoed"
+          },
+          "503": {
+            "description": "The switch cannot be read or changed; outside access stays refused"
+          }
+        },
+        "summary": "Enable Agent Access"
       }
     },
     "/api/v1/settings/calendar": {
