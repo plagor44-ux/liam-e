@@ -20,6 +20,7 @@ import respx
 from sqlalchemy.exc import OperationalError
 from utils.mistral import install_caller_credentials
 
+import api.caller_identity as identity_module
 from db.accessors import agent_access
 from db.models.agent_access import AgentAccess
 
@@ -85,6 +86,14 @@ def store(monkeypatch) -> Store:
     for name in ("is_enabled", "state", "disable", "enable"):
         monkeypatch.setattr(agent_access, name, getattr(fake, name))
     return fake
+
+
+@pytest.fixture
+def clock(monkeypatch) -> list[float]:
+    """The identity cache's clock; ``clock[0] += ...`` lets cached answers expire."""
+    now = [1000.0]
+    monkeypatch.setattr(identity_module, "_now", lambda: now[0])
+    return now
 
 
 @pytest.fixture
@@ -316,11 +325,12 @@ def test_a_storage_failure_while_enabling_answers_503(client, store):
     assert _code(response) == "agent_access_unavailable"
 
 
-def test_switch_logs_carry_no_identity_or_token(client, store, caplog):
+def test_switch_logs_carry_no_identity_or_token(client, store, clock, caplog):
     caplog.set_level(logging.INFO)
     with respx.mock(assert_all_called=False) as outbound:
         outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json={**IDENTITY, "id": OTHER}))
         client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+        clock[0] += identity_module.FRESH_SECONDS[identity_module.CallerKind.USER] + 1
         outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
         client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
     client.post(PATH + "/disable", headers=HEADERS)

@@ -100,6 +100,17 @@ def default_agent_access_off(monkeypatch):
     monkeypatch.setattr(agent_access, "is_enabled", AsyncMock(return_value=False))
 
 
+@pytest.fixture(autouse=True)
+def no_leftover_caller_credentials():
+    """The caller credential slot is process-wide: a provider left behind would make later
+    ``/api/v1`` requests look up a caller identity (``api.caller_identity``)."""
+    from utils.mistral import install_caller_credentials
+
+    install_caller_credentials(None)
+    yield
+    install_caller_credentials(None)
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     """Run `@pytest.mark.anyio` tests on asyncio only (the app's event loop)."""
