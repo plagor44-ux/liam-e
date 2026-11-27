@@ -69,9 +69,10 @@ row means off.
   change applies to the next request on every app instance. A request that already passed the gate
   finishes with at most one bounded response.
 - **Who switches.** `agent_access_disable` passes the caller gate for every caller, takes no
-  revision and makes no identity lookup, so it always works, also during a Users API outage. It
-  always advances the revision, also when access is already off, so a turn-on confirmed earlier
-  (say in another tab, while its identity lookup was still running) fails with
+  revision and makes no identity lookup, so it always works, also during a Users API outage, and
+  the settings page offers it even when it cannot load the switch state. It always advances the
+  revision, also when access is already off, so a turn-on confirmed earlier (say in another tab,
+  while its identity lookup was still running) fails with
   409 `agent_access_conflict` instead of reopening access. `agent_access_enable` needs the bound
   owner's own browser session (`api/owner_access.py`, binding `AUDIO_STUDIO_OWNER`) and the
   current revision. Both changes take the same row lock. All three switch operations are
