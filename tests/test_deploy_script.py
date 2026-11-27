@@ -33,6 +33,8 @@ call="$FAKE_MISTRAL_LOG/$(find "$FAKE_MISTRAL_LOG" -mindepth 1 -maxdepth 1 | wc 
 mkdir -p "$call"
 printf '%s\\n' "$@" >"$call/args"
 pwd >"$call/cwd"
+printf '%s\\n' "${TMPDIR:-/tmp}" >"$call/tmpdir"
+python3 -c 'import os, stat; print(oct(stat.S_IMODE(os.stat(os.environ.get("TMPDIR", "/tmp")).st_mode)))' >"$call/tmpmode"
 if [ "$1 ${2:-}" = "apps list" ]; then
   printf '%s' "$FAKE_APPS_JSON"
 elif [ "$1" = deploy ]; then
@@ -79,6 +81,8 @@ class Repo:
             entry: dict[str, Any] = {
                 "args": (call / "args").read_text().splitlines(),
                 "cwd": (call / "cwd").read_text().strip(),
+                "tmpdir": Path((call / "tmpdir").read_text().strip()),
+                "tmpmode": (call / "tmpmode").read_text().strip(),
             }
             for name in ("files", "push"):
                 if (call / name).exists():
@@ -99,7 +103,7 @@ def repo(tmp_path: Path) -> Repo:
     mistral = fakebin / "mistral"
     mistral.write_text(FAKE_MISTRAL)
     mistral.chmod(mistral.stat().st_mode | stat.S_IXUSR)
-    env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "LIAM_E_"))}
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "LIAM_E_")) and key != "XDG_CACHE_HOME"}
     env.update(
         HOME=str(home),
         TMPDIR=str(tmpdir),
@@ -115,6 +119,7 @@ def repo(tmp_path: Path) -> Repo:
     repo = Repo(work=work, origin=origin, tmpdir=tmpdir, log=log, env=env)
     (work / "tools").mkdir()
     shutil.copy(SCRIPT, work / "tools" / "deploy.sh")
+    shutil.copy(ROOT / "tools" / "deploy_temp.py", work / "tools" / "deploy_temp.py")
     (work / "mistral.json").write_text(json.dumps(MANIFEST, indent=2) + "\n")
     (work / ".gitignore").write_text(".env\n/mistral.deployment.json\n")
     repo.git("add", ".")
@@ -141,13 +146,45 @@ def test_deploys_a_clean_copy_of_the_commit_without_yes(repo: Repo) -> None:
     assert not copy.exists() and list(repo.tmpdir.iterdir()) == []
     assert deploy["manifest"] == {**MANIFEST, "deployment": IDS}
     assert list(deploy["manifest"]) == ["schemaVersion", "kind", "name", "deployment", "modules"]
-    assert deploy["files"] == ["./.gitignore", "./mistral.json", "./tools/deploy.sh"]
+    assert deploy["files"] == ["./.gitignore", "./mistral.json", "./tools/deploy.sh", "./tools/deploy_temp.py"]
     assert deploy["push"] == ["refused"]
     assert repo.git("ls-remote", str(repo.origin)).count("refs/heads/") == 1
     assert (repo.work / "mistral.json").read_text() == manifest_before
     assert repo.git("status", "--porcelain") == ""
     for value in IDS.values():
         assert value not in result.stdout + result.stderr
+
+
+def test_unset_tmpdir_uses_private_cache_removed_after_deploy(repo: Repo) -> None:
+    del repo.env["TMPDIR"]
+
+    result = repo.deploy(repo.git("rev-parse", "HEAD"))
+
+    assert result.returncode == 0, result.stderr
+    listing, deploy = repo.calls()
+    staging = deploy["tmpdir"]
+    assert staging.parent == Path(repo.env["HOME"]) / ".cache" / "liam-e"
+    assert listing["tmpdir"] == staging and listing["tmpmode"] == deploy["tmpmode"] == "0o700"
+    assert Path(deploy["cwd"]).parent == staging
+    assert not staging.exists()
+
+
+def test_git_above_explicit_tmpdir_stops_before_the_cli(repo: Repo) -> None:
+    outer = repo.tmpdir / "outer"
+    requested = outer / "nested"
+    requested.mkdir(parents=True)
+    marker = outer / ".git"
+    marker.mkdir()
+    repo.env["TMPDIR"] = str(requested)
+
+    result = repo.deploy(repo.git("rev-parse", "HEAD"))
+
+    assert result.returncode == 1
+    assert "a .git sits in a parent directory" in result.stderr and "TMPDIR" in result.stderr
+    assert str(requested) not in result.stderr
+    assert repo.calls() == []
+    assert list(requested.iterdir()) == []
+    assert marker.is_dir()
 
 
 def test_missing_deployment_file_stops_before_the_cli(repo: Repo) -> None:

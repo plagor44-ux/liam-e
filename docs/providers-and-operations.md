@@ -128,6 +128,11 @@ In the Studio probe on 13.11.2026 the same process was still running at the end 
    ```
 
    Without that file the script stops, because a deploy without the block creates a new app.
+   Disk deploy and probe staging uses a private directory under `$XDG_CACHE_HOME/liam-e`
+   (default `$HOME/.cache/liam-e`) or an explicit `TMPDIR`. The CLI receives the private
+   directory as its own `TMPDIR` and the wrapper removes it on exit. A `.git` entry anywhere
+   above the staging directory stops the deploy before any CLI request. Run sandboxed
+   release checks from a path outside the shared system temporary directory.
    It clones the commit into a temporary directory outside the working tree (tracked files
    only, so no `.env`), writes the block into that copy's `mistral.json`, checks with
    `mistral apps list` that the app exists and runs `mistral deploy --from-disk` there without

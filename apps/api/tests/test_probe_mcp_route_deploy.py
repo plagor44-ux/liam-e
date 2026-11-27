@@ -45,6 +45,10 @@ call.mkdir()
 args = sys.argv[1:]
 (call / "args").write_text("\\n".join(args) + "\\n")
 (call / "cwd").write_text(os.getcwd() + "\\n")
+if args[:1] == ["deploy"]:
+    staging = pathlib.Path(os.environ.get("TMPDIR") or "/tmp")
+    (call / "tmpdir").write_text(str(staging))
+    (call / "tmpmode").write_text(oct(staging.stat().st_mode & 0o777))
 apps_file = pathlib.Path(os.environ["FAKE_APPS_FILE"])
 
 
@@ -114,6 +118,9 @@ class Probe:
         for call in sorted(self.log.iterdir(), key=lambda path: int(path.name)):
             entry: dict[str, Any] = {"args": (call / "args").read_text().splitlines(),
                                      "cwd": Path((call / "cwd").read_text().strip())}
+            if (call / "tmpdir").exists():
+                entry["tmpdir"] = Path((call / "tmpdir").read_text())
+                entry["tmpmode"] = (call / "tmpmode").read_text()
             if (call / "mistral.json").exists():
                 entry["manifest"] = json.loads((call / "mistral.json").read_text())
             result.append(entry)
@@ -219,7 +226,7 @@ def probe(tmp_path: Path, script_tmp_base: Path) -> Probe:
     tracked = subprocess.run(["git", "ls-files", PROBE_DIR], cwd=ROOT, check=True, capture_output=True,
                              text=True).stdout.split()
     assert f"{PROBE_DIR}/deploy.sh" in tracked
-    for name in tracked:
+    for name in [*tracked, "tools/deploy_temp.py"]:
         (work / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / name, work / name)
     probe = Probe(work=work, tmpdir=tmpdir, log=log, ids=ids, apps=apps, liam_test=liam_test, liam_prod=liam_prod,
@@ -382,6 +389,22 @@ def test_a_git_entry_above_the_temporary_directory_stops_a_deploy(probe: Probe, 
     assert list(tmpdir.iterdir()) == [], "the temporary directory must be removed"
     assert probe.recorded().get("appId") == (NEW if update else None)
     assert_no_ids(result)
+
+
+def test_unset_tmpdir_uses_private_xdg_cache_for_the_gitless_export(probe: Probe) -> None:
+    del probe.env["TMPDIR"]
+    cache = probe.home / "cache"
+    probe.env.update(XDG_CACHE_HOME=str(cache), FAKE_NEW_APP=NEW)
+
+    result = probe.run(probe.head(), "--create-app", PROBE)
+
+    assert result.returncode == 0, result.stderr
+    _, deploy, _ = probe.calls()
+    assert deploy["tmpdir"] == deploy["cwd"].parent
+    assert deploy["tmpdir"].parent == cache / "liam-e"
+    assert deploy["tmpmode"] == "0o700"
+    assert not git_above(deploy["cwd"])
+    assert not deploy["tmpdir"].exists()
 
 
 def test_a_git_entry_above_the_temporary_directory_does_not_stop_a_delete(probe: Probe) -> None:

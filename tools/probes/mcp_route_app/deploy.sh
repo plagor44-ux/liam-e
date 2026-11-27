@@ -177,25 +177,15 @@ elif [ -z "$app_id" ]; then
   fail "the deployment file names no appId, so there is no probe app to delete"
 fi
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/liam-e-probe-deploy.XXXXXX")"
+if [ "$mode" = deploy ]; then
+  work="$(python3 -I "$root/tools/deploy_temp.py" liam-e-probe-deploy)"
+  export TMPDIR="$work"
+else
+  work="$(mktemp -d "${TMPDIR:-/tmp}/liam-e-probe-deploy.XXXXXX")"
+fi
 trap 'rm -rf -- "$work"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-# CLI v0.18.1 takes a .git entry (directory or file, even an empty one) in any parent of the
-# directory it deploys from for the project's repository, and then fails inside `mistral deploy`
-# (#190). So a deploy stops before its first CLI call. The physical path counts, as Git sees it.
-if [ "$mode" = deploy ]; then
-  dir="$(cd "$work" && pwd -P)"
-  while :; do
-    if [ -e "$dir/.git" ] || [ -L "$dir/.git" ]; then
-      fail "a .git sits in a parent directory of the temporary directory, and the CLI would take it for the" \
-        "project's repository; set TMPDIR to a directory without a .git above it. Nothing was deployed."
-    fi
-    [ "$dir" != / ] || break
-    dir="$(dirname -- "$dir")"
-  done
-fi
 
 # Lists the target workspace read-only and checks it for the probe's name, as an app's name or
 # label. "absent": no app may carry it. "recorded": the app with the given ID must carry it, and no

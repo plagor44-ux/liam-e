@@ -13,7 +13,7 @@
 # Without that file the script stops: a deploy without the block would create a new app.
 #
 # Steps: fetch origin/main and require the commit to be on it; clone the commit into a fresh
-# temporary directory outside the working tree (tracked files only, so no .env and no ignored
+# private staging directory outside any Git tree (tracked files only, so no .env and no ignored
 # files); write the deployment block into that copy's mistral.json only; confirm with
 # `mistral apps list` that the target app exists; run `mistral deploy --from-disk` in the copy;
 # print the deployed commit; remove the copy. The script never passes --yes, so the CLI asks before
@@ -64,15 +64,17 @@ PY
 organization="${ids%%$'\n'*}"
 workspace="${ids#*$'\n'}"
 
+work="$(python3 -I "$root/tools/deploy_temp.py" liam-e-deploy)"
+trap 'rm -rf -- "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+export TMPDIR="$work"
+
 git -C "$root" fetch --quiet origin main || fail "could not fetch main from origin"
 sha="$(git -C "$root" rev-parse --verify --quiet "$1^{commit}")" || fail "unknown commit: $1"
 git -C "$root" merge-base --is-ancestor "$sha" refs/remotes/origin/main ||
   fail "commit $sha is not on origin/main; push and merge it first"
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/liam-e-deploy.XXXXXX")"
-trap 'rm -rf -- "$work"' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 copy="$work/liam-e"
 
 # A separate clone, not a worktree: nothing is registered in the source repository. Fetching the
