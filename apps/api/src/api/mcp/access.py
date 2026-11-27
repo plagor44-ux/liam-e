@@ -13,7 +13,7 @@ from db.accessors import agent_access
 from fastapi import Depends, HTTPException, Request
 
 _LOG = logging.getLogger(__name__)
-PathGroup = Literal["agent-read", "v1-key"]
+PathGroup = Literal["agent-read", "mcp", "v1-key"]
 
 
 async def ensure_agent_access(*, path_group: PathGroup = "agent-read") -> None:
