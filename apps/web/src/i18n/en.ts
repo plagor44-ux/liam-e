@@ -413,7 +413,7 @@ export const en = {
   agentAccess: {
     section: 'Outside access',
     title: 'Outside access',
-    description: 'Choose whether assistants outside liam-e, such as one in Mistral Studio, may read your data in liam-e: email, conversations, events and tasks. They can never change or send anything.',
+    description: 'Choose whether assistants outside liam-e, such as one in Mistral Studio, may read your data in liam-e: email, conversations, events and tasks. They can never change or send your mail.',
     loading: 'Loading outside access …',
     statusOff: 'Off',
     statusOn: 'On',

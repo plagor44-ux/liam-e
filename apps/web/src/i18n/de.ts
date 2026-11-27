@@ -403,7 +403,7 @@ export const de = {
   agentAccess: {
     section: 'Zugriff von außen',
     title: 'Zugriff von außen',
-    description: 'Hier legst du fest, ob Assistenten außerhalb von liam-e, etwa aus Mistral Studio, deine Daten in liam-e lesen dürfen: Mails, Unterhaltungen, Termine und Aufgaben. Ändern oder senden können sie nie.',
+    description: 'Hier legst du fest, ob Assistenten außerhalb von liam-e, etwa aus Mistral Studio, deine Daten in liam-e lesen dürfen: Mails, Unterhaltungen, Termine und Aufgaben. Deine Mails ändern oder senden können sie nie.',
     loading: 'Zugriff von außen wird geladen …',
     statusOff: 'Aus',
     statusOn: 'An',
