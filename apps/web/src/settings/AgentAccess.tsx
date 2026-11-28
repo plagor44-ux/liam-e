@@ -30,12 +30,19 @@ function formatStatus(state: AgentAccessOut, texts: ReturnType<typeof useI18n>['
   return t.statusOn
 }
 
+/** The caller gate's and the turn-on's refusal while Mistral can't confirm the sign-in (#200). */
+function identityUnconfirmed(cause: unknown): boolean {
+  const body: unknown = cause instanceof AgentAccessError ? cause.cause : undefined
+  return typeof body === 'object' && body !== null && (body as { detail?: unknown }).detail === 'caller_identity_unavailable'
+}
+
 function mapAccessError(cause: unknown, texts: ReturnType<typeof useI18n>['texts']): Outcome {
   const t = texts.agentAccess
   const status = cause instanceof AgentAccessError ? cause.status : undefined
   const code = errorCode(cause)
   if (code === 'agent_access_owner_unbound') return { tone: 'danger', text: t.errorUnbound }
   if (code === 'agent_access_conflict') return { tone: 'danger', text: t.errorConflict, reload: true }
+  if (identityUnconfirmed(cause)) return { tone: 'danger', text: texts.errors.caller_identity_unavailable }
   if (code === 'agent_access_unavailable' || status === 503) return { tone: 'danger', text: t.errorUnavailable }
   if (status === 409) return { tone: 'danger', text: t.errorConflict, reload: true }
   if (status === 403 || status === 401 || code === 'agent_access_owner_required') {
@@ -59,18 +66,6 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
   const lock = useRef(false)
   const unboundId = useId()
 
-  if (!query.data) {
-    return <section className="le-access">
-      <h2 className="heading">{t.title}</h2>
-      <p className="le-access-description">{t.description}</p>
-      {query.isPending
-        ? <><p role="status">{t.loading}</p><div className="le-access-placeholder" aria-hidden="true" /></>
-        : <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void query.refetch() } }}>{t.errorUnavailable}</Notice>}
-    </section>
-  }
-
-  const state = query.data
-  const statusText = formatStatus(state, texts, locale)
   const updateCache = async (next: AgentAccessOut) => {
     const { queryKey } = agentAccessQuery()
     await client.cancelQueries({ queryKey, exact: true })
@@ -92,6 +87,29 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
       lock.current = false; setBusy(false)
     }
   }
+
+  const outcomeNotice = outcome && <Notice tone={outcome.tone} action={outcome.reload ? { label: texts.settingsUi.reload, onClick: () => { setOutcome(undefined); void query.refetch() } } : undefined}>{outcome.text}</Notice>
+
+  if (!query.data) {
+    // Turning off needs neither the state nor a confirmed identity, so it stays offered when the
+    // state can't be loaded, such as while Mistral can't confirm the sign-in (#200).
+    return <section className="le-access">
+      <h2 className="heading">{t.title}</h2>
+      <p className="le-access-description">{t.description}</p>
+      {query.isPending
+        ? <><p role="status">{t.loading}</p><div className="le-access-placeholder" aria-hidden="true" /></>
+        : <>
+            <Notice tone="danger" action={{ label: texts.chat.retry, onClick: () => { void query.refetch() } }}>{identityUnconfirmed(query.error) ? texts.errors.caller_identity_unavailable : t.errorUnavailable}</Notice>
+            <div className="le-access-actions">
+              <Tooltip content={t.turnOffTip}><Button variant="secondary" disabled={busy} onClick={() => { void disable() }}>{t.turnOff}</Button></Tooltip>
+            </div>
+            {outcomeNotice}
+          </>}
+    </section>
+  }
+
+  const state = query.data
+  const statusText = formatStatus(state, texts, locale)
 
   const enable = async () => {
     if (lock.current || confirmRevision === null) return
@@ -125,7 +143,7 @@ export function AgentAccess({ pollIntervalMs = AGENT_ACCESS_POLL_MS }: { pollInt
     </div>
     {!state.enabled && !state.owner_bound && <Notice tone="info" live={false}><span id={unboundId}>{t.errorUnbound}</span></Notice>}
     {state.enabled && !state.verifier_configured && <Notice tone="info" live={false}>{t.noConnection}</Notice>}
-    {outcome && <Notice tone={outcome.tone} action={outcome.reload ? { label: texts.settingsUi.reload, onClick: () => { setOutcome(undefined); void query.refetch() } } : undefined}>{outcome.text}</Notice>}
+    {outcomeNotice}
     <p className="le-access-limits">{t.limits}</p>
     {confirmRevision !== null && <PreferenceDialog title={t.confirmTitle} close={() => { if (!busy) setConfirmRevision(null) }}>
       <p>{t.confirmBody}</p>

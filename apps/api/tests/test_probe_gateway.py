@@ -34,7 +34,17 @@ def test_offline_by_default_sends_nothing(monkeypatch: pytest.MonkeyPatch,
 
 
 def test_gateway_probe_reads_only() -> None:
-    assert all(path.startswith(("/api/health", "/api/agent-read/", "/.well-known/")) for _, path, _ in gateway.CASES)
+    v1_reads = {"/api/v1/settings/agent-access", "/api/v1/audio/capabilities"}
+    assert all(
+        path.startswith(("/api/health", "/api/agent-read/", "/.well-known/")) or path in v1_reads
+        for _, path, _ in gateway.CASES
+    )
+    assert {path for _, path, _ in gateway.CASES} >= v1_reads
+
+
+def test_gateway_redaction_recognizes_the_caller_gate_codes() -> None:
+    for code in ("agent_operation_refused", "caller_identity_unavailable"):
+        assert gateway.redact("case", 403, {"detail": code}, []).error_code == code
 
 
 def test_gateway_redaction_keeps_codes_and_header_names_only() -> None:
@@ -77,7 +87,7 @@ def test_gateway_live_failure_prints_no_exception_text(monkeypatch: pytest.Monke
                                                        capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("LIAM_E_APP_URL", "https://app.example.org:synthetic_secret")
 
-    def boom(base_url: str) -> list:
+    def boom(base_url: str, cases=None) -> list:
         raise ValueError(f"bad url {base_url} token {SECRET}")
 
     monkeypatch.setattr(gateway, "run_live", boom)
@@ -97,3 +107,37 @@ def test_gateway_argument_errors_do_not_echo_values(argv: list[str], capsys: pyt
     out = capsys.readouterr()
     for text in (out.out, out.err):
         assert "private.example.org" not in text and "secret-test-only" not in text
+
+
+def test_workspace_key_only_selects_the_four_key_cases(monkeypatch: pytest.MonkeyPatch,
+                                                       capsys: pytest.CaptureFixture[str]) -> None:
+    selected = gateway.select_cases(True)
+    assert [path for _, path, _ in selected] == [
+        "/api/health",
+        "/api/agent-read/v1/mail/accounts",
+        "/api/v1/settings/agent-access",
+        "/api/v1/audio/capabilities",
+    ]
+    assert {kind for _, _, kind in selected} == {"x-api-key"}
+    assert gateway.select_cases(False) == gateway.CASES
+
+    monkeypatch.setattr(gateway, "run_live", lambda *a, **k: pytest.fail("offline run reached the network"))
+    assert gateway.main(["--workspace-key-only"]) == 0
+    plan = [line for line in capsys.readouterr().out.splitlines() if line.startswith("  ")]
+    assert len(plan) == 4
+
+
+def test_workspace_key_only_live_sends_only_those_cases(monkeypatch: pytest.MonkeyPatch,
+                                                        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("LIAM_E_APP_URL", "https://app.example.org")
+    seen = []
+
+    def fake(base_url: str, cases=None) -> list:
+        seen.append(cases)
+        return [gateway.Outcome(label, 403, "agent_access_disabled", ()) for label, _, _ in cases]
+
+    monkeypatch.setattr(gateway, "run_live", fake)
+    assert gateway.main(["--live", "--workspace-key-only"]) == 0
+    assert seen == [gateway.select_cases(True)]
+    out = capsys.readouterr().out
+    assert out.count("error=agent_access_disabled") == 4 and "example.org" not in out

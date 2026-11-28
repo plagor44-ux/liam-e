@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -426,7 +427,6 @@ def test_v1_key_caller_policy_enforces_switch_and_read_only_inventory(monkeypatc
             client.get("/api/v1/settings", headers=key_headers),
             client.get("/api/v1/settings/agent-access", headers=key_headers),
             client.get("/api/v1/audio/capabilities", headers=key_headers),
-            client.post("/api/v1/settings/agent-access/disable", headers=key_headers),
             client.post("/api/v1/settings/agent-access/enable", headers=key_headers, json={"expected_revision": 1}),
             client.post("/api/v1/prompts", headers=key_headers, json={}),
             client.patch("/api/v1/settings/ui", headers=key_headers, json={}),
@@ -444,6 +444,16 @@ def test_v1_key_caller_policy_enforces_switch_and_read_only_inventory(monkeypatc
         "agent_access=refused path_group=v1-key"
     ] * len(refused_calls)
     assert "workspace-key-test-only" not in "\n".join(record.getMessage() for record in exposure_records)
+
+    # Turning access off only ever reduces access: even a key holder may do it (#200).
+    turned_off = AsyncMock(return_value=SimpleNamespace(enabled=False, revision=3, changed_at=None))
+    monkeypatch.setattr(agent_access, "disable", turned_off)
+    reads_before = switch_reads
+    off = client.post("/api/v1/settings/agent-access/disable", headers=key_headers)
+    assert off.status_code == 200
+    assert off.json()["enabled"] is False
+    turned_off.assert_awaited_once()
+    assert switch_reads == reads_before
 
 
 @pytest.mark.anyio

@@ -1,4 +1,8 @@
-"""The Studio gateway's caller token is verified before it can authorize audio."""
+"""The Studio gateway's caller token is verified before it can authorize audio.
+
+Every ``/api/v1`` request first passes the caller gate (``api.mcp.exposure``), which looks the
+same token up once (#200); the owner check reuses that answer.
+"""
 
 from collections.abc import Iterator
 import json
@@ -57,21 +61,26 @@ def test_verified_gateway_owner_can_read_the_independent_capabilities(studio_cli
     assert "x-api-key" not in who.calls.last.request.headers
 
 
-@pytest.mark.parametrize("change", [
-    {"id": OTHER},
-    {"organization": {"id": OTHER}},
-    {"workspace": {"id": OTHER}},
-    {"api_key": {"id": OWNER}},
-    {"api_key": False},
-    {"organization": None},
+@pytest.mark.parametrize(("change", "expected_status", "expected_detail"), [
+    ({"id": OTHER}, 401, "unauthorized"),
+    ({"organization": {"id": OTHER}}, 401, "unauthorized"),
+    ({"workspace": {"id": OTHER}}, 401, "unauthorized"),
+    # An answer of the wrong shape is no verdict: the caller gate fails closed first.
+    ({"organization": None}, 503, "caller_identity_unavailable"),
+    # Any non-null api_key marks a key caller, which the caller gate refuses first.
+    ({"api_key": {"id": OWNER}}, 403, "agent_access_disabled"),
+    ({"api_key": False}, 403, "agent_access_disabled"),
 ])
-def test_wrong_principal_context_or_api_key_is_denied(studio_client: TestClient, change: dict) -> None:
+def test_wrong_principal_context_or_api_key_is_denied(
+    studio_client: TestClient, change: dict, expected_status: int, expected_detail: str
+) -> None:
     with respx.mock(assert_all_called=False) as outbound:
         who = outbound.get(PROXY + "/v1/users/me").mock(
             return_value=httpx.Response(200, json={**IDENTITY, **change})
         )
         response = studio_client.get(CAPABILITIES, headers=HEADERS)
-    assert response.status_code == 401
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
     assert who.call_count == 1
 
 
@@ -80,7 +89,8 @@ def test_missing_credential_type_is_not_proof_of_a_session(studio_client: TestCl
     with respx.mock(assert_all_called=False) as outbound:
         outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=body))
         response = studio_client.get(CAPABILITIES, headers=HEADERS)
-    assert response.status_code == 401
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
 
 
 def test_identity_redirect_does_not_send_the_gateway_token_elsewhere(studio_client: TestClient) -> None:
@@ -89,12 +99,14 @@ def test_identity_redirect_does_not_send_the_gateway_token_elsewhere(studio_clie
             return_value=httpx.Response(302, headers={"location": "https://other.example.test/"})
         )
         response = studio_client.get(CAPABILITIES, headers=HEADERS)
-    assert response.status_code == 401
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
     assert who.call_count == 1
 
 
 @pytest.mark.parametrize(("headers", "expected_status", "expected_detail"), [
-    ({"Authorization": "Bearer request-token-test-only"}, 401, "unauthorized"),
+    # Without a caller token the request counts as an agent (#200), so the switch answers first.
+    ({"Authorization": "Bearer request-token-test-only"}, 403, "agent_access_disabled"),
     ({**HEADERS, "x-api-key": "workspace-key-test-only"}, 403, "agent_access_disabled"),
 ])
 def test_studio_owner_never_falls_back_to_other_credentials(
@@ -110,29 +122,32 @@ def test_studio_owner_never_falls_back_to_other_credentials(
 @pytest.mark.parametrize("origin", [None, "null", "https://other.example.test"])
 def test_audio_posts_require_the_configured_browser_origin(studio_client: TestClient, origin: str | None) -> None:
     headers = {**HEADERS, **({"origin": origin} if origin else {})}
-    with respx.mock() as outbound:
+    with respx.mock(assert_all_called=False) as outbound:
+        who = outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
         response = studio_client.post(TRANSCRIPTIONS, headers=headers)
     assert response.status_code == 401
-    assert not outbound.calls
+    # The owner's own identity is not enough without the bound origin; only the gate looked it up.
+    assert who.call_count == 1
 
 
-@pytest.mark.parametrize(("headers", "expected_status", "expected_detail"), [
-    (HEADERS, 401, "unauthorized"),
-    ({**HEADERS, "origin": "null"}, 401, "unauthorized"),
-    ({**HEADERS, "origin": "https://other.example.test"}, 401, "unauthorized"),
-    ({"x-api-key": "workspace-key-test-only", "origin": ORIGIN}, 403, "agent_access_disabled"),
+@pytest.mark.parametrize(("headers", "expected_status", "expected_detail", "lookups"), [
+    (HEADERS, 401, "unauthorized", 1),
+    ({**HEADERS, "origin": "null"}, 401, "unauthorized", 1),
+    ({**HEADERS, "origin": "https://other.example.test"}, 401, "unauthorized", 1),
+    ({"x-api-key": "workspace-key-test-only", "origin": ORIGIN}, 403, "agent_access_disabled", 0),
 ])
 def test_paid_device_inference_smoke_requires_owner_and_origin(
-    studio_client: TestClient, monkeypatch, headers: dict, expected_status: int, expected_detail: str
+    studio_client: TestClient, monkeypatch, headers: dict, expected_status: int, expected_detail: str, lookups: int
 ) -> None:
     from datetime import datetime, timedelta, timezone
 
     monkeypatch.setattr(env, "audio_device_test_until", (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
-    with respx.mock() as outbound:
+    with respx.mock(assert_all_called=False) as outbound:
+        who = outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
         response = studio_client.post("/api/v1/audio/device-test/inference", headers=headers)
     assert response.status_code == expected_status
     assert response.json() == {"detail": expected_detail}
-    assert not outbound.calls
+    assert who.call_count == lookups
 
 
 def test_same_origin_owner_reaches_the_transcription_release_check(studio_client: TestClient) -> None:
@@ -164,8 +179,8 @@ def test_live_websocket_enforces_gateway_identity_and_origin(studio_client: Test
         who = outbound.get(PROXY + '/v1/users/me').mock(return_value=httpx.Response(200, json=IDENTITY))
         with pytest.raises(WebSocketDisconnect):
             with studio_client.websocket_connect('/api/v1/audio/live/transcription', headers={**HEADERS, 'origin': 'https://other.example.test'}): pass
-        assert who.call_count == 0
+        assert who.call_count == 1  # the caller gate; the owner check stopped at the origin
         with studio_client.websocket_connect('/api/v1/audio/live/transcription', headers={**HEADERS, 'origin': ORIGIN}) as ws:
             assert ws.receive_json()['type'] == 'turn.start'
             ws.close()
-        assert who.call_count == 1
+        assert who.call_count == 1  # the same token's answer is still fresh

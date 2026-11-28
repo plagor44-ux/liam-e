@@ -1,8 +1,29 @@
-"""Runtime exposure inventory and workspace-key caller policy for ``/api/v1``.
+"""Runtime exposure inventory and the agent caller policy for ``/api/v1``.
 
 ``BROWSER_ONLY_GET_OPERATIONS`` is the single source of truth shared with
 ``apps/api/tests/test_mcp_exposure.py``: every schema-published GET operation outside this set is
 part of the read-only inventory documented in AGENTS.md.
+
+:func:`agent_caller_policy` decides per request whether the caller counts as an agent (#197 D1 = B,
+#200). Behind the Studio gateway the app never sees ``x-api-key``, so the caller kind comes from
+:func:`api.caller_identity.caller_identity`.
+
+- A user session passes, and so does every request without a gateway in front (local runs).
+- An ``x-api-key`` header, an API-key identity, a request without a caller token and a token the
+  Users API rejects count as agents. While the switch is off they get 403
+  ``agent_access_disabled``. While it is on they may use only the read-only GETs, and everything
+  else gets 403 ``agent_operation_refused``.
+- Turning access off (``agent_access_disable``) passes for every caller without any lookup, so the
+  emergency stop never depends on the Users API.
+- When the lookup fails, the token's last definite answer stands in within its grace period
+  (:data:`api.caller_identity.STALE_SECONDS`): a user keeps working for 15 minutes, and a known
+  key or refusal stays refused for an hour. A stand-in never changes kind.
+- Without such an answer the request fails closed: 503 ``caller_identity_unavailable`` with
+  ``Retry-After``, logged with a fixed code. A new token during an outage therefore gets nothing,
+  and a key holder who could make the lookup fail gains nothing.
+
+The owner binding plays no part here: a missing binding only stops turning access on and the
+audio owner routes.
 """
 
 from __future__ import annotations
@@ -16,10 +37,19 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from starlette.requests import HTTPConnection
 from starlette.routing import compile_path
 
+from api.caller_identity import CallerKind, caller_identity
 from api.mcp.access import ensure_agent_access
 
 _LOG = logging.getLogger(__name__)
 _POLICY_INDEX_ATTR = "v1_agent_policy_index"
+# Turning access off only ever reduces access, so anyone may do it, with no lookup at all.
+ALWAYS_ALLOWED_OPERATIONS: frozenset[str] = frozenset({"agent_access_disable"})
+_AGENT_KINDS: dict[CallerKind, str] = {
+    CallerKind.API_KEY: "v1-api-key",
+    CallerKind.NO_TOKEN: "v1-no-token",
+    CallerKind.REJECTED: "v1-rejected",
+}
+_NO_STORE = {"Cache-Control": "no-store"}
 
 # Private preference/settings reads also stay browser-only: read-only does not mean safe
 # to expose personal values to an agent. GETs that change state: OAuth belongs to the browser; its callback
@@ -113,35 +143,40 @@ def _resolve_route(request: HTTPConnection, index: _V1PolicyIndex) -> object | N
     return None
 
 
-async def agent_caller_policy(request: HTTPConnection) -> None:
-    """Enforce the outside-access switch and read-only boundary for ``x-api-key`` callers on ``/api/v1``.
+def _operation_id(route: object | None) -> str | None:
+    return (route.operation_id or route.unique_id) if isinstance(route, APIRoute) else None
 
-    Requests without ``x-api-key`` pass immediately with no database read so browser traffic is
-    unchanged. Callers with ``x-api-key`` are treated as agents: refused with 403
-    ``agent_access_disabled`` while the switch is off, limited to the read-only GET inventory
-    while on, and refused with 403 ``agent_operation_refused`` for browser-only GETs and all
-    mutations.
-    """
-    if "x-api-key" not in request.headers:
+
+def _is_read(request: HTTPConnection) -> bool:
+    return request.scope.get("type") == "http" and request.scope.get("method") in {"GET", "HEAD"}
+
+
+async def _apply_agent_policy(request: HTTPConnection, route: object | None, index: _V1PolicyIndex, path_group: str) -> None:
+    await ensure_agent_access(path_group=path_group)
+    if _is_read(request) and _operation_id(route) in index.read_only_get_operations:
         return
+    _LOG.info("agent_access=refused path_group=%s", path_group)
+    raise HTTPException(status_code=403, detail="agent_operation_refused", headers=_NO_STORE)
 
+
+async def agent_caller_policy(request: HTTPConnection) -> None:
+    """Treat agent callers on ``/api/v1`` as the owner's switch allows; see the module docstring."""
     index = _policy_index(request.app)
     route = _resolve_route(request, index)
+    if _operation_id(route) in ALWAYS_ALLOWED_OPERATIONS:
+        return
+    if "x-api-key" in request.headers:
+        await _apply_agent_policy(request, route, index, "v1-key")
+        return
 
-    await ensure_agent_access(path_group="v1-key")
-
-    if (
-        request.scope.get("type") == "http"
-        and request.scope.get("method") in {"GET", "HEAD"}
-        and isinstance(route, APIRoute)
-    ):
-        operation_id = route.operation_id or route.unique_id
-        if operation_id in index.read_only_get_operations:
-            return
-
-    _LOG.info("agent_access=refused path_group=v1-key")
-    raise HTTPException(
-        status_code=403,
-        detail="agent_operation_refused",
-        headers={"Cache-Control": "no-store"},
-    )
+    kind = (await caller_identity(request, allow_stale=True)).kind
+    if kind in (CallerKind.USER, CallerKind.NO_GATEWAY):
+        return
+    if kind is CallerKind.UNAVAILABLE:
+        _LOG.warning("agent_caller=unverified outcome=refused")
+        raise HTTPException(
+            status_code=503,
+            detail="caller_identity_unavailable",
+            headers={**_NO_STORE, "Retry-After": "5"},
+        )
+    await _apply_agent_policy(request, route, index, _AGENT_KINDS[kind])

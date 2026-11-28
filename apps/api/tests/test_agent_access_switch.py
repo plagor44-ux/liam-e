@@ -1,9 +1,11 @@
-"""HTTP contracts of the owner's agent access switch (#197).
+"""HTTP contracts of the owner's agent access switch (#197, #200).
 
-Reading and turning off need nothing beyond the gateway; turning on needs the bound owner's own
-browser session and the current revision. Storage is an in-memory stand-in for the accessor,
-whose live contracts are in ``packages/py/db/tests/test_agent_access_pg.py``. The owner check
-is the real shared verifier with the Studio identity lookup mocked.
+Turning off needs nothing beyond the gateway and no identity lookup. Reading passes the
+``/api/v1`` caller gate like every browser read. Turning on needs the bound owner's own browser
+session and the current revision. Storage is an in-memory stand-in for the accessor, whose live
+contracts are in ``packages/py/db/tests/test_agent_access_pg.py``. The caller gate and the owner
+check are the real code; only the Studio Users API (``users_api``) and the identity cache's clock
+are stand-ins.
 """
 
 from collections.abc import Iterator
@@ -20,6 +22,7 @@ import respx
 from sqlalchemy.exc import OperationalError
 from utils.mistral import install_caller_credentials
 
+import api.caller_identity as identity_module
 from db.accessors import agent_access
 from db.models.agent_access import AgentAccess
 
@@ -88,7 +91,31 @@ def store(monkeypatch) -> Store:
 
 
 @pytest.fixture
-def client(monkeypatch, store) -> Iterator[TestClient]:
+def users_api() -> Iterator[respx.MockRouter]:
+    """The Studio Users API; it answers as the bound owner unless a test says otherwise.
+
+    Any other outbound request fails the test, so nothing here reaches the network.
+    """
+    with respx.mock(assert_all_called=False) as router:
+        router.get(PROXY + "/v1/users/me", name="who").mock(return_value=httpx.Response(200, json=IDENTITY))
+        yield router
+
+
+@pytest.fixture
+def who(users_api) -> respx.Route:
+    return users_api.routes["who"]
+
+
+@pytest.fixture
+def clock(monkeypatch) -> list[float]:
+    """The identity cache's clock; ``clock[0] += ...`` lets cached answers expire."""
+    now = [1000.0]
+    monkeypatch.setattr(identity_module, "_now", lambda: now[0])
+    return now
+
+
+@pytest.fixture
+def client(monkeypatch, store, users_api) -> Iterator[TestClient]:
     from api.main import create_app
 
     monkeypatch.setattr(env, "audio_studio_owner", BINDING)
@@ -139,7 +166,7 @@ def test_get_reports_binding_and_verifier_presence_but_no_values(client, store):
 
 @pytest.mark.parametrize("bound", [True, False])
 @pytest.mark.parametrize("body", [None, {"expected_revision": 99}])
-def test_disable_needs_no_identity_revision_or_binding(client, store, monkeypatch, bound, body):
+def test_disable_needs_no_identity_revision_or_binding(client, store, users_api, monkeypatch, bound, body):
     from api.routers.api.v1.settings.agent_access.route import get_agent_access_owner_verifier
 
     def refuse_lookup():
@@ -149,10 +176,9 @@ def test_disable_needs_no_identity_revision_or_binding(client, store, monkeypatc
         _unbound(monkeypatch)
     client.app.dependency_overrides[get_agent_access_owner_verifier] = refuse_lookup
     store.row = AgentAccess(enabled=True, revision=4, changed_at=None)
-    with respx.mock() as outbound:
-        first = client.post(PATH + "/disable", headers=HEADERS, json=body)
-        second = client.post(PATH + "/disable", headers=HEADERS)
-    assert not outbound.calls
+    first = client.post(PATH + "/disable", headers=HEADERS, json=body)
+    second = client.post(PATH + "/disable", headers=HEADERS)
+    assert not users_api.calls
     assert first.status_code == second.status_code == 200
     assert (first.json()["enabled"], first.json()["revision"]) == (False, 5)
     assert first.json()["changed_at"] is not None
@@ -169,48 +195,58 @@ def test_disable_without_a_row_stays_off_and_advances_past_the_default(client, s
 
 
 @pytest.mark.parametrize("stored", [None, AgentAccess(enabled=False, revision=3, changed_at=CHANGED)])
-def test_a_turn_off_during_the_identity_lookup_wins_over_the_pending_turn_on(client, store, stored):
+def test_a_turn_off_during_the_identity_lookup_wins_over_the_pending_turn_on(client, store, who, clock, stored):
     """Review finding on #198: an off switch must still invalidate a confirmed, pending turn-on."""
     store.row = stored
     page = client.get(PATH, headers=HEADERS).json()
     assert page["enabled"] is False
+    assert who.call_count == 1
 
     def turn_off_in_another_tab(request):
         store.turn_off()
         return httpx.Response(200, json=IDENTITY)
 
-    with respx.mock(assert_all_called=False) as outbound:
-        who = outbound.get(PROXY + "/v1/users/me").mock(side_effect=turn_off_in_another_tab)
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": page["revision"]})
-    assert who.call_count == 1
+    # The page's identity has expired, so the turn-on waits for a new lookup.
+    clock[0] += identity_module.FRESH_SECONDS[identity_module.CallerKind.USER] + 1
+    who.mock(side_effect=turn_off_in_another_tab)
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": page["revision"]})
+    assert who.call_count == 2
     assert response.status_code == 409
     assert _code(response) == "agent_access_conflict"
     assert store.row.enabled is False and store.row.revision == page["revision"] + 1
 
 
-def test_the_verified_owner_turns_access_on_with_the_current_revision(client, store):
-    with respx.mock(assert_all_called=False) as outbound:
-        who = outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+def test_the_verified_owner_turns_access_on_with_the_current_revision(client, store, who):
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
     assert response.status_code == 200
     assert (response.json()["enabled"], response.json()["revision"]) == (True, 2)
     assert response.headers["cache-control"] == "no-store"
+    # One lookup serves the caller gate and the owner check.
     assert who.call_count == 1
     assert who.calls.last.request.headers["authorization"] == "Bearer " + TOKEN
     assert "x-api-key" not in who.calls.last.request.headers
 
 
-@pytest.mark.parametrize("change", [
-    {"id": OTHER}, {"organization": {"id": OTHER}}, {"workspace": {"id": OTHER}}, {"api_key": {"id": OWNER}},
-])
-def test_another_identity_cannot_turn_access_on(client, store, change):
-    with respx.mock(assert_all_called=False) as outbound:
-        outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json={**IDENTITY, **change}))
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+@pytest.mark.parametrize("change", [{"id": OTHER}, {"organization": {"id": OTHER}}, {"workspace": {"id": OTHER}}])
+def test_another_identity_cannot_turn_access_on(client, store, who, change):
+    who.mock(return_value=httpx.Response(200, json={**IDENTITY, **change}))
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
     assert response.status_code == 403
     assert _code(response) == "agent_access_owner_required"
     assert response.headers["cache-control"] == "no-store"
     assert store.row is None
+
+
+@pytest.mark.parametrize(("enabled", "detail"), [(False, "agent_access_disabled"), (True, "agent_operation_refused")])
+def test_an_api_key_identity_is_refused_by_the_caller_gate(client, store, who, enabled, detail):
+    """#200: the gateway drops x-api-key, so the Users API answer marks a key caller."""
+    store.row = AgentAccess(enabled=enabled, revision=2, changed_at=CHANGED)
+    who.mock(return_value=httpx.Response(200, json={**IDENTITY, "api_key": {"id": OWNER}}))
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 2})
+    assert response.status_code == 403
+    assert response.json() == {"detail": detail}
+    assert response.headers["cache-control"] == "no-store"
+    assert store.row.revision == 2
 
 
 @pytest.mark.parametrize("headers", [
@@ -218,59 +254,82 @@ def test_another_identity_cannot_turn_access_on(client, store, change):
     {**HEADERS, "origin": "null"},
     {**HEADERS, "origin": "https://other.example.test"},
 ])
-def test_a_workspace_key_or_foreign_origin_never_reaches_the_identity_lookup(client, store, headers):
-    with respx.mock() as outbound:
-        response = client.post(PATH + "/enable", headers=headers, json={"expected_revision": 1})
+def test_the_owner_identity_without_the_bound_origin_cannot_turn_access_on(client, store, who, headers):
+    response = client.post(PATH + "/enable", headers=headers, json={"expected_revision": 1})
     assert response.status_code == 403
     assert _code(response) == "agent_access_owner_required"
-    assert not outbound.calls
+    # Only the caller gate looked the token up; the owner check stopped at the origin.
+    assert who.call_count == 1
     assert store.row is None
 
 
-def test_a_workspace_key_cannot_enable_switch_and_never_reaches_the_identity_lookup(client, store):
-    with respx.mock() as outbound:
-        response = client.post(
-            PATH + "/enable",
-            headers={**OWNER_POST, "x-api-key": "workspace-key-test-only"},
-            json={"expected_revision": 1},
-        )
+def test_a_workspace_key_cannot_enable_switch_and_never_reaches_the_identity_lookup(client, store, users_api):
+    response = client.post(
+        PATH + "/enable",
+        headers={**OWNER_POST, "x-api-key": "workspace-key-test-only"},
+        json={"expected_revision": 1},
+    )
     assert response.status_code == 403
     assert response.json() == {"detail": "agent_access_disabled"}
     assert response.headers["cache-control"] == "no-store"
-    assert not outbound.calls
+    assert not users_api.calls
     assert store.row is None
 
 
-@pytest.mark.parametrize("answer", [httpx.Response(500), httpx.TimeoutException("slow"), httpx.Response(302, headers={"location": "https://other.example.test/"})])
-def test_a_failed_identity_lookup_fails_closed(client, store, answer):
-    with respx.mock(assert_all_called=False) as outbound:
-        route = outbound.get(PROXY + "/v1/users/me")
-        if isinstance(answer, Exception):
-            route.mock(side_effect=answer)
-        else:
-            route.mock(return_value=answer)
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
-    assert response.status_code == 403
-    assert _code(response) == "agent_access_owner_required"
+_FAILED_LOOKUPS = [
+    httpx.Response(500),
+    httpx.TimeoutException("slow"),
+    httpx.Response(302, headers={"location": "https://other.example.test/"}),
+]
+
+
+def _fail(who: respx.Route, answer) -> None:
+    if isinstance(answer, Exception):
+        who.mock(side_effect=answer)
+    else:
+        who.mock(return_value=answer)
+
+
+@pytest.mark.parametrize("answer", _FAILED_LOOKUPS)
+def test_a_failed_identity_lookup_fails_closed(client, store, who, answer):
+    _fail(who, answer)
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["retry-after"] == "5"
+    assert store.row is None
+
+
+@pytest.mark.parametrize("answer", _FAILED_LOOKUPS)
+def test_the_owner_check_never_accepts_a_stale_identity(client, store, who, clock, answer):
+    """The caller gate may fall back to the last answer; turning access on never does. The refusal
+    names the outage like the gate does, not a wrong browser (review on #203)."""
+    assert client.get(PATH, headers=HEADERS).status_code == 200
+    clock[0] += identity_module.FRESH_SECONDS[identity_module.CallerKind.USER] + 1
+    _fail(who, answer)
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "caller_identity_unavailable"}
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["retry-after"] == "5"
+    assert who.call_count == 2  # the first read and one failed lookup; the owner check repeats none
     assert store.row is None
 
 
 @pytest.mark.parametrize("binding", [None, "", "{", json.dumps({"user_id": OWNER})])
-def test_without_an_owner_binding_access_cannot_be_turned_on(client, store, monkeypatch, binding):
+def test_without_an_owner_binding_access_cannot_be_turned_on(client, store, who, monkeypatch, binding):
     monkeypatch.setattr(env, "audio_studio_owner", binding)
-    with respx.mock() as outbound:
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
     assert response.status_code == 409
     assert _code(response) == "agent_access_owner_unbound"
-    assert not outbound.calls
+    assert who.call_count == 1  # the caller gate only
     assert store.row is None
 
 
 def test_a_stale_revision_is_a_conflict(client, store):
     store.row = AgentAccess(enabled=False, revision=3, changed_at=CHANGED)
-    with respx.mock(assert_all_called=False) as outbound:
-        outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 2})
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 2})
     assert response.status_code == 409
     assert _code(response) == "agent_access_conflict"
     assert store.row.enabled is False and store.row.revision == 3
@@ -284,13 +343,18 @@ def test_a_stale_revision_is_a_conflict(client, store):
     {"expected_revision": 1.5},
     {"expected_revision": 1, "owner_scope": "other-scope-test-only"},
 ])
-def test_an_invalid_body_is_refused_without_echo_or_lookup(client, store, body):
-    with respx.mock() as outbound:
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json=body)
+def test_an_invalid_body_is_refused_without_echo_or_owner_check(client, store, who, body):
+    from api.routers.api.v1.settings.agent_access.route import get_agent_access_owner_verifier
+
+    async def refuse_check(request):
+        raise AssertionError("an invalid body must not reach the owner check")
+
+    client.app.dependency_overrides[get_agent_access_owner_verifier] = lambda: refuse_check
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json=body)
     assert response.status_code == 422
     assert _code(response) == "agent_access_invalid"
     assert "other-scope-test-only" not in response.text
-    assert not outbound.calls
+    assert who.call_count == 1  # the caller gate only
     assert store.row is None
 
 
@@ -309,20 +373,18 @@ def test_a_storage_failure_answers_503_and_never_passes(client, store, failure, 
 
 def test_a_storage_failure_while_enabling_answers_503(client, store):
     store.failure = OperationalError("update", {}, Exception("down"))
-    with respx.mock(assert_all_called=False) as outbound:
-        outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
-        response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+    response = client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
     assert response.status_code == 503
     assert _code(response) == "agent_access_unavailable"
 
 
-def test_switch_logs_carry_no_identity_or_token(client, store, caplog):
+def test_switch_logs_carry_no_identity_or_token(client, store, who, clock, caplog):
     caplog.set_level(logging.INFO)
-    with respx.mock(assert_all_called=False) as outbound:
-        outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json={**IDENTITY, "id": OTHER}))
-        client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
-        outbound.get(PROXY + "/v1/users/me").mock(return_value=httpx.Response(200, json=IDENTITY))
-        client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+    who.mock(return_value=httpx.Response(200, json={**IDENTITY, "id": OTHER}))
+    client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
+    clock[0] += identity_module.FRESH_SECONDS[identity_module.CallerKind.USER] + 1
+    who.mock(return_value=httpx.Response(200, json=IDENTITY))
+    client.post(PATH + "/enable", headers=OWNER_POST, json={"expected_revision": 1})
     client.post(PATH + "/disable", headers=HEADERS)
     assert "agent_access=enabled" in caplog.text and "agent_access=disabled" in caplog.text
     for value in (OWNER, OTHER, ORGANIZATION, WORKSPACE, ORIGIN, TOKEN):
