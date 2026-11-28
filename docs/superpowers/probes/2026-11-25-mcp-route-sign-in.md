@@ -407,13 +407,18 @@ verdict" below). Q6 (revocation) and Q8 (Vibe Code, L6) are open. Q5 is optional
   the revocation step the verdict is `INCOMPLETE revocation_not_checked`, and every other automated
   condition holds: `S256`, write rejected and without effect, unflagged reads rejected, Mistral API
   rejected, identity `user`.
-- **Consequence for liam-e.** Exposing the agent read facade in production (#36, #54) stays
-  blocked. The open question is no longer route scoping but an emergency stop. There is still no
-  way to revoke one grant. The only cut-off proven so far is deleting the whole app (L9, see
-  "Result of the kill-switch test"). For liam-e's production app that would delete the app itself,
-  so it is not a usable kill switch. A revocation on Mistral's side remains open. The app-side
-  switch "Zugriff von außen" (#197) refuses agent requests inside liam-e and is a precondition for
-  exposure, but it leaves the tokens valid at the gateway.
+- **Consequence for liam-e.** At the time of the 27 November 2026 probe, exposing the agent read
+  facade (#36, #54) stayed blocked on an emergency stop: route scoping held, but there was still
+  no way to revoke one grant at Mistral's gateway, and the only proven gateway cut-off was deleting
+  the whole app (L9, see "Result of the kill-switch test"), which is not a usable kill switch for
+  liam-e's production app.
+  **Owner decision (28 November 2026):** The owner accepted liam-e's app-side switch "Zugriff von
+  außen" (#197) as the replacement for per-grant gateway revocation (Q6), with the residual risks
+  explicitly accepted: (1) issued gateway grants stay valid until the Studio app is deleted (L9),
+  (2) turning the switch back on revives previously issued grants, and (3) mail data already
+  returned cannot be recalled. On that basis liam-e may flag `/api/mcp` in `mistral.json` and bind
+  `StudioMcpReadVerifier` (`MCP_STUDIO_OWNER`) for test-deployment verification first. Vibe Code
+  (Q8, L6) remains **not checked** until the live smoke test against the test deployment.
 
 ### Revocation: what was checked
 
