@@ -4,10 +4,10 @@ Part of the agent instructions: [AGENTS.md](../../AGENTS.md) links here from its
 
 `api/mcp/registry.py` enumerates the four explicitly approved mail read operations;
 `api/mcp/mail.py` reads only the existing INBOX index through accessors. The scope comes from a
-`ReadGrant`, never request parameters. The default verifier in `api/mcp/access.py` rejects all
-requests with 401. A future native transport must, after positive proof of access, bind its own
-`ReadAccessVerifier` to `get_read_access_verifier` and call the same services with its verified
-grant. Grants are limited to 100 account IDs; foreign selections return 403, unknown and foreign
+`ReadGrant`, never request parameters. `get_read_access_verifier()` in `api/mcp/access.py` binds
+`StudioMcpReadVerifier` (`api/mcp/verifier.py`) when the per-deployment `MCP_STUDIO_OWNER` setting
+parses to valid UUIDs, and falls back to `DenyReadAccess` (401 to everyone) when unset or
+malformed. Both the HTTP facade and `/api/mcp` call the same services with the verified grant. Grants are limited to 100 account IDs; foreign selections return 403, unknown and foreign
 mail IDs both return 404. Reading by ID also remains within the INBOX index: a mail moved since
 then responds like a missing one. An empty grant returns empty results, never all accounts.
 Relative links `/mail/<uuid>` avoid an unconfigured external origin. Mail data is foreign content,
@@ -79,14 +79,18 @@ row means off.
   browser-only.
 
 The switch does not revoke anything at the gateway. Tokens and refresh grants stay valid there;
-only deleting the app ends them (#157, L9). Data an agent has already read cannot be recalled.
-Callers the Users API reports as user sessions, such as an MCP sign-in token (#157), pass the
-`/api/v1` gate like the owner's browser, so the AGENTS.md import rule still applies, and the
-`/api/mcp` binding PR (#36) must not rely on this gate to keep MCP clients away from `/api/v1`.
-With the switch on, the read facade and `/api/mcp` still answer 401 to everyone because
-`DenyReadAccess` stays unconditionally bound in production until that separate binding PR
-installs a caller verifier and flags `/api/mcp` in `mistral.json` after #157 is GO, while
-workspace-key callers can already use the read-only `/api/v1` GETs; the settings page says both.
+only deleting the app ends them (#157, L9), turning the switch back on allows previously issued
+grants again, and data an agent has already read cannot be recalled. On 28 November 2026 the owner
+accepted this app-side switch with those residual risks as the replacement for per-grant gateway
+revocation (#157 Q6).
+Callers the Users API reports as user sessions, such as an MCP sign-in token (#157 Q4/Q7), arrive
+with no distinguishing gateway header and pass the `/api/v1` gate like the owner's browser, so
+`/api/v1` explicitly relies on the Studio gateway rejecting MCP tokens on unflagged routes
+(`403 insufficient_scope`, proven live in #157 Q2), and the AGENTS.md import rule still applies.
+With the switch on, the read facade and `/api/mcp` still answer 401 to everyone unless
+`MCP_STUDIO_OWNER` is configured on the deployment (which sets `verifier_configured=true` and
+hides the notice on `/settings/access`), while workspace-key callers can already use the read-only
+`/api/v1` GETs.
 
 ## Native MCP transport (`/api/mcp`, #36)
 
@@ -95,16 +99,24 @@ workspace-key callers can already use the read-only `/api/v1` GETs; the settings
   `registry.OPERATIONS` with read-only annotations and fixed error codes. No resources, prompts,
   subscriptions, sampling, or elicitation handlers are registered. SDK loggers are kept off `DEBUG`
   so tool arguments are never logged.
-- **Mount (`api/mcp/transport.py`):** mounted in `api/main.py` as a single non-OpenAPI route at
-  `/api/mcp` with `session_manager.run()` inside the app lifespan. Every request passes through
+- **Mount (`api/mcp/transport.py`) and Studio flag (`mistral.json`):** mounted in `api/main.py` as
+  a single non-OpenAPI route at `/api/mcp` with `session_manager.run()` inside the app lifespan,
+  and flagged `{"path": "/api/mcp", "mcp": true}` in `mistral.json`. Every request passes through
   `ensure_agent_access(path_group="mcp")`, explicit `TransportSecuritySettings` (Host 421, Origin
   403; absent Origin allowed for server-side clients; fixed-code logs without header values),
   POST-only enforcement (405 `Allow: POST` for GET/DELETE), a body size cap (413), the shared
   `get_read_access_verifier()` dependency bound into a request-scoped `ContextVar`, and an
   in-process per-principal rate limit (429).
+- **Verifier (`api/mcp/verifier.py`):** `StudioMcpReadVerifier` binds when `MCP_STUDIO_OWNER`
+  (per-deployment env var, separate from `AUDIO_STUDIO_OWNER`, no `origin`) is valid. It rejects
+  `x-api-key` headers, calls `caller_identity(request, allow_stale=False)`, requires
+  `CallerKind.USER` matching `user_id`, `organization_id`, and `workspace_id`, and loads the grant
+  from `mcp_settings.effective_account_ids()` (503 `mcp_grant_unavailable` on DB failure).
 - **Grant (`mcp_settings`):** installation-wide account list managed at `/settings/mcp`
   (`GET`/`PATCH /api/v1/settings/mcp`, browser-only GET and mutating PATCH), intersected with
   active accounts and cleaned up in the same transaction when `mail_account.delete_account` runs.
 - **Guards:** `apps/api/tests/test_mcp_transport.py` verifies the closed non-OpenAPI route/mount
-  inventory, both protocol eras, access/security rejections, side-effect spies, and log privacy.
-  Setup and revocation details live in [docs/mcp.md](../mcp.md).
+  inventory, both protocol eras, access/security rejections, side-effect spies, and log privacy;
+  `apps/api/tests/test_mcp_verifier.py` drives the real `StudioMcpReadVerifier` binding and the
+  flagged `mistral.json` route end-to-end and across all negative cases. Setup and revocation
+  details live in [docs/mcp.md](../mcp.md).

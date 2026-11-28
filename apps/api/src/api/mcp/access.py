@@ -1,7 +1,8 @@
-"""Fail-closed integration boundary for a future independently verified read grant.
+"""Fail-closed integration boundary for verified external mail read grants.
 
-The default verifier deliberately rejects every request. A future transport must install a
-verified implementation and pass its grant to the same services as the HTTP facade.
+When ``MCP_STUDIO_OWNER`` is valid, :func:`get_read_access_verifier` returns
+:class:`~api.mcp.verifier.StudioMcpReadVerifier`; otherwise it falls back to
+:class:`DenyReadAccess` and rejects every request with 401.
 """
 
 from dataclasses import dataclass
@@ -56,9 +57,12 @@ class DenyReadAccess:
 
 
 def get_read_access_verifier() -> ReadAccessVerifier:
-    # Keep DenyReadAccess unconditionally bound in production until the #157 prerequisite
-    # (or an owner-approved replacement) is complete; activation is a separate follow-up PR.
-    return DenyReadAccess()
+    """Return ``StudioMcpReadVerifier`` when ``MCP_STUDIO_OWNER`` is valid, else fail closed."""
+    from api.mcp.verifier import StudioMcpReadVerifier, mcp_owner_binding
+
+    if mcp_owner_binding() is None:
+        return DenyReadAccess()
+    return StudioMcpReadVerifier()
 
 
 async def require_read_access(

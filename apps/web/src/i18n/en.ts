@@ -436,9 +436,9 @@ export const en = {
   mcpAccounts: {
     section: 'MCP access',
     title: 'Mail accounts for MCP',
-    description: 'Pre-select which active mail accounts may be read through the read-only inbox index once MCP access is enabled in a later release. No account is granted by default.',
-    inactiveNotice: 'MCP access is not enabled yet. Until a follow-up release activates it, liam-e refuses every MCP request even when accounts are selected here.',
-    toolsHeading: 'Prepared tools (read-only)',
+    description: 'Choose which active mail accounts a connected MCP client may read through the read-only inbox index. No account is granted by default.',
+    inactiveNotice: 'MCP access works only while “Outside access” is turned on and the deployment has an MCP owner binding in Studio. Otherwise liam-e refuses every MCP request even when accounts are selected here.',
+    toolsHeading: 'Exposed tools (read-only)',
     tools: [
       'liam_mail_accounts — lists only the accounts granted here.',
       'liam_mail_search — searches the local inbox index of these accounts.',
@@ -447,7 +447,7 @@ export const en = {
     ],
     privacyNotice: 'Subject, sender, preview and mail text leave liam-e for the connected client and can’t be taken back once read. Changing or sending mail is never possible via MCP.',
     revokeTitle: 'How to revoke access',
-    revokeBody: 'Uncheck accounts here and save to stop them on the next call. To block every external call at once, also turn off “Outside access”. Issued sign-in tokens stay valid at Mistral’s gateway until the app is deleted there.',
+    revokeBody: 'Uncheck accounts here and save to stop them on the next call. To block every external call at once, also turn off “Outside access”. Issued sign-in grants stay valid at Mistral’s gateway until the app is deleted there, and turning access back on allows existing grants again.',
     openAccessSwitch: 'Open “Outside access”',
     conflict: 'The MCP account grants have changed. Reload them and review your selection.',
   },

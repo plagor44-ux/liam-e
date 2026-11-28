@@ -426,9 +426,9 @@ export const de = {
   mcpAccounts: {
     section: 'MCP-Zugriff',
     title: 'Mailkonten für MCP',
-    description: 'Lege vorab fest, welche aktiven Mailkonten nach einer späteren Freischaltung über den schreibgeschützten Posteingangsindex lesbar sein sollen. Standardmäßig ist kein Konto freigegeben.',
-    inactiveNotice: 'Der MCP-Zugang ist noch nicht freigeschaltet. Bis dahin lehnt liam-e jede MCP-Anfrage ab, auch wenn hier Konten gewählt sind.',
-    toolsHeading: 'Vorbereitete Werkzeuge (nur Lesen)',
+    description: 'Wähle, welche aktiven Mailkonten ein verbundener MCP-Client über den schreibgeschützten Posteingangsindex lesen darf. Standardmäßig ist kein Konto freigegeben.',
+    inactiveNotice: 'Zugriff über MCP ist nur möglich, wenn „Zugriff von außen“ eingeschaltet und die App in Studio für MCP zugeordnet ist. Sonst lehnt liam-e jede MCP-Anfrage ab, auch wenn hier Konten gewählt sind.',
+    toolsHeading: 'Freigegebene Werkzeuge (nur Lesen)',
     tools: [
       'liam_mail_accounts — listet nur die hier freigegebenen Konten auf.',
       'liam_mail_search — durchsucht den lokalen Posteingangsindex dieser Konten.',
@@ -437,7 +437,7 @@ export const de = {
     ],
     privacyNotice: 'Betreff, Absender, Vorschau und Mailtext verlassen liam-e an den verbundenen Client und lassen sich danach nicht zurückholen. Mails ändern oder senden ist über MCP nie möglich.',
     revokeTitle: 'Zugriff beenden',
-    revokeBody: 'Nimm hier Konten heraus und speichere, um sie sofort für die nächste Anfrage zu sperren. Schalte für den sofortigen Komplettstopp zusätzlich „Zugriff von außen“ aus. Anmeldungen bei Mistral bleiben bestehen, bis diese App dort gelöscht wird.',
+    revokeBody: 'Nimm hier Konten heraus und speichere, um sie sofort für die nächste Anfrage zu sperren. Schalte für den sofortigen Komplettstopp zusätzlich „Zugriff von außen“ aus. Anmeldungen bei Mistral bleiben bestehen, bis diese App dort gelöscht wird; erneutes Einschalten lässt bestehende Anmeldungen wieder zu.',
     openAccessSwitch: 'Zu „Zugriff von außen“',
     conflict: 'Die MCP-Freigaben wurden inzwischen geändert. Lade sie neu und prüf deine Auswahl.',
   },
